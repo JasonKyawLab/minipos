@@ -81,3 +81,6 @@ This will start:
 - **Backend** → http://localhost:4000
 - **PostgreSQL** → port 5432
 
+## 📜 License
+
+MIT License
