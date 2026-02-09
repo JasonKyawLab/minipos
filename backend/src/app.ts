@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import authRoutes from "./modules/auth/auth.routes.js";
+import shopRoutes from "./modules/shop/shop.routes.js";
 
 const app = express();
 
@@ -14,5 +15,6 @@ app.get("/test", (_req, res) => {
 
 // Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/shops", shopRoutes);
 
 export default app;

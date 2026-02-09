@@ -4,6 +4,8 @@ export interface User {
   email: string;
   password_hash: string;
   role: "OWNER" | "STAFF";
-  status: "ACTIVE" | "SUSPENDED" | "DISABLED";
+  status: "ACTIVE" | "SUSPENDED";
+  is_deleted: boolean;
   created_at: Date;
+  updated_at: Date;
 }

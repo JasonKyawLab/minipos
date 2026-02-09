@@ -11,38 +11,45 @@ import { LoginRequest } from "./auth.types.js";
 
 export class AuthController {
 
-  static async login(req: Request, res: Response) {
-    try {
-      const { email, password } = req.body as LoginRequest;
+static async login(req: Request, res: Response) {
+  try {
+    const { email, password } = req.body as LoginRequest;
 
-      // Validate input
-      if (!email || !password) {
-        return res.status(400).json({
-          message: "Email and password are required",
-        });
-      }
-
-      // Authenticate
-      const result = await AuthService.login(email, password);
-
-      if (!result) {
-        return res.status(401).json({
-          message: "Invalid email or password",
-        });
-      }
-
-      // Success
-      return res.json({
-      token: result.token,   // 👈 IMPORTANT
-      user: result.user,
-      });
-    } catch (error) {
-      console.error("Auth login error:", error);
-      return res.status(500).json({
-        message: "Internal server error",
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Email and password are required",
       });
     }
+
+    // Authenticate
+    const result = await AuthService.login(email, password);
+
+    // Success
+    return res.json({
+      token: result.token,
+      user: result.user,
+    });
+
+  } catch (err: any) {
+    if (err.message === "USER_NOT_FOUND") {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (err.message === "USER_NOT_ACTIVE") {
+  return res.status(403).json({ message: "User is not active" });
+}
+    
+    if (err.message === "INVALID_PASSWORD") {
+      return res.status(401).json({ message: "Invalid password" });
+    }
+
+    console.error("Auth login error:", err);
+    return res.status(500).json({
+      message: "Internal server error",
+    });
   }
+}
 
   static async register(req: Request, res: Response) {
     const { name, email, password } = req.body;

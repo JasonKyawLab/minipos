@@ -4,7 +4,7 @@
 	•	Decide success/failure
  */
 import jwt from "jsonwebtoken";
-import { UserRepository } from "../users/user.repository.js";
+import { UserRepository } from "../user/user.repository.js";
 import { comparePassword, hashPassword } from "../../utils/password.js";
 
 export class AuthService {
@@ -13,11 +13,11 @@ export class AuthService {
     const user = await UserRepository.findByEmail(email);
 
     if (!user) {
-      throw new Error("Invalid credentials");
+      throw new Error("USER_NOT_FOUND");
     }
 
     if (user.status !== "ACTIVE") {
-      throw new Error("User not active");
+      throw new Error("USER_NOT_ACTIVE");
     }
 
     const isValid = await comparePassword(
@@ -26,8 +26,12 @@ export class AuthService {
     );
 
     if (!isValid) {
-      throw new Error("Invalid credentials");
+      throw new Error("INVALID_PASSWORD");
     }
+
+ if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET is not defined");
+}
 
     const token = jwt.sign(
     {
@@ -37,10 +41,6 @@ export class AuthService {
     process.env.JWT_SECRET!,
     { expiresIn: "1d" }
   );
-
-  if (!process.env.JWT_SECRET) {
-  throw new Error("JWT_SECRET is not defined");
-}
 
       return {
     token,
