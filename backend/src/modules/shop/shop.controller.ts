@@ -3,19 +3,12 @@ import { ShopService } from "./shop.service.js";
 import { getParamAsString } from "../../utils/converter.js";
 
 export class ShopController {
-  /**
-   * POST /api/shops
-   */
   static async createShop(req: Request, res: Response) {
     try {
-
-          if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
       const { name, shopType, currency } = req.body;
 
       const shop = await ShopService.createShop({
-        ownerId: req.user.userId,
+        ownerId: req.user!.userId,
         name,
         shopType,
         currency,
@@ -27,58 +20,41 @@ export class ShopController {
     }
   }
 
-  /**
- * PUT /api/shops/:shopId
- * Update shop info (OWNER only)
- */
-static async updateShop(req: Request, res: Response) {
-  try {
-    if (!req.user) {
-    return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const shopId = getParamAsString(req.params.shopId, "shopId");
-    const { name, currency } = req.body;
-
-    const updated = await ShopService.updateShop({
-      shopId,
-      requesterId: req.user!.userId,
-      name,
-      currency,
-    });
-
-    res.json(updated);
-  } catch (err: any) {
-    res.status(400).json({ message: err.message });
-  }
-}
-
-  /**
-   * GET /api/shops/my
-   */
-  static async getMyShops(req: Request, res: Response) {
+  static async updateShop(req: Request, res: Response) {
     try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
+      const shopId = getParamAsString(req.params.shopId, "shopId");
+      const { name, currency } = req.body;
 
-      const shops = await ShopService.getMyShops(req.user.userId);
-      res.json(shops);
-    } catch {
-      res.status(500).json({ message: "Failed to fetch shops" });
+      const updated = await ShopService.updateShop({
+        shopId,
+        requesterId: req.user!.userId,
+        name,
+        currency,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(403).json({ message: err.message });
     }
   }
 
-  /**
-   * POST /api/shops/:shopId/staff
-   */
+  static async deleteShop(req: Request, res: Response) {
+    try {
+      const shopId = getParamAsString(req.params.shopId, "shopId");
+
+      await ShopService.deleteShop({
+        shopId,
+        requesterId: req.user!.userId,
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(403).json({ message: err.message });
+    }
+  }
+
   static async addStaff(req: Request, res: Response) {
     try {
-
-    if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
       const shopId = getParamAsString(req.params.shopId, "shopId");
       const { userId, role } = req.body;
 
@@ -91,18 +67,12 @@ static async updateShop(req: Request, res: Response) {
 
       res.status(201).json(result);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(403).json({ message: err.message });
     }
   }
 
-  /**
-   * GET /api/shops/:shopId/staff
-   */
   static async getStaff(req: Request, res: Response) {
     try {
-      if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
       const shopId = getParamAsString(req.params.shopId, "shopId");
 
       const staff = await ShopService.getStaff(
@@ -116,48 +86,20 @@ static async updateShop(req: Request, res: Response) {
     }
   }
 
-  /**
-   * DELETE /api/shops/:shopId
-   * Delete a shop (OWNER only)
-   */
-static async deleteShop(req: Request, res: Response) {
-  try {
-    if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const shopId = getParamAsString(req.params.shopId, "shopId");
-
-    const result = await ShopService.deleteShop({
-      shopId,
-      requesterId: req.user!.userId,
-    });
-
-    res.json(result);
-  } catch (err: any) {
-    res.status(403).json({ message: err.message });
-  }
-}
-
-static async removeStaff(req: Request, res: Response) {
+  static async removeStaff(req: Request, res: Response) {
     try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-
       const shopId = getParamAsString(req.params.shopId, "shopId");
       const userId = getParamAsString(req.params.userId, "userId");
 
       await ShopService.removeStaffFromShop(
         shopId,
         userId,
-        req.user.userId
+        req.user!.userId
       );
 
-      res.json({ message: "Staff removed" });
+      res.json({ success: true });
     } catch (err: any) {
       res.status(403).json({ message: err.message });
     }
   }
-
 }

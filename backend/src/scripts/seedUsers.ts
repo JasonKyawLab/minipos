@@ -12,7 +12,7 @@ async function seed() {
     ON CONFLICT DO NOTHING
     RETURNING id, email
     `,
-    ["manager", "manager@test.com", passwordHash, "OWNER"]
+    ["ADMIN", "admin@test.com", passwordHash, "ADMIN"]
   );
 
   if (result.rowCount === 0) {

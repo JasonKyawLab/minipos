@@ -1,64 +1,33 @@
 import { Router } from "express";
 import { ShopController } from "./shop.controller.js";
 import { authMiddleware } from "../auth/auth.middleware.js";
-import { requireRole } from "../auth/role.middleware.js";
 import { requireBody } from "../../middlewares/validate.middleware.js";
 
 const router = Router();
 
 /**
  * Create a new shop
- * OWNER only
+ * Any authenticated user can create a shop
  */
 router.post(
   "/",
   authMiddleware,
-  requireRole(["OWNER"]),
+  requireBody(["name", "shopType", "currency"]),
   ShopController.createShop
 );
 
 /**
- * Get shops owned by current user
- * OWNER only
- */
-router.get(
-  "/my",
-  authMiddleware,
-  requireRole(["OWNER"]),
-  ShopController.getMyShops
-);
-
-/**
- * Add staff to shop
- */
-router.post(
-  "/:shopId/staff",
-  authMiddleware,
-  ShopController.addStaff
-);
-
-/**
- * Get staff of a shop
- */
-router.get(
-  "/:shopId/staff",
-  authMiddleware,
-  ShopController.getStaff
-);
-
-/** Update shop info
- * OWNER only
+ * Update shop info (OWNER only — enforced in service)
  */
 router.put(
   "/:shopId",
   authMiddleware,
-  requireRole(["OWNER"]),
   requireBody(["name", "currency"]),
   ShopController.updateShop
 );
 
-/** Delete a shop
- * OWNER only
+/**
+ * Delete shop (OWNER only — enforced in service)
  */
 router.delete(
   "/:shopId",
@@ -66,10 +35,28 @@ router.delete(
   ShopController.deleteShop
 );
 
-/** Remove staff from shop
- * OWNER
- * 
- * */
+/**
+ * Add staff (OWNER / MANAGER — enforced in service)
+ */
+router.post(
+  "/:shopId/staff",
+  authMiddleware,
+  requireBody(["userId", "role"]),
+  ShopController.addStaff
+);
+
+/**
+ * Get shop staff (OWNER / MANAGER — enforced in service)
+ */
+router.get(
+  "/:shopId/staff",
+  authMiddleware,
+  ShopController.getStaff
+);
+
+/**
+ * Remove staff (OWNER / MANAGER — enforced in service)
+ */
 router.delete(
   "/:shopId/staff/:userId",
   authMiddleware,

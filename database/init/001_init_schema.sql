@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- =========================
 -- ENUM DEFINITIONS
 -- =========================
-CREATE TYPE user_role AS ENUM ('OWNER', 'STAFF');
+CREATE TYPE user_role AS ENUM ('ADMIN', 'USER');
 CREATE TYPE user_status AS ENUM ('ACTIVE', 'SUSPENDED');
 CREATE TYPE shop_type AS ENUM ('RETAIL', 'RESTAURANT');
 CREATE TYPE shop_role AS ENUM ('OWNER', 'MANAGER', 'CASHIER');

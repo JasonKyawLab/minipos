@@ -51,34 +51,41 @@ static async login(req: Request, res: Response) {
   }
 }
 
-  static async register(req: Request, res: Response) {
-    const { name, email, password } = req.body;
+static async register(req: Request, res: Response) {
+  const { name, email, password } = req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({
-        message: "Name, email and password required",
-      });
-    }
-
-    try {
-      const user = await AuthService.register(
-        name,
-        email,
-        password
-      );
-
-      return res.status(201).json({ user });
-    } catch (err: any) {
-      if (err.message === "USER_EXISTS") {
-        return res.status(409).json({
-          message: "User already exists",
-        });
-      }
-
-      return res.status(500).json({
-        message: "Internal server error",
-      });
-    }
+  if (!name || !email || !password) {
+    return res.status(400).json({
+      message: "Name, email and password required",
+    });
   }
+
+  try {
+    const result = await AuthService.register(name, email, password);
+
+    if (result.restored) {
+      return res.status(200).json({
+        message:
+          "Your account was previously deleted. It has been restored. Please log in using your previous password.",
+      });
+    }
+
+    return res.status(201).json({
+      message: "Account created successfully",
+    });
+
+  } catch (err: any) {
+    if (err.message === "USER_EXISTS") {
+      return res.status(409).json({
+        message: "User already exists",
+      });
+    }
+
+    console.error(err); // important for debugging
+    return res.status(500).json({
+      message: "Internal server error",
+    });
+  }
+}
 
 }

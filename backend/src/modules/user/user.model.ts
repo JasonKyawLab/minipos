@@ -3,7 +3,7 @@ export interface User {
   name: string;
   email: string;
   password_hash: string;
-  role: "OWNER" | "STAFF";
+  role: "ADMIN" | "USER";
   status: "ACTIVE" | "SUSPENDED";
   is_deleted: boolean;
   created_at: Date;

@@ -165,4 +165,23 @@ export class ShopRepository {
 
     return result.rowCount === 1;
   }
+
+// static async findAllForUser(userId: string) {
+//   const result = await pool.query(
+//     `
+//     SELECT
+//       s.*,
+//       su.role AS shop_role
+//     FROM shop_users su
+//     JOIN shops s ON s.id = su.shop_id
+//     WHERE su.user_id = $1
+//       AND su.is_active = true
+//       AND s.is_deleted = false
+//     ORDER BY s.created_at DESC
+//     `,
+//     [userId]
+//   );
+
+//   return result.rows;
+// }
 }

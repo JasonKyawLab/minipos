@@ -1,29 +1,38 @@
 import { UserRepository } from "./user.repository.js";
 import { hashPassword } from "../../utils/password.js";
+import { toUserShopDTO } from "./user.dto.js";
 
 export class UserService {
-  static async registerOwner(
-    name: string,
-    email: string,
-    password: string
-  ) {
-    // 1. Check existing user
-    const existingUser = await UserRepository.findByEmail(email);
-
-    if (existingUser) {
-      throw new Error("USER_ALREADY_EXISTS");
-    }
-
-    // 2. Hash password
-    const passwordHash = await hashPassword(password);
-
-    // 3. Create user
-    return UserRepository.create({
-      name,
-      email,
-      password_hash: passwordHash,
-      role: "OWNER",
-      status: "ACTIVE",
-    });
+static async updateMe(
+  userId: string,
+  data: { name?: string; email?: string; password?: string }
+) {
+  if (!data.name && !data.email && !data.password) {
+    throw new Error("NOTHING_TO_UPDATE");
   }
+
+  const updateData: any = {};
+
+  if (data.name) updateData.name = data.name;
+  if (data.email) updateData.email = data.email;
+  if (data.password) {
+    updateData.password_hash = await hashPassword(data.password);
+  }
+
+  const user = await UserRepository.updateProfile(userId, updateData);
+    if (!user) throw new Error("USER_NOT_FOUND");
+  return user;
+}
+
+  static async deleteMe(userId: string) {
+    await UserRepository.softDelete(userId);
+    return { success: true };
+  }
+
+  
+  static async getMyShops(userId: string) {
+    const rows = await UserRepository.findMyShops(userId);
+  return rows.map(toUserShopDTO);
+}
+
 }
