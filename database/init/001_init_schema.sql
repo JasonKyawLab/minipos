@@ -123,11 +123,12 @@ CREATE TABLE payments (
 -- =========================
 CREATE TABLE audit_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE RESTRICT,
-  user_id UUID NOT NULL REFERENCES users(id),
+  shop_id UUID REFERENCES shops(id) ON DELETE SET NULL,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   action VARCHAR(100) NOT NULL,
   entity VARCHAR(50) NOT NULL,
-  entity_id UUID NOT NULL,
+  entity_id UUID,
+  metadata JSONB,
   created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 

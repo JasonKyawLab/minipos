@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import { UserRepository } from "../user/user.repository.js";
 import { comparePassword, hashPassword } from "../../utils/password.js";
+import { AuditService } from "../audit/audit.service.js";
 
 export class AuthService {
 
@@ -12,11 +13,25 @@ export class AuthService {
 
     const user = await UserRepository.findByEmail(normalizedEmail);
     if (!user) {
+
+          await AuditService.log({
+      action: "LOGIN_FAILED",
+      entity: "USER",
+      metadata: { email: normalizedEmail },// need to hash email in production. use raw email for now for testing only
+    });
+
       throw new Error("USER_NOT_FOUND");
     }
 
     const isValid = await comparePassword(password, user.password_hash);
     if (!isValid) {
+
+          await AuditService.log({
+      userId: user.id,
+      action: "LOGIN_FAILED",
+      entity: "USER",
+    });
+
       throw new Error("INVALID_PASSWORD");
     }
 
@@ -32,6 +47,13 @@ export class AuthService {
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
+
+      await AuditService.log({
+    userId: user.id,
+    action: "LOGIN_SUCCESS",
+    entity: "USER",
+    entityId: user.id,
+  });
 
     return {
       token,
@@ -57,8 +79,15 @@ static async register(
 
   if (existing) {
     if (existing.is_deleted) {
+
       await UserRepository.activateUser(existing.id);
 
+          await AuditService.log({
+      userId: existing.id,
+      action: "USER_RESTORED",
+      entity: "USER",
+      entityId: existing.id,
+    });
       return {
         restored: true,
       };
@@ -69,12 +98,19 @@ static async register(
 
   const passwordHash = await hashPassword(password);
 
-  await UserRepository.create({
+  const newUser =await UserRepository.create({
     name,
     email: normalizedEmail,
     password_hash: passwordHash,
     role: "USER",
   });
+
+  await AuditService.log({
+  userId: newUser.id,
+  action: "USER_REGISTERED",
+  entity: "USER",
+  entityId: newUser.id,
+});
 
   return {
     restored: false,

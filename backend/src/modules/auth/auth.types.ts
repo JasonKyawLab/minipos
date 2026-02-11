@@ -1,3 +1,7 @@
+export interface JwtPayload {
+  userId: string;
+  role: "ADMIN" | "USER";
+}
 export interface LoginRequest {
   email: string;
   password: string;

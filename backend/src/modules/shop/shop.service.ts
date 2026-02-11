@@ -1,3 +1,4 @@
+import { AuditService } from "../audit/audit.service.js";
 import { ShopRepository } from "./shop.repository.js";
 export class ShopService {
 
@@ -14,6 +15,18 @@ export class ShopService {
       user_id: params.ownerId,
       role: "OWNER",
     });
+
+      await AuditService.log({
+    shopId: shop.id,
+    userId: params.ownerId,
+    action: "SHOP_CREATED",
+    entity: "SHOP",
+    entityId: shop.id,
+    metadata: {
+      name: shop.name,
+      type: shop.shop_type,
+    },
+  });
 
     return shop;
   }
@@ -33,7 +46,17 @@ export class ShopService {
       throw new Error("Only owner can update shop");
     }
 
-    return ShopRepository.updateShop(params);
+    const updated = await ShopRepository.updateShop(params);
+
+    await AuditService.log({
+  shopId: params.shopId,
+  userId: params.requesterId,
+  action: "SHOP_UPDATED",
+  entity: "SHOP",
+  entityId: params.shopId,
+});
+
+return updated;
   }
 
   static async deleteShop(params: {
@@ -49,7 +72,17 @@ export class ShopService {
       throw new Error("Only owner can delete shop");
     }
 
-    return ShopRepository.softDeleteShop(params.shopId);
+    await ShopRepository.softDeleteShop(params.shopId);
+
+await AuditService.log({
+  shopId: params.shopId,
+  userId: params.requesterId,
+  action: "SHOP_DELETED",
+  entity: "SHOP",
+  entityId: params.shopId,
+});
+
+return { success: true };
   }
 
   static async addStaff(params: {
@@ -78,6 +111,17 @@ export class ShopService {
         user_id: params.staffUserId,
         role: params.role,
       });
+
+        await AuditService.log({
+    shopId: params.shopId,
+    userId: params.requesterId,
+    action: "STAFF_ADDED",
+    entity: "SHOP_USER",
+    entityId: params.staffUserId,
+    metadata: {
+      role: params.role,
+    },
+  });
       return { action: "added" };
     }
 
@@ -87,6 +131,18 @@ export class ShopService {
         params.staffUserId,
         params.role
       );
+
+        await AuditService.log({
+    shopId: params.shopId,
+    userId: params.requesterId,
+    action: "STAFF_REACTIVATED",
+    entity: "SHOP_USER",
+    entityId: params.staffUserId,
+    metadata: {
+      role: params.role,
+    },
+  });
+
       return { action: "reactivated" };
     }
 
@@ -131,6 +187,16 @@ export class ShopService {
       }
     }
 
-    return ShopRepository.deactivateShopUser(shopId, targetUserId);
+    await ShopRepository.deactivateShopUser(shopId, targetUserId);
+
+await AuditService.log({
+  shopId,
+  userId: actorUserId,
+  action: "STAFF_REMOVED",
+  entity: "SHOP_USER",
+  entityId: targetUserId,
+});
+
+return { success: true };
   }
 }
