@@ -1,17 +1,19 @@
 import { Router } from "express";
 import { ShopController } from "./shop.controller.js";
-import { authMiddleware } from "../auth/auth.middleware.js";
+import { requireAuth } from "../auth/auth.middleware.js";
+import { requireRole } from "../auth/role.middleware.js";
 import { requireBody } from "../../middlewares/validate.middleware.js";
 
 const router = Router();
 
+router.use(requireAuth);
+router.use(requireRole("USER"));
 /**
  * Create a new shop
  * Any authenticated user can create a shop
  */
 router.post(
   "/",
-  authMiddleware,
   requireBody(["name", "shopType", "currency"]),
   ShopController.createShop
 );
@@ -21,7 +23,6 @@ router.post(
  */
 router.put(
   "/:shopId",
-  authMiddleware,
   requireBody(["name", "currency"]),
   ShopController.updateShop
 );
@@ -31,7 +32,6 @@ router.put(
  */
 router.delete(
   "/:shopId",
-  authMiddleware,
   ShopController.deleteShop
 );
 
@@ -40,7 +40,6 @@ router.delete(
  */
 router.post(
   "/:shopId/staff",
-  authMiddleware,
   requireBody(["userId", "role"]),
   ShopController.addStaff
 );
@@ -50,7 +49,6 @@ router.post(
  */
 router.get(
   "/:shopId/staff",
-  authMiddleware,
   ShopController.getStaff
 );
 
@@ -59,7 +57,6 @@ router.get(
  */
 router.delete(
   "/:shopId/staff/:userId",
-  authMiddleware,
   ShopController.removeStaff
 );
 

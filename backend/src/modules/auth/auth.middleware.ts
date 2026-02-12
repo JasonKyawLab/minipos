@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { JwtPayload } from "./auth.types.js";
+import { UserRepository } from "../user/user.repository.js";
 
-
-export function authMiddleware(
+export async function requireAuth(
   req: Request,
   res: Response,
   next: NextFunction
@@ -22,7 +22,18 @@ export function authMiddleware(
       process.env.JWT_SECRET!
     ) as JwtPayload;
 
-    req.user = decoded;
+    const user = await UserRepository.findById(decoded.userId);
+
+    if (!user || user.is_deleted) {
+      return res.status(401).json({ message: "Invalid user" });
+    }
+
+    // Always trust DB role
+    req.user = {
+      id: user.id,
+      role: user.role,
+    };
+
     next();
   } catch {
     return res.status(401).json({ message: "Invalid token" });

@@ -1,5 +1,5 @@
 import { pool } from "../../db/pool.js";
-import { Shop } from "./shop.type.js";
+import { Shop } from "./shop.types.js";
 
 export interface CreateShopInput {
   ownerId: string;

@@ -3,7 +3,7 @@
  */
 import { Router } from "express";
 import { AuthController } from "./auth.controller.js";
-import { authMiddleware } from "./auth.middleware.js";
+import { requireAuth } from "./auth.middleware.js";
 import { requireRole } from "./role.middleware.js";
 import { requireBody } from "../../middlewares/validate.middleware.js";
 
@@ -11,8 +11,8 @@ const router = Router();
 
 router.get(
   "/me",
-  authMiddleware,
-  requireRole(["ADMIN", "USER"]),
+  requireAuth,
+  requireRole("ADMIN", "USER"),
   (req, res) => {
     res.json({ message: "JWT work!!!", user: req.user });
   }

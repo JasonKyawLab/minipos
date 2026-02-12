@@ -8,7 +8,7 @@ export class ShopController {
       const { name, shopType, currency } = req.body;
 
       const shop = await ShopService.createShop({
-        ownerId: req.user!.userId,
+        ownerId: req.user!.id,
         name,
         shopType,
         currency,
@@ -27,7 +27,7 @@ export class ShopController {
 
       const updated = await ShopService.updateShop({
         shopId,
-        requesterId: req.user!.userId,
+        requesterId: req.user!.id,
         name,
         currency,
       });
@@ -44,7 +44,7 @@ export class ShopController {
 
       await ShopService.deleteShop({
         shopId,
-        requesterId: req.user!.userId,
+        requesterId: req.user!.id,
       });
 
       res.json({ success: true });
@@ -60,7 +60,7 @@ export class ShopController {
 
       const result = await ShopService.addStaff({
         shopId,
-        requesterId: req.user!.userId,
+        requesterId: req.user!.id,
         staffUserId: userId,
         role,
       });
@@ -77,7 +77,7 @@ export class ShopController {
 
       const staff = await ShopService.getStaff(
         shopId,
-        req.user!.userId
+        req.user!.id
       );
 
       res.json(staff);
@@ -94,7 +94,7 @@ export class ShopController {
       await ShopService.removeStaffFromShop(
         shopId,
         userId,
-        req.user!.userId
+        req.user!.id
       );
 
       res.json({ success: true });

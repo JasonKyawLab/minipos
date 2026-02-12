@@ -3,6 +3,7 @@ import cors from "cors";
 import authRoutes from "./modules/auth/auth.routes.js";
 import shopRoutes from "./modules/shop/shop.routes.js";
 import userRoutes from "./modules/user/user.routes.js";
+import adminRoutes from "./modules/admin/admin.routes.js";
 
 const app = express();
 
@@ -18,5 +19,6 @@ app.get("/test", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/shops", shopRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/admin", adminRoutes);
 
 export default app;

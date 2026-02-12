@@ -1,10 +1,13 @@
 import { Router } from "express";
-import { authMiddleware } from "../auth/auth.middleware.js";
+import { requireAuth } from "../auth/auth.middleware.js";
+import { requireRole } from "../auth/role.middleware.js";
 import { UserController } from "./user.controller.js";
+
 
 const router = Router();
 
-router.use(authMiddleware);
+router.use(requireAuth);
+router.use(requireRole("USER"));
 
 router.patch("/me", UserController.updateMe);
 router.delete("/me", UserController.deleteMe);
