@@ -19,24 +19,23 @@ export class ShopController {
       res.status(400).json({ message: err.message });
     }
   }
+static async updateShop(req: Request, res: Response) {
+  try {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const { name, currency } = req.body;
 
-  static async updateShop(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const { name, currency } = req.body;
+    const updated = await ShopService.updateShop({
+      shopId,
+      requesterId: req.user!.id,
+      name,
+      currency,
+    });
 
-      const updated = await ShopService.updateShop({
-        shopId,
-        requesterId: req.user!.id,
-        name,
-        currency,
-      });
-
-      res.json(updated);
-    } catch (err: any) {
-      res.status(403).json({ message: err.message });
-    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(403).json({ message: err.message });
   }
+}
 
   static async deleteShop(req: Request, res: Response) {
     try {

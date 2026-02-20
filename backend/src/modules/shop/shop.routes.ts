@@ -21,9 +21,8 @@ router.post(
 /**
  * Update shop info (OWNER only — enforced in service)
  */
-router.put(
+router.patch(
   "/:shopId",
-  requireBody(["name", "currency"]),
   ShopController.updateShop
 );
 

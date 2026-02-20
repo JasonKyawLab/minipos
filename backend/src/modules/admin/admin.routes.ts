@@ -11,11 +11,11 @@ adminRoutes.use(requireRole("ADMIN"));
 adminRoutes.get("/users", AdminController.getUsers);
 adminRoutes.patch("/users/:userId/promote", AdminController.promote);
 adminRoutes.patch("/users/:userId/demote", AdminController.demote);
-adminRoutes.patch("/users/:userId/delete", AdminController.deleteUser);
+adminRoutes.delete("/users/:userId", AdminController.deleteUser); 
 adminRoutes.patch("/users/:userId/restore", AdminController.restoreUser);
 
 adminRoutes.get("/shops", AdminController.getShops);
-adminRoutes.patch("/shops/:shopId/delete", AdminController.deleteShop);
+adminRoutes.delete("/shops/:shopId", AdminController.deleteShop);
 adminRoutes.patch("/shops/:shopId/restore", AdminController.restoreShop);
 
 export default adminRoutes;

@@ -23,4 +23,5 @@ export class UserController {
     const shops = await UserService.getMyShops(req.user.id);
     res.json(shops);
   }
+
 }
