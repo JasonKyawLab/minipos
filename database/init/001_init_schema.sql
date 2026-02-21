@@ -10,10 +10,10 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TYPE user_role AS ENUM ('ADMIN', 'USER');
 CREATE TYPE user_status AS ENUM ('ACTIVE', 'SUSPENDED');
 
-CREATE TYPE shop_type AS ENUM ('RETAIL', 'RESTAURANT');
+CREATE TYPE shop_type AS ENUM ('RETAIL', 'RESTAURANT', 'ONLINE_SHOP');
 CREATE TYPE shop_role AS ENUM ('OWNER', 'MANAGER', 'CASHIER');
 
-CREATE TYPE order_type AS ENUM ('RETAIL', 'DINE_IN', 'TAKEAWAY', 'QR');
+CREATE TYPE order_type AS ENUM ('RETAIL', 'DINE_IN', 'TAKEAWAY', 'QR','DELIVERY', 'PICKUP', 'ONLINE');
 CREATE TYPE order_status AS ENUM (
   'OPEN',
   'CONFIRMED',
@@ -29,8 +29,16 @@ CREATE TYPE order_item_status AS ENUM (
 );
 
 CREATE TYPE inventory_movement_type AS ENUM ('SALE','PURCHASE','ADJUSTMENT','REFUND');
-CREATE TYPE payment_method AS ENUM ('CASH', 'CARD', 'QR', 'BANK');
-CREATE TYPE payment_status AS ENUM ('PAID', 'REFUNDED');
+
+CREATE TYPE payment_method AS ENUM ('CASH', 'COD');
+CREATE TYPE payment_status AS ENUM (
+  'PENDING',
+  'PAID',
+  'FAILED',
+  'REFUNDED',
+  'PARTIALLY_REFUNDED'
+);
+
 CREATE TYPE currency AS ENUM ('USD', 'SGD', 'THB', 'MMK', 'EUR');
 
 -- =========================
@@ -149,6 +157,8 @@ ON products(shop_id, barcode);
 
 CREATE INDEX idx_products_shop_id ON products(shop_id);
 
+CREATE INDEX idx_products_shop_stock ON products(shop_id, stock_qty);
+
 -- =========================
 -- INVENTORY MOVEMENTS 
 -- =========================
@@ -161,9 +171,9 @@ CREATE INDEX idx_products_shop_id ON products(shop_id);
 CREATE TABLE inventory_movements (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-  product_id UUID NOT NULL REFERENCES products(id),
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   type inventory_movement_type NOT NULL,
-  quantity INTEGER NOT NULL,
+  quantity INTEGER NOT NULL CHECK (quantity <> 0),
   reference_id UUID,
   created_at TIMESTAMP DEFAULT now()
 );
@@ -183,7 +193,7 @@ ON inventory_movements(product_id);
 -- =========================
 CREATE TABLE orders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  shop_id UUID NOT NULL REFERENCES shops(id),
+  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   cashier_id UUID REFERENCES users(id),
 
   order_no VARCHAR(30) NOT NULL,
@@ -191,12 +201,17 @@ CREATE TABLE orders (
 
   table_id UUID REFERENCES restaurant_tables(id),
 
-  subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
-  tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
-  discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
-  total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  subtotal DECIMAL(12,2) NOT NULL DEFAULT 0 CHECK (subtotal >= 0),
+  tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0 CHECK (tax_amount >= 0),
+  discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
+  total_amount DECIMAL(12,2) NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
 
   status order_status NOT NULL DEFAULT 'OPEN',
+
+  customer_name VARCHAR(150),
+  customer_phone VARCHAR(50),
+  delivery_address TEXT,
+  delivery_note TEXT,
 
   created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP DEFAULT now(),
@@ -213,8 +228,8 @@ CREATE TABLE orders (
 CREATE INDEX idx_orders_shop_id ON orders(shop_id);
 CREATE INDEX idx_orders_cashier_id ON orders(cashier_id);
 CREATE INDEX idx_orders_status ON orders(status);
-CREATE INDEX idx_orders_shop_status
-ON orders(shop_id, status);
+CREATE INDEX idx_orders_shop_status ON orders(shop_id, status);
+CREATE INDEX idx_orders_shop_created ON orders(shop_id, created_at);
 
 -- =========================
 -- ORDER ITEMS
@@ -257,7 +272,7 @@ CREATE TABLE payments (
   method payment_method NOT NULL,
   amount DECIMAL(12,2) NOT NULL CHECK (amount >= 0),
 
-  status payment_status NOT NULL DEFAULT 'PAID',
+  status payment_status NOT NULL DEFAULT 'PENDING',
 
   transaction_ref VARCHAR(100),
   note TEXT,
@@ -266,6 +281,7 @@ CREATE TABLE payments (
   created_at TIMESTAMP DEFAULT now()
 );
 
+CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_payments_order_id ON payments(order_id);
 
 -- =========================
@@ -281,7 +297,7 @@ CREATE TABLE refunds (
   order_id UUID NOT NULL REFERENCES orders(id),
   payment_id UUID REFERENCES payments(id),
 
-  amount DECIMAL(12,2) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL CHECK (amount > 0),
   reason TEXT,
   created_at TIMESTAMP DEFAULT now()
 );
