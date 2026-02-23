@@ -1,7 +1,8 @@
-import jwt from "jsonwebtoken";
+import jwt, { JwtPayload } from "jsonwebtoken";
 import { UserRepository } from "../user/user.repository.js";
 import { comparePassword, hashPassword } from "../../utils/password.js";
 import { AuditService } from "../audit/audit.service.js";
+import { User } from "../user/user.model.js";
 
 export class AuthService {
 
@@ -39,13 +40,7 @@ export class AuthService {
       throw new Error("JWT_SECRET_NOT_DEFINED");
     }
 
-    const token = jwt.sign(
-      {
-        userId: user.id,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "1d" }
-    );
+    const token = this.generateToken(user);
 
       await AuditService.log({
     userId: user.id,
@@ -116,5 +111,82 @@ static async register(
   };
 }
 
+/* ============================
+    CHANGE PASSWORD 
+============================ */
+  static async changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+) {
+  const user = await UserRepository.findById(userId);
+  if (!user) {
+    throw new Error("USER_NOT_FOUND");
+  }
 
+  const isValid = await comparePassword(
+    currentPassword,
+    user.password_hash
+  );
+
+  if (!isValid) {
+    await AuditService.log({
+      userId,
+      action: "PASSWORD_CHANGE_FAILED",
+      entity: "USER",
+      entityId: userId,
+    });
+
+    throw new Error("INVALID_CURRENT_PASSWORD");
+  }
+
+  const samePassword = await comparePassword(
+    newPassword,
+    user.password_hash
+  );
+
+  if (samePassword) {
+    await AuditService.log({
+      userId,
+      action: "PASSWORD_MUST_BE_DIFFERENT",
+      entity: "USER",
+      entityId: userId,
+    });
+
+    throw new Error("PASSWORD_MUST_BE_DIFFERENT");
+  }
+
+  const newHash = await hashPassword(newPassword);
+
+  const updatedUser = await UserRepository.updatePassword(
+    userId,
+    newHash
+  );
+
+  const token = this.generateToken(updatedUser);
+
+  await AuditService.log({
+    userId,
+    action: "PASSWORD_CHANGED",
+    entity: "USER",
+    entityId: userId,
+  });
+
+  return  token ;
+}
+
+private static generateToken(user: User) {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET_NOT_DEFINED");
+  }
+
+  return jwt.sign(
+    {
+      userId: user.id,
+      tokenVersion: user.token_version,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "1d" }
+  );
+}
 }

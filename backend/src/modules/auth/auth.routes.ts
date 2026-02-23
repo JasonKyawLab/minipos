@@ -29,4 +29,7 @@ router.post(
   AuthController.register
 );
 
+router.post("/logout", requireAuth, AuthController.logout);
+
+
 export default router;

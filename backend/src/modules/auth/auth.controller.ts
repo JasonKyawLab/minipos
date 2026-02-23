@@ -25,9 +25,23 @@ static async login(req: Request, res: Response) {
     // Authenticate
     const result = await AuthService.login(email, password);
 
-    // Success
+    // Set HTTP-only cookie for production
+    //    res.cookie("access_token", result.token, {
+    //   httpOnly: true,
+    //   secure: process.env.NODE_ENV === "production",
+    //   sameSite: "strict",
+    //   maxAge: 24 * 60 * 60 * 1000, // 1 day
+    // });
+
+    //
+           res.cookie("access_token", result.token, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60 * 1000, // 1 day
+    });
+
     return res.json({
-      token: result.token,
       user: result.user,
     });
 
@@ -86,6 +100,11 @@ static async register(req: Request, res: Response) {
       message: "Internal server error",
     });
   }
+}
+
+static async logout(_req: Request, res: Response) {
+  res.clearCookie("access_token");
+  return res.json({ message: "Logged out successfully" });
 }
 
 }

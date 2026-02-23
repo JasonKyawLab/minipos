@@ -6,9 +6,9 @@ import { AuditService } from "../audit/audit.service.js";
 export class UserService {
 static async updateMe(
   userId: string,
-  data: { name?: string; email?: string; password?: string }
+  data: { name?: string; email?: string}
 ) {
-  if (!data.name && !data.email && !data.password) {
+  if (!data.name && !data.email ) {
     throw new Error("NOTHING_TO_UPDATE");
   }
 
@@ -16,9 +16,6 @@ static async updateMe(
 
   if (data.name) updateData.name = data.name;
   if (data.email) updateData.email = data.email;
-  if (data.password) {
-    updateData.password_hash = await hashPassword(data.password);
-  }
 
   const user = await UserRepository.updateProfile(userId, updateData);
     if (!user) throw new Error("USER_NOT_FOUND");
@@ -34,6 +31,7 @@ static async updateMe(
     });
   return user;
 }
+
 
   static async deleteMe(userId: string) {
     await UserRepository.softDelete(userId);

@@ -1,5 +1,6 @@
 export interface JwtPayload {
   userId: string;
+  tokenVersion: number;
 }
 export interface LoginRequest {
   email: string;

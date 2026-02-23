@@ -12,5 +12,6 @@ router.use(requireRole("USER"));
 router.patch("/me", UserController.updateMe);
 router.delete("/me", UserController.deleteMe);
 router.get("/me/shops", UserController.myShops);
+router.post("/me/change-password", UserController.changePassword);
 
 export default router;

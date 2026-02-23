@@ -58,7 +58,7 @@ static async findByEmailIncludeDeleted(email: string): Promise<User | null> {
 
   static async updateProfile(
     userId: string,
-    data: { name?: string; email?: string; password_hash?: string }
+    data: { name?: string; email?: string}
   ): Promise<User> {
     const fields: string[] = [];
     const values: any[] = [];
@@ -72,11 +72,6 @@ static async findByEmailIncludeDeleted(email: string): Promise<User | null> {
     if (data.email) {
       fields.push(`email = $${idx++}`);
       values.push(data.email.toLowerCase());
-    }
-
-    if (data.password_hash) {
-      fields.push(`password_hash = $${idx++}`);
-      values.push(data.password_hash);
     }
 
     if (fields.length === 0) {
@@ -97,6 +92,30 @@ static async findByEmailIncludeDeleted(email: string): Promise<User | null> {
 
     return res.rows[0];
   }
+
+  static async updatePassword(
+  userId: string,
+  passwordHash: string
+): Promise<User> {
+  const res = await db.query(
+    `
+    UPDATE users
+    SET password_hash = $1,
+        token_version = token_version + 1,
+        updated_at = now()
+    WHERE id = $2
+      AND is_deleted = false
+    RETURNING *
+    `,
+    [passwordHash, userId]
+  );
+
+  if (!res.rows[0]) {
+    throw new Error("USER_NOT_FOUND");
+  }
+
+  return res.rows[0];
+}
 
   static async softDelete(userId: string): Promise<void> {
     await db.query(
@@ -146,5 +165,17 @@ static async findByEmailIncludeDeleted(email: string): Promise<User | null> {
     );
 
     return res.rows;
+  }
+
+  static async incrementTokenVersion(userId: string): Promise<void> {
+    await db.query(
+      `
+      UPDATE users
+      SET token_version = token_version + 1,
+          updated_at = now()
+      WHERE id = $1
+      `,
+      [userId]
+    );
   }
 }

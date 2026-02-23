@@ -55,6 +55,7 @@ CREATE TABLE users (
   password_hash TEXT NOT NULL,
   role user_role NOT NULL,
   status user_status NOT NULL DEFAULT 'ACTIVE',
+  token_version INTEGER NOT NULL DEFAULT 0,
   is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT now(),
   updated_at TIMESTAMP NOT NULL DEFAULT now()
@@ -82,6 +83,34 @@ CREATE TABLE shops (
   created_at TIMESTAMP NOT NULL DEFAULT now(),
   updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
+
+-- =========================
+-- SHOP DEVICES
+-- =========================
+-- Note: This table tracks the devices that are registered to access each shop,
+-- allowing for better security and monitoring. Each device has a unique key and can be associated with
+-- a user agent and IP address for additional context. The is_active flag allows for disabling a device without deleting it,
+-- while the last_seen_at timestamp helps track when the device was last used.
+-- Staff from the shop cannot log in from a new device until it has been approved by an owner or manager,
+-- ensuring that only authorized devices can access the shop's data.
+-- =========================
+CREATE TABLE shop_devices (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+
+  device_name VARCHAR(100),
+  device_key VARCHAR(100) NOT NULL UNIQUE,
+
+  user_agent TEXT,
+  ip_address INET,
+
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+  last_seen_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_shop_devices_shop_id ON shop_devices(shop_id);
 
 -- =========================
 -- SHOP USERS

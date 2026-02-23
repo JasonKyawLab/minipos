@@ -50,6 +50,7 @@ coverage/
 # Documentation
 # =====================
 docs/
+*.txt
 
 # =========================
 # Misc
