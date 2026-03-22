@@ -3,17 +3,11 @@ import { JwtPayload } from "../middlewares/auth.middleware";
 declare global {
   namespace Express {
     interface Request {
-      user?: JwtPayload;
+      user?: {
+        id: string;
+        role: "ADMIN" | "USER";
+      };
     }
-  }
-}
-
-declare module "express-serve-static-core" {
-  interface Request {
-    user?: {
-      id: string;
-      role: "ADMIN" | "USER";
-    };
   }
 }
 
