@@ -7,6 +7,8 @@ import adminRoutes from "./modules/admin/admin.routes.js";
 import cookieParser from "cookie-parser";
 import modifierRoutes from "./modules/modifier/modifier.routes.js";
 import productRoutes from "./modules/product/product.routes.js";
+import orderRoutes from "./modules/order/order.routes.js";
+import paymentRoutes from "./modules/payment/payment.routes.js";
 
 const app = express();
 
@@ -29,6 +31,8 @@ app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/shops/:shopId/products",  productRoutes);
 app.use("/api/shops/:shopId/modifiers", modifierRoutes);
+app.use("/api/shops/:shopId/orders",    orderRoutes);
+app.use("/api/shops/:shopId/orders/:orderId/payments", paymentRoutes);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error("[Unhandled Error]", err);
