@@ -44,7 +44,7 @@
 
 import { pool } from "../../db/pool.js";
 import { Refund, RefundItemInput } from "./refund.types.js";
-import { appError } from "../../utils/aapError.js";
+import { appError } from "../../utils/appError.js";
 
 export class RefundRepository {
 
