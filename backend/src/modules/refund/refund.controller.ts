@@ -35,20 +35,26 @@ export class RefundController {
     } catch (err: any) { return handleError(res, err); }
   }
 
-  static async getRefunds(req: Request, res: Response) {
-    try {
-      const shopId      = getParamAsString(req.params.shopId,  "shopId");
-      const orderId     = getParamAsString(req.params.orderId, "orderId");
-      const requesterId = req.user!.id;
+static async getRefunds(req: Request, res: Response) {
+  try {
+    const shopId      = getParamAsString(req.params.shopId,  "shopId");
+    const orderId     = getParamAsString(req.params.orderId, "orderId");
+    const requesterId = req.user!.id;
 
-      const refunds = await RefundService.getRefundsByOrder({
-        orderId,
-        shopId,
-        requesterId,
-      });
+    // #5 — parse pagination from query string
+    const limit  = req.query.limit  ? parseInt(req.query.limit  as string) : undefined;
+    const offset = req.query.offset ? parseInt(req.query.offset as string) : undefined;
 
-      return res.json(refunds);
-    } catch (err: any) { return handleError(res, err); }
-  }
+    const refunds = await RefundService.getRefundsByOrder({
+      orderId,
+      shopId,
+      requesterId,
+      limit,
+      offset,
+    });
+
+    return res.json(refunds);
+  } catch (err: any) { return handleError(res, err); }
+}
 }
 

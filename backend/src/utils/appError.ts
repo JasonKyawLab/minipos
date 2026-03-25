@@ -36,7 +36,9 @@ export class appError extends Error {
     this.code    = code;
     this.status  = status;
     this.meta    = meta;
-
+    
+    Object.setPrototypeOf(this, appError.prototype);
+    
     // Maintains proper stack trace in V8 (Node.js)
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, appError);

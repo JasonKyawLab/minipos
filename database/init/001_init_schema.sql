@@ -535,8 +535,12 @@ CREATE TABLE order_items (
   item_note               VARCHAR(255),
   
   status                  order_item_status NOT NULL DEFAULT 'ACTIVE',
+  
+  refunded_qty            INTEGER           NOT NULL DEFAULT 0 CHECK (refunded_qty >= 0),
 
-  created_at              TIMESTAMPTZ      NOT NULL DEFAULT now()
+  created_at              TIMESTAMPTZ      NOT NULL DEFAULT now(),
+
+  CONSTRAINT chk_refunded_qty_lte_qty CHECK (refunded_qty <= qty)
 );
 
 CREATE INDEX idx_order_items_order        ON order_items(order_id);
@@ -585,6 +589,8 @@ CREATE INDEX idx_payments_status ON payments(status);
 -- REFUNDS
 -- =========================================================
 -- Records full or partial refunds against a payment.
+-- idempotency_key   — unique token from app layer to prevent
+--                    double refunds on retries.
 -- processed_by     — the staff member who actioned the refund.
 -- =========================================================
 
@@ -596,14 +602,16 @@ CREATE TABLE refunds (
   amount       DECIMAL(12,2) NOT NULL CHECK (amount > 0),
   reason       TEXT,
 
+  idempotency_key VARCHAR(100) UNIQUE,
   processed_by UUID          REFERENCES users(id) ON DELETE SET NULL,
   created_at   TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_refunds_order   ON refunds(order_id);
 CREATE INDEX idx_refunds_payment ON refunds(payment_id) WHERE payment_id IS NOT NULL;
-
-
+CREATE INDEX idx_refunds_order_amount ON refunds(order_id, amount);
+CREATE INDEX idx_refunds_order_created ON refunds(order_id, created_at DESC);
+CREATE INDEX idx_refunds_idempotency ON refunds(idempotency_key) WHERE idempotency_key IS NOT NULL;
 -- =========================================================
 -- AUDIT LOGS
 -- =========================================================

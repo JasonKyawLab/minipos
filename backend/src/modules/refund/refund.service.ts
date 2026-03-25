@@ -2,41 +2,20 @@
 // refund.service.ts
 // Path: backend/src/modules/refund/refund.service.ts
 // =========================================================
-// Business logic layer.
-//
-// Responsibilities:
-//   - Permission checks (OWNER / MANAGER only)
-//   - Validate order is in PAID status
-//   - Fetch payment record to link to refund
-//   - Calculate refund amount from order items
-//   - Prevent over-refunding
-//   - Delegate atomic DB work to repository
-//   - Write audit logs
-// =========================================================
-
 import { ShopRepository }   from "../shop/shop.repository.js";
 import { AuditService }     from "../audit/audit.service.js";
 import { OrderRepository }  from "../order/order.repository.js";
 import { RefundRepository } from "./refund.repository.js";
-import { PaymentRepository } from "../payment/payment.repository.js";
-import { ProcessRefundInput } from "./refund.types.js";
+import { ProcessRefundInput, RefundItemInput, ListRefundsFilter } from "./refund.types.js";
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
-import app from "../../app.js";
 
 // ── Permission constants ──────────────────────────────────
-// Only OWNER and MANAGER can process refunds.
-// CASHIER cannot — this is a deliberate business rule.
-// Refunds involve restocking decisions and financial reversals
-// that should require manager-level authority.
 const REFUND_ROLES = ["OWNER", "MANAGER"] as const;
 
 // ── Permission helper ─────────────────────────────────────
 async function assertCanRefund(shopId: string, userId: string) {
-  const member = await ShopRepository.getUserShopMembership(
-    shopId,
-    userId
-  );
+  const member = await ShopRepository.getUserShopMembership(shopId, userId);
 
   if (!member || !member.is_active || !REFUND_ROLES.includes(member.role)) {
     throw new appError("FORBIDDEN", 403);
@@ -44,8 +23,6 @@ async function assertCanRefund(shopId: string, userId: string) {
 }
 
 // ── Fetch payment helper ──────────────────────────────────
-// We need the payment ID to link the refund record.
-// We fetch the most recent PAID payment for this order.
 async function getPaidPayment(orderId: string) {
   const result = await pool.query(
     `
@@ -62,49 +39,112 @@ async function getPaidPayment(orderId: string) {
   return result.rows[0] ?? null;
 }
 
-// ── Calculate partial refund amount ──────────────────────
-// Fetch the unit price of each item being refunded and
-// multiply by the refunded qty.
-// We use the stored subtotal/qty ratio to get the effective
-// unit price (includes modifiers).
-async function calculatePartialRefundAmount(
+// ── Calculate and validate refund amounts helper ───────
+// Validates each item and calculates total refund amount.
+// Note: this is a PRE-CHECK only. The repository will do
+// the same checks again inside a transaction with FOR UPDATE
+// to prevent race conditions (#1).
+async function calculateRefundAmounts(
   orderId: string,
-  items: { order_item_id: string; qty: number }[]
-): Promise<number> {
+  shopId: string,
+  requesterId: string,
+  items: RefundItemInput[]
+): Promise<{ total: number; validatedItems: RefundItemInput[] }> {
   let total = 0;
+  const validatedItems: RefundItemInput[] = [];
 
-  for (const item of items) {
+  for (const refundItem of items) {
+
+    //  — extra safety check (Zod already enforces positive)
+    if (refundItem.qty <= 0) {
+      throw new appError("REFUND_QTY_MUST_BE_POSITIVE", 400);
+    }
+
     const result = await pool.query(
       `
-      SELECT subtotal, qty
+      SELECT status, subtotal, qty, refunded_qty
       FROM order_items
-      WHERE id       = $1
-        AND order_id = $2
-        AND status   = 'ACTIVE'
+      WHERE id = $1 AND order_id = $2
       `,
-      [item.order_item_id, orderId]
+      [refundItem.order_item_id, orderId]
     );
 
     if (result.rows.length === 0) {
-        throw new appError("ORDER_ITEM_NOT_FOUND", 404);
+      //  — audit log validation failure
+      await AuditService.log({
+        shopId,
+        userId: requesterId,
+        action: "REFUND_VALIDATION_FAILED",
+        entity: "ORDER_ITEM",
+        entityId: refundItem.order_item_id,
+        metadata: { reason: "ITEM_NOT_FOUND" },
+      });
+      throw new appError("ORDER_ITEM_NOT_FOUND", 404);
     }
 
     const row = result.rows[0];
 
-    // Effective unit price = subtotal / qty
-    // This includes modifiers already baked into subtotal
+    if (row.status !== "ACTIVE" || row.refunded_qty >= row.qty) {
+      //  — audit log validation failure
+      await AuditService.log({
+        shopId,
+        userId: requesterId,
+        action: "REFUND_VALIDATION_FAILED",
+        entity: "ORDER_ITEM",
+        entityId: refundItem.order_item_id,
+        metadata: {
+          reason:         "ITEM_ALREADY_REFUNDED",
+          current_status: row.status,
+        },
+      });
+      throw new appError("ORDER_ITEM_ALREADY_REFUNDED", 400);
+    }
+
+    // — check remaining refundable qty
+    const remainingQty = row.qty - row.refunded_qty;
+    if (refundItem.qty > remainingQty) {
+      //  — audit log validation failure
+      await AuditService.log({
+        shopId,
+        userId: requesterId,
+        action: "REFUND_VALIDATION_FAILED",
+        entity: "ORDER_ITEM",
+        entityId: refundItem.order_item_id,
+        metadata: {
+          reason:        "QTY_EXCEEDS_REMAINING",
+          requested_qty: refundItem.qty,
+          remaining_qty: remainingQty,
+        },
+      });
+      throw new appError("REFUND_QTY_EXCEEDS_ORIGINAL", 400);
+    }
+
+    // Effective unit price includes modifiers baked into subtotal
     const effectiveUnitPrice = parseFloat(row.subtotal) / row.qty;
-    total += effectiveUnitPrice * item.qty;
+    total += effectiveUnitPrice * refundItem.qty;
+    validatedItems.push(refundItem);
   }
 
-  // Round to 2 decimal places to avoid float drift
-  return parseFloat(total.toFixed(2));
+  return {
+    total:          parseFloat(total.toFixed(2)),
+    validatedItems,
+  };
 }
 
 export class RefundService {
 
   static async processRefund(params: ProcessRefundInput) {
     await assertCanRefund(params.shopId, params.requesterId);
+
+    if (params.idempotency_key) {
+      const existing = await RefundRepository.findRefundByIdempotencyKey(
+      params.idempotency_key
+    );
+    if (existing) {
+      // Return the existing refund without any validation or side effects
+      return { refund: existing, was_duplicate: true, /* ... */ };
+    }
+    }
 
     // ── Fetch and validate order ──────────────────────
     const order = await OrderRepository.findOrderWithItems(
@@ -113,9 +153,8 @@ export class RefundService {
     );
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);
 
-    // Can only refund a PAID order and cannot refund an already refunded order
     if (order.status === "REFUNDED") {
-     throw new appError("ORDER_FULLY_REFUNDED", 400);
+      throw new appError("ORDER_FULLY_REFUNDED", 400);
     }
 
     if (order.status !== "PAID") {
@@ -127,15 +166,9 @@ export class RefundService {
     if (!payment) throw new appError("PAYMENT_NOT_FOUND", 404);
 
     // ── Check existing refunds ────────────────────────
-    // Prevent refunding more than what was originally paid
-    const alreadyRefunded = await RefundRepository.getTotalRefundedAmount(
-      params.orderId
-    );
-
-    const originalAmount = parseFloat(Number(payment.amount).toFixed(2));
-    const remainingRefundable = parseFloat(
-      (originalAmount - alreadyRefunded).toFixed(2)
-    );
+    const alreadyRefunded     = await RefundRepository.getTotalRefundedAmount(params.orderId);
+    const originalAmount      = parseFloat(Number(payment.amount).toFixed(2));
+    const remainingRefundable = parseFloat((originalAmount - alreadyRefunded).toFixed(2));
 
     if (remainingRefundable <= 0) {
       throw new appError("ORDER_FULLY_REFUNDED", 400);
@@ -145,43 +178,55 @@ export class RefundService {
     if (params.type === "FULL") {
       const refundAmount = remainingRefundable;
 
-      const refund = await RefundRepository.processFullRefund({
-        orderId:      params.orderId,
-        shopId:       params.shopId,
-        paymentId:    payment.id,
+      const { refund, was_duplicate } = await RefundRepository.processFullRefund({
+        orderId:         params.orderId,
+        shopId:          params.shopId,
+        paymentId:       payment.id,
         refundAmount,
-        restock:      params.restock ?? false,
-        reason:       params.reason,
-        processedBy:  params.requesterId,
+        restock:         params.restock ?? false,
+        reason:          params.reason,
+        processedBy:     params.requesterId,
+        idempotency_key: params.idempotency_key,
       });
 
-      // Count restocked vs skipped items for response
-      const activeItems = order.items.filter(i => i.status === "ACTIVE");
-      const restockedItems  = params.restock ? activeItems.length : 0;
-      const skippedRestock  = params.restock ? 0 : activeItems.length;
+      // — skip audit log if this was a duplicate request
+      if (!was_duplicate) {
+        const activeItems    = order.items.filter(i => i.status === "ACTIVE");
+        const restockedItems = params.restock ? activeItems.length : 0;
+        const skippedRestock = params.restock ? 0 : activeItems.length;
 
-      await AuditService.log({
-        shopId:   params.shopId,
-        userId:   params.requesterId,
-        action:   "REFUND_FULL_PROCESSED",
-        entity:   "REFUND",
-        entityId: refund.id,
-        metadata: {
-          orderId:         params.orderId,
-          order_no:        order.order_no,
-          refundAmount,
-          restock:         params.restock ?? false,
-          reason:          params.reason,
-          restockedItems,
-          skippedRestock,
-        },
-      });
+        await AuditService.log({
+          shopId:   params.shopId,
+          userId:   params.requesterId,
+          action:   "REFUND_FULL_PROCESSED",
+          entity:   "REFUND",
+          entityId: refund.id,
+          metadata: {
+            orderId:      params.orderId,
+            order_no:     order.order_no,
+            refundAmount,
+            restock:      params.restock ?? false,
+            reason:       params.reason,
+            restockedItems,
+            skippedRestock,
+          },
+        });
+
+        return {
+          refund,
+          refund_amount:   refundAmount,
+          restocked_items: restockedItems,
+          skipped_restock: skippedRestock,
+          was_duplicate:   false,
+        };
+      }
 
       return {
         refund,
-        refund_amount:    refundAmount,
-        restocked_items:  restockedItems,
-        skipped_restock:  skippedRestock,
+        refund_amount:   refundAmount,
+        restocked_items: 0,
+        skipped_restock: 0,
+        was_duplicate:   true,
       };
     }
 
@@ -191,64 +236,79 @@ export class RefundService {
         throw new appError("REFUND_ITEMS_REQUIRED", 400);
       }
 
-      // Calculate how much this partial refund costs
-      const refundAmount = await calculatePartialRefundAmount(
+      //  — use helper for validation and amount calculation
+      const { total: refundAmount, validatedItems } = await calculateRefundAmounts(
         params.orderId,
+        params.shopId,
+        params.requesterId,
         params.items
       );
 
-      // Cannot refund more than what's left to refund
       if (refundAmount > remainingRefundable) {
         throw new appError("REFUND_EXCEEDS_REMAINING", 400);
       }
 
-      const refund = await RefundRepository.processPartialRefund({
-        orderId:      params.orderId,
-        shopId:       params.shopId,
-        paymentId:    payment.id,
+      const { refund, was_duplicate } = await RefundRepository.processPartialRefund({
+        orderId:         params.orderId,
+        shopId:          params.shopId,
+        paymentId:       payment.id,
         refundAmount,
-        items:        params.items,
-        reason:       params.reason,
-        processedBy:  params.requesterId,
+        items:           validatedItems,
+        reason:          params.reason,
+        processedBy:     params.requesterId,
+        idempotency_key: params.idempotency_key,
       });
 
-      // Count restocked vs skipped items for response
-      const restockedItems = params.items.filter(i => i.restock).length;
-      const skippedRestock = params.items.filter(i => !i.restock).length;
+      //  — skip audit log if this was a duplicate request
+      if (!was_duplicate) {
+        const restockedItems = validatedItems.filter(i => i.restock).length;
+        const skippedRestock = validatedItems.filter(i => !i.restock).length;
 
-      await AuditService.log({
-        shopId:   params.shopId,
-        userId:   params.requesterId,
-        action:   "REFUND_PARTIAL_PROCESSED",
-        entity:   "REFUND",
-        entityId: refund.id,
-        metadata: {
-          orderId:         params.orderId,
-          order_no:        order.order_no,
-          refundAmount,
-          itemCount:       params.items.length,
-          reason:          params.reason,
-          restockedItems,
-          skippedRestock,
-        },
-      });
+        await AuditService.log({
+          shopId:   params.shopId,
+          userId:   params.requesterId,
+          action:   "REFUND_PARTIAL_PROCESSED",
+          entity:   "REFUND",
+          entityId: refund.id,
+          metadata: {
+            orderId:      params.orderId,
+            order_no:     order.order_no,
+            refundAmount,
+            itemCount:    validatedItems.length,
+            reason:       params.reason,
+            restockedItems,
+            skippedRestock,
+          },
+        });
+
+        return {
+          refund,
+          refund_amount:   refundAmount,
+          restocked_items: restockedItems,
+          skipped_restock: skippedRestock,
+          was_duplicate:   false,
+        };
+      }
 
       return {
         refund,
         refund_amount:   refundAmount,
-        restocked_items: restockedItems,
-        skipped_restock: skippedRestock,
+        restocked_items: 0,
+        skipped_restock: 0,
+        was_duplicate:   true,
       };
     }
 
-    // Should never reach here — Zod schema validates type
     throw new appError("INVALID_REFUND_TYPE", 400);
   }
 
+  //  — pagination added
   static async getRefundsByOrder(params: {
     orderId: string;
     shopId: string;
     requesterId: string;
+    limit?: number;
+    offset?: number;
   }) {
     await assertCanRefund(params.shopId, params.requesterId);
 
@@ -258,6 +318,10 @@ export class RefundService {
     );
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);
 
-    return RefundRepository.findRefundsByOrder(params.orderId);
+    return RefundRepository.findRefundsByOrder({
+      orderId: params.orderId,
+      limit:   params.limit,
+      offset:  params.offset,
+    });
   }
 }

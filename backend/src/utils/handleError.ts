@@ -6,7 +6,7 @@
 // All controllers import this instead of defining their own.
 //
 // Flow:
-//   1. AppError → use err.status + err.code directly
+//   1. appError → use err.status + err.code directly
 //   2. Plain Error → status 500, log it
 // =========================================================
 

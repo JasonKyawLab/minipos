@@ -41,10 +41,8 @@
 //   The fix: fetch first with LEFT JOIN, then lock the
 //   product_items row in a separate SELECT FOR UPDATE.
 // =========================================================
-
 import { pool } from "../../db/pool.js";
-import { Refund, RefundItemInput } from "./refund.types.js";
-import { appError } from "../../utils/appError.js";
+import { Refund, RefundItemInput, ListRefundsFilter } from "./refund.types.js";
 
 export class RefundRepository {
 
@@ -52,15 +50,6 @@ export class RefundRepository {
   // FULL REFUND
   // =======================================================
 
-  /**
-   * Process a full refund atomically.
-   *
-   * Refunds the entire order:
-   *   - All ACTIVE items get status = REFUNDED
-   *   - Inventory restocked based on restock flag
-   *   - Order status → REFUNDED
-   *   - Payment status → REFUNDED
-   */
   static async processFullRefund(params: {
     orderId: string;
     shopId: string;
@@ -69,13 +58,27 @@ export class RefundRepository {
     restock: boolean;
     reason?: string;
     processedBy: string;
-  }): Promise<Refund> {
+    idempotency_key?: string;
+  }): Promise<{ refund: Refund; was_duplicate: boolean }> {
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
 
-      // ── Step 1: Insert refund record ──────────────────
+      //  — Check idempotency key before doing anything
+      if (params.idempotency_key) {
+        const existing = await client.query<Refund>(
+          `SELECT * FROM refunds WHERE idempotency_key = $1`,
+          [params.idempotency_key]
+        );
+
+        if (existing.rows.length > 0) {
+          await client.query("COMMIT");
+          return { refund: existing.rows[0], was_duplicate: true };
+        }
+      }
+
+      // ──  Insert refund record ──────────────────
       const refundResult = await client.query<Refund>(
         `
         INSERT INTO refunds (
@@ -83,153 +86,122 @@ export class RefundRepository {
           payment_id,
           amount,
           reason,
+          idempotency_key,
           processed_by
         )
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *
         `,
         [
           params.orderId,
           params.paymentId,
           params.refundAmount,
-          params.reason ?? null,
+          params.reason      ?? null,
+          params.idempotency_key ?? null,
           params.processedBy,
         ]
       );
 
       const refund = refundResult.rows[0];
 
-      // ── Step 2: Mark order as REFUNDED ────────────────
+      // ──  Mark order as REFUNDED ────────────────
       await client.query(
         `
         UPDATE orders
-        SET
-          status     = 'REFUNDED',
-          updated_at = now()
+        SET status     = 'REFUNDED',
+            updated_at = now()
         WHERE id = $1
         `,
         [params.orderId]
       );
 
-      // ── Step 3: Mark payment as REFUNDED ─────────────
+      // ── Mark payment as REFUNDED ─────────────
       await client.query(
-        `
-        UPDATE payments
-        SET status = 'REFUNDED'
-        WHERE id = $1
-        `,
+        `UPDATE payments SET status = 'REFUNDED' WHERE id = $1`,
         [params.paymentId]
       );
 
-      // ── Step 4: Fetch all ACTIVE order items ──────────
-      //
-      // Use LEFT JOIN (not INNER JOIN) because product_item_id
-      // is nullable — some order items may not have a linked
-      // product (e.g. custom items).
-      //
-      // We do NOT use FOR UPDATE here because PostgreSQL does
-      // not allow FOR UPDATE on the nullable side of a LEFT JOIN.
-      // Instead we lock product_items rows individually below.
+      // ──  Process each ACTIVE order item ────────
+      // — lock rows with FOR UPDATE to prevent race condition
       const itemsResult = await client.query(
         `
         SELECT
-          oi.id            AS order_item_id,
+          oi.id              AS order_item_id,
           oi.product_item_id,
           oi.qty,
-          pi.track_stock,
-          pi.stock_qty
+          oi.refunded_qty,
+          oi.status
         FROM order_items oi
-        LEFT JOIN product_items pi ON pi.id = oi.product_item_id
         WHERE oi.order_id = $1
           AND oi.status   = 'ACTIVE'
+        FOR UPDATE OF oi
         `,
         [params.orderId]
       );
 
-      // ── Step 5: Lock product_items rows individually ──
-      //
-      // Lock only the rows we will actually UPDATE (restock=true,
-      // has a linked product, and tracks stock). This prevents
-      // concurrent payments for the same product from both
-      // succeeding when stock_qty = 1.
-      if (params.restock) {
-        for (const item of itemsResult.rows) {
-          if (item.product_item_id && item.track_stock) {
+      for (const item of itemsResult.rows) {
+        const remainingQty = item.qty - item.refunded_qty;
+
+        await client.query(
+          `
+          UPDATE order_items
+          SET refunded_qty = refunded_qty + $1,
+              status       = CASE
+                               WHEN refunded_qty + $1 >= qty THEN 'REFUNDED'
+                               ELSE status
+                             END
+          WHERE id = $2
+          `,
+          [remainingQty, item.order_item_id]
+        );
+
+        if (params.restock && item.product_item_id) {
+          // Lock the product_item row separately — avoids FOR UPDATE on LEFT JOIN
+          const piResult = await client.query(
+            `
+            SELECT id, track_stock, stock_qty
+            FROM product_items
+            WHERE id = $1
+            FOR UPDATE
+            `,
+            [item.product_item_id]
+          );
+
+          const pi = piResult.rows[0];
+          if (pi && pi.track_stock) {
             await client.query(
-              `SELECT id FROM product_items WHERE id = $1 FOR UPDATE`,
-              [item.product_item_id]
+              `
+              UPDATE product_items
+              SET stock_qty  = stock_qty + $1,
+                  updated_at = now()
+              WHERE id = $2
+              `,
+              [remainingQty, item.product_item_id]
+            );
+
+            await client.query(
+              `
+              INSERT INTO inventory_movements (
+                shop_id, product_item_id, type, quantity,
+                reference_id, notes, created_by
+              )
+              VALUES ($1, $2, 'REFUND', $3, $4, $5, $6)
+              `,
+              [
+                params.shopId,
+                item.product_item_id,
+                remainingQty,
+                refund.id,
+                `Full refund restocked — ${params.reason ?? "no reason given"}`,
+                params.processedBy,
+              ]
             );
           }
         }
       }
 
-      // ── Step 6: Process each item ─────────────────────
-      for (const item of itemsResult.rows) {
-
-        // Mark order item as REFUNDED
-        await client.query(
-          `
-          UPDATE order_items
-          SET status = 'REFUNDED'
-          WHERE id = $1
-          `,
-          [item.order_item_id]
-        );
-
-        // Restock only if:
-        //   - restock flag is true
-        //   - item has a linked product (product_item_id not null)
-        //   - item tracks stock
-        if (
-          params.restock &&
-          item.product_item_id &&
-          item.track_stock
-        ) {
-          // Increment stock
-          await client.query(
-            `
-            UPDATE product_items
-            SET
-              stock_qty  = stock_qty + $1,
-              updated_at = now()
-            WHERE id = $2
-            `,
-            [item.qty, item.product_item_id]
-          );
-
-          // Log inventory movement
-          await client.query(
-            `
-            INSERT INTO inventory_movements (
-              shop_id,
-              product_item_id,
-              type,
-              quantity,
-              reference_id,
-              notes,
-              created_by
-            )
-            VALUES ($1, $2, 'REFUND', $3, $4, $5, $6)
-            `,
-            [
-              params.shopId,
-              item.product_item_id,
-              item.qty,              // positive = stock returning
-              refund.id,             // reference back to this refund
-              `Full refund restocked — ${params.reason ?? "no reason given"}`,
-              params.processedBy,
-            ]
-          );
-        }
-
-        // If restock = false: no stock change, no inventory movement.
-        // The reason is recorded in the refunds table.
-        // This covers: broken goods, consumed food, damaged items.
-      }
-
       await client.query("COMMIT");
-
-      return refund;
+      return { refund, was_duplicate: false };
 
     } catch (err) {
       await client.query("ROLLBACK");
@@ -243,15 +215,6 @@ export class RefundRepository {
   // PARTIAL REFUND
   // =======================================================
 
-  /**
-   * Process a partial refund atomically.
-   *
-   * Refunds specific items only:
-   *   - Only specified items get status = REFUNDED
-   *   - Restock decision is per item
-   *   - Order status stays PAID
-   *   - Payment status → PARTIALLY_REFUNDED
-   */
   static async processPartialRefund(params: {
     orderId: string;
     shopId: string;
@@ -260,13 +223,27 @@ export class RefundRepository {
     items: RefundItemInput[];
     reason?: string;
     processedBy: string;
-  }): Promise<Refund> {
+    idempotency_key?: string;
+  }): Promise<{ refund: Refund; was_duplicate: boolean }> {
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
 
-      // ── Step 1: Insert refund record ──────────────────
+      //— Check idempotency key before doing anything
+      if (params.idempotency_key) {
+        const existing = await client.query<Refund>(
+          `SELECT * FROM refunds WHERE idempotency_key = $1`,
+          [params.idempotency_key]
+        );
+
+        if (existing.rows.length > 0) {
+          await client.query("COMMIT");
+          return { refund: existing.rows[0], was_duplicate: true };
+        }
+      }
+
+      // Insert refund record ──────────────────
       const refundResult = await client.query<Refund>(
         `
         INSERT INTO refunds (
@@ -274,154 +251,125 @@ export class RefundRepository {
           payment_id,
           amount,
           reason,
+          idempotency_key,
           processed_by
         )
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *
         `,
         [
           params.orderId,
           params.paymentId,
           params.refundAmount,
-          params.reason ?? null,
+          params.reason          ?? null,
+          params.idempotency_key ?? null,
           params.processedBy,
         ]
       );
 
       const refund = refundResult.rows[0];
 
-      // ── Step 2: Mark payment as PARTIALLY_REFUNDED ────
+      // ──  Mark payment as PARTIALLY_REFUNDED ────
       await client.query(
-        `
-        UPDATE payments
-        SET status = 'PARTIALLY_REFUNDED'
-        WHERE id = $1
-        `,
+        `UPDATE payments SET status = 'PARTIALLY_REFUNDED' WHERE id = $1`,
         [params.paymentId]
       );
 
-      // ── Step 3: Process each requested item ──────────
+      // ──Process each requested item ──────────
       for (const refundItem of params.items) {
 
-        // ── Fetch the order item and its linked product ─
-        //
-        // We use LEFT JOIN because product_item_id is nullable.
-        // We do NOT use FOR UPDATE here because PostgreSQL does
-        // not allow FOR UPDATE on the nullable side of a LEFT JOIN.
-        // We lock the product_items row separately below if needed.
+        // Lock oi row — safe because no JOIN
         const itemResult = await client.query(
           `
           SELECT
             oi.id              AS order_item_id,
             oi.product_item_id,
-            oi.qty             AS original_qty,
-            oi.status,
-            pi.track_stock,
-            pi.stock_qty
+            oi.qty,
+            oi.refunded_qty,
+            oi.status
           FROM order_items oi
-          LEFT JOIN product_items pi ON pi.id = oi.product_item_id
           WHERE oi.id       = $1
             AND oi.order_id = $2
+          FOR UPDATE OF oi
           `,
           [refundItem.order_item_id, params.orderId]
         );
 
         if (itemResult.rows.length === 0) {
-          throw new appError("ORDER_ITEM_NOT_FOUND", 404, { itemId: refundItem.order_item_id });
+          throw new Error(`ORDER_ITEM_NOT_FOUND`);
         }
 
         const item = itemResult.rows[0];
 
-        // Cannot refund an item that is already refunded or cancelled
         if (item.status !== "ACTIVE") {
-          throw new appError("ORDER_ITEM_ALREADY_REFUNDED", 400, { itemId: refundItem.order_item_id });
+          throw new Error(`ORDER_ITEM_ALREADY_REFUNDED`);
         }
 
-        // Cannot refund more than the original quantity
-        if (refundItem.qty > item.original_qty) {
-          throw new appError("REFUND_QTY_EXCEEDS_ORIGINAL", 400, { itemId: refundItem.order_item_id });
+        const remainingQty = item.qty - item.refunded_qty;
+        if (refundItem.qty > remainingQty) {
+          throw new Error(`REFUND_QTY_EXCEEDS_ORIGINAL`);
         }
 
-        // ── Lock product_items row individually if needed ─
-        //
-        // Only lock if we will actually restock this item.
-        // This prevents concurrent stock updates from racing.
-        if (
-          refundItem.restock &&
-          item.product_item_id &&
-          item.track_stock
-        ) {
-          await client.query(
-            `SELECT id FROM product_items WHERE id = $1 FOR UPDATE`,
-            [item.product_item_id]
-          );
-        }
-
-        // Mark order item as REFUNDED
         await client.query(
           `
           UPDATE order_items
-          SET status = 'REFUNDED'
-          WHERE id = $1
+          SET refunded_qty = refunded_qty + $1,
+              status       = CASE
+                               WHEN refunded_qty + $1 >= qty THEN 'REFUNDED'
+                               ELSE status
+                             END
+          WHERE id = $2
           `,
-          [item.order_item_id]
+          [refundItem.qty, item.order_item_id]
         );
 
-        // Restock only if:
-        //   - this item's restock = true
-        //   - has a linked product
-        //   - item tracks stock
-        if (
-          refundItem.restock &&
-          item.product_item_id &&
-          item.track_stock
-        ) {
-          // Increment stock by the refunded qty
-          await client.query(
+        if (refundItem.restock && item.product_item_id) {
+          // Lock product_item separately — avoids FOR UPDATE on LEFT JOIN
+          const piResult = await client.query(
             `
-            UPDATE product_items
-            SET
-              stock_qty  = stock_qty + $1,
-              updated_at = now()
-            WHERE id = $2
+            SELECT id, track_stock, stock_qty
+            FROM product_items
+            WHERE id = $1
+            FOR UPDATE
             `,
-            [refundItem.qty, item.product_item_id]
+            [item.product_item_id]
           );
 
-          // Log inventory movement
-          await client.query(
-            `
-            INSERT INTO inventory_movements (
-              shop_id,
-              product_item_id,
-              type,
-              quantity,
-              reference_id,
-              notes,
-              created_by
-            )
-            VALUES ($1, $2, 'REFUND', $3, $4, $5, $6)
-            `,
-            [
-              params.shopId,
-              item.product_item_id,
-              refundItem.qty,         // positive = stock returning
-              refund.id,
-              refundItem.reason
-                ?? params.reason
-                ?? "Partial refund restocked",
-              params.processedBy,
-            ]
-          );
+          const pi = piResult.rows[0];
+          if (pi && pi.track_stock) {
+            await client.query(
+              `
+              UPDATE product_items
+              SET stock_qty  = stock_qty + $1,
+                  updated_at = now()
+              WHERE id = $2
+              `,
+              [refundItem.qty, item.product_item_id]
+            );
+
+            await client.query(
+              `
+              INSERT INTO inventory_movements (
+                shop_id, product_item_id, type, quantity,
+                reference_id, notes, created_by
+              )
+              VALUES ($1, $2, 'REFUND', $3, $4, $5, $6)
+              `,
+              [
+                params.shopId,
+                item.product_item_id,
+                refundItem.qty,
+                refund.id,
+                refundItem.reason ?? params.reason ?? "Partial refund restocked",
+                params.processedBy,
+              ]
+            );
+          }
         }
-
-        // If restock = false: no stock change.
-        // Covers: broken goods, consumed food, damaged items.
       }
 
       await client.query("COMMIT");
-
-      return refund;
+      return { refund, was_duplicate: false };
 
     } catch (err) {
       await client.query("ROLLBACK");
@@ -435,27 +383,38 @@ export class RefundRepository {
   // READ
   // =======================================================
 
-  /**
-   * Find all refunds for an order.
-   */
-  static async findRefundsByOrder(orderId: string): Promise<Refund[]> {
+  // — pagination added
+  static async findRefundsByOrder(filter: ListRefundsFilter): Promise<Refund[]> {
+    const limit  = filter.limit  ?? 20;
+    const offset = filter.offset ?? 0;
+
     const result = await pool.query<Refund>(
       `
       SELECT *
       FROM refunds
       WHERE order_id = $1
       ORDER BY created_at ASC
+      LIMIT $2 OFFSET $3
       `,
-      [orderId]
+      [filter.orderId, limit, offset]
     );
 
     return result.rows;
   }
 
-  /**
-   * Sum all refunds already processed for an order.
-   * Used to prevent refunding more than the original payment.
-   */
+  static async findRefundByIdempotencyKey(idempotencyKey: string): Promise<Refund | null> {
+    const result = await pool.query<Refund>(
+      `
+      SELECT *
+      FROM refunds
+      WHERE idempotency_key = $1
+      `,
+      [idempotencyKey]
+    );
+
+    return result.rows[0] ?? null;
+  }
+
   static async getTotalRefundedAmount(orderId: string): Promise<number> {
     const result = await pool.query(
       `
