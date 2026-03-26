@@ -1,110 +1,79 @@
-/** 
-	•	Read req.body
-	•	Validate input
-	•	Return HTTP response
-	•	Call service 
-**/
+// =========================================================
+// auth.controller.ts
+// Path: backend/src/modules/auth/auth.controller.ts
+// Line: Replace entire file
+// =========================================================
 
 import { Request, Response } from "express";
 import { AuthService } from "./auth.service.js";
 import { LoginRequest } from "./auth.types.js";
+import { handleError } from "../../utils/handleError.js";
 
 export class AuthController {
 
-static async login(req: Request, res: Response) {
-  try {
-    const { email, password } = req.body as LoginRequest;
+  static async login(req: Request, res: Response) {
+    try {
+      const { email, password } = req.body as LoginRequest;
 
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({
-        message: "Email and password are required",
+      // Validate input
+      if (!email || !password) {
+        return res.status(400).json({
+          message: "Email and password are required",
+        });
+      }
+
+      // Authenticate
+      const result = await AuthService.login(email, password);
+
+      res.cookie("access_token", result.token, {
+        httpOnly: true,
+        secure: false,
+        sameSite: "lax",
+        maxAge: 24 * 60 * 60 * 1000,
       });
+
+      return res.json({
+        user: result.user,
+      });
+
+    } catch (err: any) {
+      return handleError(res, err);
     }
-
-    // Authenticate
-    const result = await AuthService.login(email, password);
-
-    // Set HTTP-only cookie for production
-    //    res.cookie("access_token", result.token, {
-    //   httpOnly: true,
-    //   secure: process.env.NODE_ENV === "production",
-    //   sameSite: "strict",
-    //   maxAge: 24 * 60 * 60 * 1000, // 1 day
-    // });
-
-    //
-           res.cookie("access_token", result.token, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 24 * 60 * 60 * 1000, // 1 day
-    });
-
-    return res.json({
-      user: result.user,
-    });
-
-  } catch (err: any) {
-    if (err.message === "USER_NOT_FOUND") {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    if (err.message === "USER_NOT_ACTIVE") {
-  return res.status(403).json({ message: "User is not active" });
-}
-    
-    if (err.message === "INVALID_PASSWORD") {
-      return res.status(401).json({ message: "Invalid password" });
-    }
-
-    console.error("Auth login error:", err);
-    return res.status(500).json({
-      message: "Internal server error",
-    });
-  }
-}
-
-static async register(req: Request, res: Response) {
-  const { name, email, password } = req.body;
-
-  if (!name || !email || !password) {
-    return res.status(400).json({
-      message: "Name, email and password required",
-    });
   }
 
-  try {
-    const result = await AuthService.register(name, email, password);
+  static async register(req: Request, res: Response) {
+    try {
+      const { name, email, password } = req.body;
 
-    if (result.restored) {
-      return res.status(200).json({
-        message:
-          "Your account was previously deleted. It has been restored. Please log in using your previous password.",
+      if (!name || !email || !password) {
+        return res.status(400).json({
+          message: "Name, email and password required",
+        });
+      }
+
+      const result = await AuthService.register(name, email, password);
+
+      if (result.restored) {
+        return res.status(200).json({
+          message: "Your account was previously deleted. It has been restored. Please log in using your previous password.",
+        });
+      }
+
+      return res.status(201).json({
+        message: "Account created successfully",
       });
+
+    } catch (err: any) {
+      return handleError(res, err);
     }
-
-    return res.status(201).json({
-      message: "Account created successfully",
-    });
-
-  } catch (err: any) {
-    if (err.message === "USER_EXISTS") {
-      return res.status(409).json({
-        message: "User already exists",
-      });
-    }
-
-    console.error(err); // important for debugging
-    return res.status(500).json({
-      message: "Internal server error",
-    });
   }
-}
 
-static async logout(_req: Request, res: Response) {
-  res.clearCookie("access_token");
-  return res.json({ message: "Logged out successfully" });
-}
-
+  static async logout(_req: Request, res: Response) {
+    try {
+      res.clearCookie("access_token");
+      return res.json({ message: "Logged out successfully" });
+    } catch (err: any) {
+      return handleError(res, err);
+    }
+  }
 }

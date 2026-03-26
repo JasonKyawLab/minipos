@@ -1,6 +1,15 @@
+// =========================================================
+// shop.controller.ts
+// Path: backend/src/modules/shop/shop.controller.ts
+// Line: Replace handleError function
+// =========================================================
+
+
+
 import { Request, Response } from "express";
 import { ShopService } from "./shop.service.js";
 import { getParamAsString } from "../../utils/converter.js";
+import { handleError } from "../../utils/handleError.js";
 
 export class ShopController {
   static async createShop(req: Request, res: Response) {
@@ -16,26 +25,27 @@ export class ShopController {
 
       res.status(201).json(shop);
     } catch (err: any) {
-      handleError(res, err);
+      return handleError(res, err);
     }
   }
-static async updateShop(req: Request, res: Response) {
-  try {
-    const shopId = getParamAsString(req.params.shopId, "shopId");
-    const { name, currency } = req.body;
 
-    const updated = await ShopService.updateShop({
-      shopId,
-      requesterId: req.user!.id,
-      name,
-      currency,
-    });
+  static async updateShop(req: Request, res: Response) {
+    try {
+      const shopId = getParamAsString(req.params.shopId, "shopId");
+      const { name, currency } = req.body;
 
-    res.json(updated);
-  } catch (err: any) {
-    handleError(res, err);
+      const updated = await ShopService.updateShop({
+        shopId,
+        requesterId: req.user!.id,
+        name,
+        currency,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      return handleError(res, err);
+    }
   }
-}
 
   static async deleteShop(req: Request, res: Response) {
     try {
@@ -48,7 +58,7 @@ static async updateShop(req: Request, res: Response) {
 
       res.json({ success: true });
     } catch (err: any) {
-      handleError(res, err);
+      return handleError(res, err);
     }
   }
 
@@ -66,7 +76,7 @@ static async updateShop(req: Request, res: Response) {
 
       res.status(201).json(result);
     } catch (err: any) {
-      handleError(res, err);
+      return handleError(res, err);
     }
   }
 
@@ -74,14 +84,11 @@ static async updateShop(req: Request, res: Response) {
     try {
       const shopId = getParamAsString(req.params.shopId, "shopId");
 
-      const staff = await ShopService.getStaff(
-        shopId,
-        req.user!.id
-      );
+      const staff = await ShopService.getStaff(shopId, req.user!.id);
 
       res.json(staff);
     } catch (err: any) {
-      handleError(res, err);
+      return handleError(res, err);
     }
   }
 
@@ -90,31 +97,11 @@ static async updateShop(req: Request, res: Response) {
       const shopId = getParamAsString(req.params.shopId, "shopId");
       const userId = getParamAsString(req.params.userId, "userId");
 
-      await ShopService.removeStaffFromShop(
-        shopId,
-        userId,
-        req.user!.id
-      );
+      await ShopService.removeStaffFromShop(shopId, userId, req.user!.id);
 
       res.json({ success: true });
     } catch (err: any) {
-      handleError(res, err);
+      return handleError(res, err);
     }
   }
-}
-
-function handleError(res: Response, err: any) {
-  const map: Record<string, number> = {
-    "Only owner can update shop":  403,
-    "Only owner can delete shop":  403,
-    "Not authorized":              403,
-    "Permission denied":           403,
-    "Owner cannot be removed":     403,
-    "User already active":         400,  // ← this was missing, caused 403
-    SHOP_NOT_FOUND:                404,
-    USER_NOT_FOUND:                404,
-  };
-  const status = map[err.message] ?? 500;
-  if (status === 500) console.error("[ShopController]", err);
-  res.status(status).json({ message: err.message });
 }

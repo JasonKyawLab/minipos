@@ -7,6 +7,7 @@
 // =========================================================
 
 import { pool } from "../../db/pool.js";
+import { appError } from "../../utils/appError.js";
 import {
   ProductModel,
   ProductItem,
@@ -404,7 +405,7 @@ export class ProductRepository {
         // stock_qty CHECK (stock_qty >= 0) would catch this at DB level too,
         // but throwing here gives a cleaner error message to the caller
         if (newQty < 0) {
-          throw new Error("INSUFFICIENT_STOCK");
+           throw new appError("INSUFFICIENT_STOCK", 409);
         }
 
         await client.query(

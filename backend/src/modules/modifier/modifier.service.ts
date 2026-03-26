@@ -1,6 +1,7 @@
 // =========================================================
 // modifier.service.ts
 // Path: backend/src/modules/modifier/modifier.service.ts
+// Line: Replace all error throws with appError
 // =========================================================
 
 import { ShopRepository } from "../shop/shop.repository.js";
@@ -12,10 +13,10 @@ import {
   CreateModifierOptionInput,
   UpdateModifierOptionInput,
 } from "./modifier.types.js";
+import { appError } from "../../utils/appError.js";
 
-// ── Permission helpers ─────────────────────────────────────
 const WRITE_ROLES = ["OWNER", "MANAGER"] as const;
-const READ_ROLES  = ["OWNER", "MANAGER", "CASHIER"] as const;
+const READ_ROLES = ["OWNER", "MANAGER", "CASHIER"] as const;
 
 async function assertShopMember(
   shopId: string,
@@ -25,7 +26,7 @@ async function assertShopMember(
   const member = await ShopRepository.getUserShopMembership(shopId, userId);
 
   if (!member || !member.is_active || !allowed.includes(member.role)) {
-    throw new Error("FORBIDDEN");
+    throw new appError("FORBIDDEN", 403);
   }
 }
 
@@ -48,10 +49,10 @@ export class ModifierService {
     });
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "MODIFIER_GROUP_CREATED",
-      entity:   "MODIFIER_GROUP",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "MODIFIER_GROUP_CREATED",
+      entity: "MODIFIER_GROUP",
       entityId: group.id,
       metadata: { name: group.name },
     });
@@ -72,14 +73,12 @@ export class ModifierService {
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
-    // Validate min_select <= max_select before hitting the DB
-    // (DB also has a CHECK constraint but this gives a cleaner error)
     if (
       params.input.min_select !== undefined &&
       params.input.max_select !== undefined &&
       params.input.min_select > params.input.max_select
     ) {
-      throw new Error("MIN_EXCEEDS_MAX");
+      throw new appError("MIN_EXCEEDS_MAX", 400);
     }
 
     const updated = await ModifierRepository.updateGroup(
@@ -88,13 +87,13 @@ export class ModifierService {
       params.input
     );
 
-    if (!updated) throw new Error("GROUP_NOT_FOUND");
+    if (!updated) throw new appError("GROUP_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "MODIFIER_GROUP_UPDATED",
-      entity:   "MODIFIER_GROUP",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "MODIFIER_GROUP_UPDATED",
+      entity: "MODIFIER_GROUP",
       entityId: params.groupId,
       metadata: { updatedFields: Object.keys(params.input) },
     });
@@ -114,13 +113,13 @@ export class ModifierService {
       params.shopId
     );
 
-    if (!deleted) throw new Error("GROUP_NOT_FOUND");
+    if (!deleted) throw new appError("GROUP_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "MODIFIER_GROUP_DELETED",
-      entity:   "MODIFIER_GROUP",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "MODIFIER_GROUP_DELETED",
+      entity: "MODIFIER_GROUP",
       entityId: params.groupId,
     });
 
@@ -139,13 +138,13 @@ export class ModifierService {
       params.shopId
     );
 
-    if (!restored) throw new Error("GROUP_NOT_FOUND");
+    if (!restored) throw new appError("GROUP_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "MODIFIER_GROUP_RESTORED",
-      entity:   "MODIFIER_GROUP",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "MODIFIER_GROUP_RESTORED",
+      entity: "MODIFIER_GROUP",
       entityId: params.groupId,
     });
 
@@ -164,12 +163,11 @@ export class ModifierService {
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
-    // Verify the group belongs to this shop
     const group = await ModifierRepository.findGroupById(
       params.groupId,
       params.shopId
     );
-    if (!group) throw new Error("GROUP_NOT_FOUND");
+    if (!group) throw new appError("GROUP_NOT_FOUND", 404);
 
     const option = await ModifierRepository.createOption({
       ...params.input,
@@ -177,10 +175,10 @@ export class ModifierService {
     });
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "MODIFIER_OPTION_CREATED",
-      entity:   "MODIFIER_OPTION",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "MODIFIER_OPTION_CREATED",
+      entity: "MODIFIER_OPTION",
       entityId: option.id,
       metadata: { name: option.name, price_delta: option.price_delta },
     });
@@ -199,7 +197,7 @@ export class ModifierService {
       params.groupId,
       params.shopId
     );
-    if (!group) throw new Error("GROUP_NOT_FOUND");
+    if (!group) throw new appError("GROUP_NOT_FOUND", 404);
 
     return ModifierRepository.findOptionsByGroup(params.groupId, params.shopId);
   }
@@ -218,13 +216,13 @@ export class ModifierService {
       params.input
     );
 
-    if (!updated) throw new Error("OPTION_NOT_FOUND");
+    if (!updated) throw new appError("OPTION_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "MODIFIER_OPTION_UPDATED",
-      entity:   "MODIFIER_OPTION",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "MODIFIER_OPTION_UPDATED",
+      entity: "MODIFIER_OPTION",
       entityId: params.optionId,
       metadata: { updatedFields: Object.keys(params.input) },
     });
@@ -244,13 +242,13 @@ export class ModifierService {
       params.shopId
     );
 
-    if (!deleted) throw new Error("OPTION_NOT_FOUND");
+    if (!deleted) throw new appError("OPTION_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "MODIFIER_OPTION_DELETED",
-      entity:   "MODIFIER_OPTION",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "MODIFIER_OPTION_DELETED",
+      entity: "MODIFIER_OPTION",
       entityId: params.optionId,
     });
 

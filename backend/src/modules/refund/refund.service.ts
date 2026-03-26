@@ -9,6 +9,8 @@ import { RefundRepository } from "./refund.repository.js";
 import { ProcessRefundInput, RefundItemInput, ListRefundsFilter } from "./refund.types.js";
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
+import { SOCKET_EVENTS } from "../socket/socket.events.js";
+import { emitToShop } from "../socket/socket.js";
 
 // ── Permission constants ──────────────────────────────────
 const REFUND_ROLES = ["OWNER", "MANAGER"] as const;
@@ -212,6 +214,19 @@ export class RefundService {
           },
         });
 
+          try {
+    emitToShop(params.shopId, SOCKET_EVENTS.REFUND_PROCESSED, {
+      orderId:      params.orderId,
+      orderNo:      order.order_no,
+      refundAmount,
+      type:         "FULL",
+      restocked:    params.restock ?? false,
+      timestamp:    new Date().toISOString(),
+    });
+  } catch (socketErr) {
+    console.error("Socket emit failed:", socketErr);
+  }
+
         return {
           refund,
           refund_amount:   refundAmount,
@@ -280,6 +295,20 @@ export class RefundService {
             skippedRestock,
           },
         });
+
+          try {
+    emitToShop(params.shopId, SOCKET_EVENTS.REFUND_PROCESSED, {
+      orderId:      params.orderId,
+      orderNo:      order.order_no,
+      refundAmount,
+      type:         "PARTIAL",
+      items:        validatedItems.map(i => ({ order_item_id: i.order_item_id, qty: i.qty, restock: i.restock })),
+      timestamp:    new Date().toISOString(),
+    });
+  } catch (socketErr) {
+    console.error("Socket emit failed:", socketErr);
+  }
+
 
         return {
           refund,

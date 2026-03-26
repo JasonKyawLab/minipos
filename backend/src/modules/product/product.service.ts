@@ -1,10 +1,7 @@
 // =========================================================
 // product.service.ts
 // Path: backend/src/modules/product/product.service.ts
-// =========================================================
-// Business logic layer.
-// All permission checks and audit logs live here.
-// Repository is only called after guards pass.
+// Line: Replace all error throws with appError
 // =========================================================
 
 import { ShopRepository } from "../shop/shop.repository.js";
@@ -18,13 +15,10 @@ import {
   CreateInventoryMovementInput,
   InventoryMovementType,
 } from "./product.types.js";
-
-// ── Permission helpers ────────────────────────────────────
-// Centralised so permission logic is never duplicated
-// across methods.
+import { appError } from "../../utils/appError.js";
 
 const WRITE_ROLES = ["OWNER", "MANAGER"] as const;
-const READ_ROLES  = ["OWNER", "MANAGER", "CASHIER"] as const;
+const READ_ROLES = ["OWNER", "MANAGER", "CASHIER"] as const;
 
 async function assertShopMember(
   shopId: string,
@@ -34,29 +28,18 @@ async function assertShopMember(
   const member = await ShopRepository.getUserShopMembership(shopId, userId);
 
   if (!member || !member.is_active || !allowed.includes(member.role)) {
-    throw new Error("FORBIDDEN");
+    throw new appError("FORBIDDEN", 403);
   }
 
   return member;
 }
 
-// ── Inventory quantity sign convention ───────────────────
-// SALE and REFUND_DEDUCT reduce stock  → quantity must be negative.
-// PURCHASE and ADJUSTMENT_ADD add stock → quantity must be positive.
-// We enforce the correct sign here so callers cannot pass
-// a positive quantity for a SALE and inflate stock.
-
-function enforceQuantitySign(
-  type: InventoryMovementType,
-  qty: number
-): number {
+function enforceQuantitySign(type: InventoryMovementType, qty: number): number {
   const absQty = Math.abs(qty);
 
   switch (type) {
     case "SALE":
     case "REFUND":
-      // REFUND here means stock going out (e.g. item returned & discarded).
-      // If your business treats REFUND as stock coming back, flip the sign.
       return -absQty;
     case "PURCHASE":
     case "ADJUSTMENT":
@@ -80,17 +63,17 @@ export class ProductService {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
     const model = await ProductRepository.createModel({
-      shopId:      params.shopId,
-      name:        params.name,
+      shopId: params.shopId,
+      name: params.name,
       description: params.description,
-      image_url:   params.image_url,
+      image_url: params.image_url,
     });
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "PRODUCT_MODEL_CREATED",
-      entity:   "PRODUCT_MODEL",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "PRODUCT_MODEL_CREATED",
+      entity: "PRODUCT_MODEL",
       entityId: model.id,
       metadata: { name: model.name },
     });
@@ -103,15 +86,11 @@ export class ProductService {
     return ProductRepository.findAllModels(shopId);
   }
 
-  static async getModelById(
-    shopId: string,
-    modelId: string,
-    requesterId: string
-  ) {
+  static async getModelById(shopId: string, modelId: string, requesterId: string) {
     await assertShopMember(shopId, requesterId, READ_ROLES);
 
     const model = await ProductRepository.findModelById(modelId, shopId);
-    if (!model) throw new Error("MODEL_NOT_FOUND");
+    if (!model) throw new appError("MODEL_NOT_FOUND", 404);
 
     return model;
   }
@@ -130,13 +109,13 @@ export class ProductService {
       params.input
     );
 
-    if (!updated) throw new Error("MODEL_NOT_FOUND");
+    if (!updated) throw new appError("MODEL_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "PRODUCT_MODEL_UPDATED",
-      entity:   "PRODUCT_MODEL",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "PRODUCT_MODEL_UPDATED",
+      entity: "PRODUCT_MODEL",
       entityId: params.modelId,
       metadata: { updatedFields: Object.keys(params.input) },
     });
@@ -156,13 +135,13 @@ export class ProductService {
       params.shopId
     );
 
-    if (!deleted) throw new Error("MODEL_NOT_FOUND");
+    if (!deleted) throw new appError("MODEL_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "PRODUCT_MODEL_DELETED",
-      entity:   "PRODUCT_MODEL",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "PRODUCT_MODEL_DELETED",
+      entity: "PRODUCT_MODEL",
       entityId: params.modelId,
     });
 
@@ -181,13 +160,13 @@ export class ProductService {
       params.shopId
     );
 
-    if (!restored) throw new Error("MODEL_NOT_FOUND");
+    if (!restored) throw new appError("MODEL_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "PRODUCT_MODEL_RESTORED",
-      entity:   "PRODUCT_MODEL",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "PRODUCT_MODEL_RESTORED",
+      entity: "PRODUCT_MODEL",
       entityId: params.modelId,
     });
 
@@ -206,12 +185,11 @@ export class ProductService {
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
-    // Ensure the model belongs to this shop before adding items to it
     const model = await ProductRepository.findModelById(
       params.modelId,
       params.shopId
     );
-    if (!model) throw new Error("MODEL_NOT_FOUND");
+    if (!model) throw new appError("MODEL_NOT_FOUND", 404);
 
     const item = await ProductRepository.createItem({
       ...params.input,
@@ -219,10 +197,10 @@ export class ProductService {
     });
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "PRODUCT_ITEM_CREATED",
-      entity:   "PRODUCT_ITEM",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "PRODUCT_ITEM_CREATED",
+      entity: "PRODUCT_ITEM",
       entityId: item.id,
       metadata: { name: item.name, price: item.price },
     });
@@ -237,12 +215,11 @@ export class ProductService {
   }) {
     await assertShopMember(params.shopId, params.requesterId, READ_ROLES);
 
-    // Verify model belongs to shop
     const model = await ProductRepository.findModelById(
       params.modelId,
       params.shopId
     );
-    if (!model) throw new Error("MODEL_NOT_FOUND");
+    if (!model) throw new appError("MODEL_NOT_FOUND", 404);
 
     return ProductRepository.findItemsByModel(params.modelId);
   }
@@ -258,7 +235,7 @@ export class ProductService {
       params.itemId,
       params.shopId
     );
-    if (!item) throw new Error("ITEM_NOT_FOUND");
+    if (!item) throw new appError("ITEM_NOT_FOUND", 404);
 
     return item;
   }
@@ -277,13 +254,13 @@ export class ProductService {
       params.input
     );
 
-    if (!updated) throw new Error("ITEM_NOT_FOUND");
+    if (!updated) throw new appError("ITEM_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "PRODUCT_ITEM_UPDATED",
-      entity:   "PRODUCT_ITEM",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "PRODUCT_ITEM_UPDATED",
+      entity: "PRODUCT_ITEM",
       entityId: params.itemId,
       metadata: { updatedFields: Object.keys(params.input) },
     });
@@ -303,13 +280,13 @@ export class ProductService {
       params.shopId
     );
 
-    if (!deleted) throw new Error("ITEM_NOT_FOUND");
+    if (!deleted) throw new appError("ITEM_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "PRODUCT_ITEM_DELETED",
-      entity:   "PRODUCT_ITEM",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "PRODUCT_ITEM_DELETED",
+      entity: "PRODUCT_ITEM",
       entityId: params.itemId,
     });
 
@@ -330,13 +307,13 @@ export class ProductService {
       params.isActive
     );
 
-    if (!updated) throw new Error("ITEM_NOT_FOUND");
+    if (!updated) throw new appError("ITEM_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   params.isActive ? "PRODUCT_ITEM_ACTIVATED" : "PRODUCT_ITEM_DEACTIVATED",
-      entity:   "PRODUCT_ITEM",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: params.isActive ? "PRODUCT_ITEM_ACTIVATED" : "PRODUCT_ITEM_DEACTIVATED",
+      entity: "PRODUCT_ITEM",
       entityId: params.itemId,
     });
 
@@ -356,46 +333,43 @@ export class ProductService {
     reference_id?: string;
     notes?: string;
   }) {
-    // CASHIER can only do SALE / REFUND
-    // OWNER / MANAGER can do all 4 types
     const member = await ShopRepository.getUserShopMembership(
       params.shopId,
       params.requesterId
     );
 
-    if (!member || !member.is_active) throw new Error("FORBIDDEN");
+    if (!member || !member.is_active) throw new appError("FORBIDDEN", 403);
 
     const isWriteRole = WRITE_ROLES.includes(member.role);
     const isManagerialType =
       params.type === "PURCHASE" || params.type === "ADJUSTMENT";
 
     if (isManagerialType && !isWriteRole) {
-      throw new Error("FORBIDDEN");
+      throw new appError("FORBIDDEN", 403);
     }
 
-    // Enforce correct sign so callers cannot accidentally inflate stock
     const signedQty = enforceQuantitySign(params.type, params.quantity);
 
     const movement = await ProductRepository.createMovementWithStockUpdate({
-      shopId:        params.shopId,
+      shopId: params.shopId,
       productItemId: params.itemId,
-      type:          params.type,
-      quantity:      signedQty,
-      reference_id:  params.reference_id,
-      notes:         params.notes,
-      createdBy:     params.requesterId,
+      type: params.type,
+      quantity: signedQty,
+      reference_id: params.reference_id,
+      notes: params.notes,
+      createdBy: params.requesterId,
     });
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   `INVENTORY_${params.type}`,
-      entity:   "INVENTORY_MOVEMENT",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: `INVENTORY_${params.type}`,
+      entity: "INVENTORY_MOVEMENT",
       entityId: movement.id,
       metadata: {
         productItemId: params.itemId,
-        quantity:      signedQty,
-        type:          params.type,
+        quantity: signedQty,
+        type: params.type,
       },
     });
 
@@ -424,20 +398,19 @@ export class ProductService {
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
-    // Verify model belongs to shop
     const model = await ProductRepository.findModelById(
       params.modelId,
       params.shopId
     );
-    if (!model) throw new Error("MODEL_NOT_FOUND");
+    if (!model) throw new appError("MODEL_NOT_FOUND", 404);
 
     await ProductRepository.linkModifierGroup(params.modelId, params.groupId);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "MODIFIER_GROUP_LINKED",
-      entity:   "PRODUCT_MODEL",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "MODIFIER_GROUP_LINKED",
+      entity: "PRODUCT_MODEL",
       entityId: params.modelId,
       metadata: { groupId: params.groupId },
     });
@@ -456,7 +429,7 @@ export class ProductService {
       params.modelId,
       params.shopId
     );
-    if (!model) throw new Error("MODEL_NOT_FOUND");
+    if (!model) throw new appError("MODEL_NOT_FOUND", 404);
 
     return ProductRepository.findLinkedModifierGroups(params.modelId);
   }
@@ -474,13 +447,13 @@ export class ProductService {
       params.groupId
     );
 
-    if (!unlinked) throw new Error("LINK_NOT_FOUND");
+    if (!unlinked) throw new appError("LINK_NOT_FOUND", 404);
 
     await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "MODIFIER_GROUP_UNLINKED",
-      entity:   "PRODUCT_MODEL",
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: "MODIFIER_GROUP_UNLINKED",
+      entity: "PRODUCT_MODEL",
       entityId: params.modelId,
       metadata: { groupId: params.groupId },
     });

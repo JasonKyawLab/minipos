@@ -1,11 +1,14 @@
+// =========================================================
+// admin.service.ts
+// Path: backend/src/modules/admin/admin.service.ts
+// Line: Replace all error throws with appError
+// =========================================================
+
 import { AdminRepository } from "./admin.repository.js";
 import { AuditService } from "../audit/audit.service.js";
+import { appError } from "../../utils/appError.js";
 
 export class AdminService {
-
-  /* ============================
-     USERS
-  ============================ */
 
   static async getAllUsers() {
     return AdminRepository.findAllUsers();
@@ -13,11 +16,11 @@ export class AdminService {
 
   static async promoteToAdmin(targetUserId: string, actorId: string) {
     if (targetUserId === actorId) {
-      throw new Error("CANNOT_MODIFY_SELF_ROLE");
+      throw new appError("CANNOT_MODIFY_SELF_ROLE", 400);
     }
 
     const updated = await AdminRepository.updateUserRole(targetUserId, "ADMIN");
-    if (!updated) throw new Error("USER_NOT_FOUND");
+    if (!updated) throw new appError("USER_NOT_FOUND", 404);
 
     await AuditService.log({
       userId: actorId,
@@ -32,17 +35,16 @@ export class AdminService {
 
   static async demoteToUser(targetUserId: string, actorId: string) {
     if (targetUserId === actorId) {
-      throw new Error("CANNOT_DEMOTE_SELF");
+      throw new appError("CANNOT_DEMOTE_SELF", 400);
     }
 
-    // Optional: Prevent demoting last admin
     const admins = await AdminRepository.countAdmins();
     if (admins <= 1) {
-      throw new Error("CANNOT_DEMOTE_LAST_ADMIN");
+      throw new appError("CANNOT_DEMOTE_LAST_ADMIN", 400);
     }
 
     const updated = await AdminRepository.updateUserRole(targetUserId, "USER");
-    if (!updated) throw new Error("USER_NOT_FOUND");
+    if (!updated) throw new appError("USER_NOT_FOUND", 404);
 
     await AuditService.log({
       userId: actorId,
@@ -57,11 +59,11 @@ export class AdminService {
 
   static async deleteUser(targetUserId: string, actorId: string) {
     if (targetUserId === actorId) {
-      throw new Error("CANNOT_DELETE_SELF");
+      throw new appError("CANNOT_DELETE_SELF", 400);
     }
 
     const deleted = await AdminRepository.softDeleteUser(targetUserId);
-    if (!deleted) throw new Error("USER_NOT_FOUND");
+    if (!deleted) throw new appError("USER_NOT_FOUND", 404);
 
     await AuditService.log({
       userId: actorId,
@@ -75,7 +77,7 @@ export class AdminService {
 
   static async restoreUser(targetUserId: string, actorId: string) {
     const restored = await AdminRepository.restoreUser(targetUserId);
-    if (!restored) throw new Error("USER_NOT_FOUND");
+    if (!restored) throw new appError("USER_NOT_FOUND", 404);
 
     await AuditService.log({
       userId: actorId,
@@ -87,17 +89,13 @@ export class AdminService {
     return { success: true };
   }
 
-  /* ============================
-     SHOPS
-  ============================ */
-
   static async getAllShops() {
     return AdminRepository.findAllShops();
   }
 
   static async deleteShop(shopId: string, actorId: string) {
     const deleted = await AdminRepository.softDeleteShop(shopId);
-    if (!deleted) throw new Error("SHOP_NOT_FOUND");
+    if (!deleted) throw new appError("SHOP_NOT_FOUND", 404);
 
     await AuditService.log({
       userId: actorId,
@@ -111,7 +109,7 @@ export class AdminService {
 
   static async restoreShop(shopId: string, actorId: string) {
     const restored = await AdminRepository.restoreShop(shopId);
-    if (!restored) throw new Error("SHOP_NOT_FOUND");
+    if (!restored) throw new appError("SHOP_NOT_FOUND", 404);
 
     await AuditService.log({
       userId: actorId,
