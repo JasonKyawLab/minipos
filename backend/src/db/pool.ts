@@ -1,9 +1,28 @@
 import { Pool } from "pg";
+import { env } from "../config/validation.js";
+
 
 export const pool = new Pool({
-  host: process.env.POSTGRES_HOST || "postgres",
-  port: Number(process.env.POSTGRES_PORT || 5432),
-  user: process.env.POSTGRES_USER,
-  password: process.env.POSTGRES_PASSWORD,
-  database: process.env.POSTGRES_DB,
+  host: env.POSTGRES_HOST,
+  port: env.POSTGRES_PORT,
+  user: env.POSTGRES_USER,
+  password: env.POSTGRES_PASSWORD,
+  database: env.POSTGRES_DB,
 });
+
+pool.on("connect", () => {
+  console.log("Database connected");
+});
+
+pool.on("error", (err) => {
+  console.error("Unexpected database error:", err);
+});
+
+export async function checkDatabaseConnection(): Promise<boolean> {
+  try {
+    await pool.query("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
+}
