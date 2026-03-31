@@ -1,7 +1,12 @@
 // =========================================================
 // socket.ts
-// Path: backend/src/socket/socket.ts
-// Line: 1-250
+// Path: backend/src/modules/socket/socket.ts
+// =========================================================
+// FIX: removed stale socket.on(SOCKET_EVENTS.TABLE_UPDATED)
+// binding that was incorrectly calling handleJoinShop.
+// That meant any client emitting "table:updated" would
+// accidentally trigger a shop room join. Only the correct
+// "join_shop" string binding remains.
 // =========================================================
 
 import { Server, Socket } from "socket.io";
@@ -13,11 +18,13 @@ import { SOCKET_EVENTS } from "./socket.events.js";
 import { randomUUID } from "crypto";
 import { env } from "../../config/validation.js";
 
-// Singleton instance
 let io: Server;
 
-// Store connected clients for targeted notifications
-const connectedClients = new Map<string, { socketId: string; userId: string; shopId?: string }>();
+const connectedClients = new Map<string, {
+  socketId: string;
+  userId: string;
+  shopId?: string;
+}>();
 
 // =========================================================
 // INITIALIZATION
@@ -31,7 +38,6 @@ export function initSocket(httpServer: HttpServer): Server {
       origin: corsOrigin,
       credentials: true,
     },
-    // Reduce memory usage with these options
     pingTimeout: 60000,
     pingInterval: 25000,
     transports: ["websocket", "polling"],
@@ -43,7 +49,6 @@ export function initSocket(httpServer: HttpServer): Server {
     socket.data.requestId = requestId;
 
     try {
-      // Extract JWT from cookie
       const cookie = socket.handshake.headers.cookie ?? "";
       const match = cookie.match(/access_token=([^;]+)/);
 
@@ -58,7 +63,6 @@ export function initSocket(httpServer: HttpServer): Server {
         tokenVersion: number;
       };
 
-      // Verify user exists and is active
       const user = await UserRepository.findById(decoded.userId);
       if (!user || user.is_deleted) {
         console.log(`[Socket][${requestId}] User not found or deleted: ${decoded.userId}`);
@@ -75,14 +79,12 @@ export function initSocket(httpServer: HttpServer): Server {
         return next(new Error("USER_NOT_ACTIVE"));
       }
 
-      // Attach user data to socket
-      socket.data.userId = user.id;
-      socket.data.userRole = user.role;
-      socket.data.userName = user.name;
+      socket.data.userId    = user.id;
+      socket.data.userRole  = user.role;
+      socket.data.userName  = user.name;
       socket.data.userEmail = user.email;
 
       console.log(`[Socket][${requestId}] Authenticated: ${user.email} (${user.id})`);
-
       next();
     } catch (err) {
       console.error(`[Socket][${requestId}] Auth error:`, err);
@@ -92,27 +94,19 @@ export function initSocket(httpServer: HttpServer): Server {
 
   // ── Connection handler ───────────────────────────────────
   io.on("connection", (socket: Socket) => {
-    const userId = socket.data.userId;
+    const userId    = socket.data.userId;
     const requestId = socket.data.requestId;
 
-    // Store client connection
-    connectedClients.set(socket.id, {
-      socketId: socket.id,
-      userId,
-    });
+    connectedClients.set(socket.id, { socketId: socket.id, userId });
 
     console.log(`[Socket][${requestId}] Connected: ${userId}`);
 
     // =======================================================
     // EVENT: join_shop
+    // FIX: removed stale socket.on(SOCKET_EVENTS.TABLE_UPDATED)
+    // binding that incorrectly called handleJoinShop.
+    // Only this correct binding remains.
     // =======================================================
-    socket.on(SOCKET_EVENTS.TABLE_UPDATED, async (shopId: string) => {
-      // This event name is used for joining, but we'll use a dedicated event
-      // For backward compatibility, we'll handle both
-      await handleJoinShop(socket, shopId);
-    });
-
-    // Use proper event name
     socket.on("join_shop", async (shopId: string) => {
       await handleJoinShop(socket, shopId);
     });
@@ -140,19 +134,18 @@ export function initSocket(httpServer: HttpServer): Server {
     });
 
     // =======================================================
-    // EVENT: get_connected_users (for admin dashboard)
+    // EVENT: get_connected_users (admin dashboard only)
     // =======================================================
     socket.on("get_connected_users", async () => {
-      // Only admins can see connected users
       if (socket.data.userRole !== "ADMIN") {
         socket.emit("error", { message: "UNAUTHORIZED" });
         return;
       }
 
       const users = Array.from(connectedClients.values()).map(client => ({
-        userId: client.userId,
+        userId:   client.userId,
         socketId: client.socketId,
-        shopId: client.shopId,
+        shopId:   client.shopId,
       }));
 
       socket.emit("connected_users", { users });
@@ -166,9 +159,6 @@ export function initSocket(httpServer: HttpServer): Server {
       console.log(`[Socket][${requestId}] Disconnected: ${userId}`);
     });
 
-    // =======================================================
-    // ERROR HANDLER
-    // =======================================================
     socket.on("error", (error) => {
       console.error(`[Socket][${requestId}] Socket error:`, error);
     });
@@ -182,39 +172,32 @@ export function initSocket(httpServer: HttpServer): Server {
 // =========================================================
 async function handleJoinShop(socket: Socket, shopId: string) {
   const requestId = socket.data.requestId;
-  const userId = socket.data.userId;
+  const userId    = socket.data.userId;
 
   try {
-    // Validate shopId format
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(shopId)) {
       socket.emit("error", { message: "INVALID_SHOP_ID" });
       return;
     }
 
-    // Verify user is a member of this shop
     const member = await ShopRepository.getUserShopMembership(shopId, userId);
-
     if (!member || !member.is_active) {
       socket.emit("error", { message: "NOT_A_SHOP_MEMBER" });
       return;
     }
 
-    // Leave any previous shop rooms
     const roomsToLeave = Array.from(socket.rooms).filter(
       room => room.startsWith("shop:") && room !== `shop:${shopId}`
     );
-
     for (const room of roomsToLeave) {
       socket.leave(room);
       console.log(`[Socket][${requestId}] Left room: ${room}`);
     }
 
-    // Join the new shop room
     socket.join(`shop:${shopId}`);
     socket.data.shopId = shopId;
 
-    // Update connected clients map
     const existing = connectedClients.get(socket.id);
     if (existing) {
       connectedClients.set(socket.id, { ...existing, shopId });
@@ -222,11 +205,10 @@ async function handleJoinShop(socket: Socket, shopId: string) {
 
     console.log(`[Socket][${requestId}] Joined shop: ${shopId}, role: ${member.role}`);
 
-    // Send confirmation with shop details
     socket.emit("joined_shop", {
-      success: true,
+      success:   true,
       shopId,
-      role: member.role,
+      role:      member.role,
       timestamp: Date.now(),
     });
 
@@ -237,7 +219,7 @@ async function handleJoinShop(socket: Socket, shopId: string) {
 }
 
 // =========================================================
-// GETTER: Get Socket.IO instance
+// GETTER
 // =========================================================
 export function getIO(): Server {
   if (!io) {
@@ -247,7 +229,7 @@ export function getIO(): Server {
 }
 
 // =========================================================
-// HELPER: Emit to a shop room with error handling
+// HELPERS: Emit to shop room or specific user
 // =========================================================
 export function emitToShop(shopId: string, event: string, data: any): void {
   try {
@@ -261,9 +243,6 @@ export function emitToShop(shopId: string, event: string, data: any): void {
   }
 }
 
-// =========================================================
-// HELPER: Emit to a specific user (for direct notifications)
-// =========================================================
 export function emitToUser(userId: string, event: string, data: any): void {
   try {
     if (!io) return;

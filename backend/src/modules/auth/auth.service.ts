@@ -1,9 +1,3 @@
-// =========================================================
-// auth.service.ts
-// Path: backend/src/modules/auth/auth.service.ts
-// Line: Replace all error throws with appError
-// =========================================================
-
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { UserRepository } from "../user/user.repository.js";
 import { comparePassword, hashPassword } from "../../utils/password.js";
@@ -22,9 +16,9 @@ export class AuthService {
       await AuditService.log({
         action: "LOGIN_FAILED",
         entity: "USER",
-        metadata: { email: normalizedEmail },
+        metadata: { reason: "USER_NOT_FOUND", email: normalizedEmail },
       });
-      throw new appError("USER_NOT_FOUND", 404);
+      throw new appError("INVALID_CREDENTIALS", 401);
     }
 
     const isValid = await comparePassword(password, user.password_hash);
@@ -33,8 +27,9 @@ export class AuthService {
         userId: user.id,
         action: "LOGIN_FAILED",
         entity: "USER",
+        metadata: { reason: "INVALID_PASSWORD" },
       });
-      throw new appError("INVALID_PASSWORD", 401);
+      throw new appError("INVALID_CREDENTIALS", 401);
     }
 
     if (!env.JWT_SECRET) {

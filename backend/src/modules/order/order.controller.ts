@@ -1,19 +1,8 @@
-// =========================================================
-// order.controller.ts
-// Path: backend/src/modules/order/order.controller.ts
-// =========================================================
-// HTTP layer only.
-// Responsibilities:
-//   - Read req.params, req.body, req.query
-//   - Call service
-//   - Return HTTP response
-//   - Handle errors via shared handleError()
-// =========================================================
-
 import { Request, Response } from "express";
 import { OrderService }      from "./order.service.js";
 import { getParamAsString }  from "../../utils/converter.js";
-import { ListOrdersFilter, OrderStatus }  from "./order.types.js";
+import { handleError }       from "../../utils/handleError.js";
+import { ListOrdersFilter, OrderStatus } from "./order.types.js";
 
 export class OrderController {
 
@@ -39,7 +28,7 @@ export class OrderController {
       const order = await OrderService.createOrder({
         shopId,
         requesterId,
-        cashierId:      requesterId,
+        cashierId:       requesterId,
         orderType:       order_type,
         tableId:         table_id,
         customerName:    customer_name,
@@ -58,15 +47,14 @@ export class OrderController {
       const shopId      = getParamAsString(req.params.shopId, "shopId");
       const requesterId = req.user!.id;
 
-      // Parse query string filters
       const filter: ListOrdersFilter = {
         shopId,
-        status:    req.query.status    as OrderStatus | undefined,
+        status:    req.query.status     as OrderStatus | undefined,
         orderType: req.query.order_type as any,
-        from:      req.query.from      as string | undefined,
-        to:        req.query.to        as string | undefined,
-        limit:     req.query.limit     ? parseInt(req.query.limit as string)  : undefined,
-        offset:    req.query.offset    ? parseInt(req.query.offset as string) : undefined,
+        from:      req.query.from       as string | undefined,
+        to:        req.query.to         as string | undefined,
+        limit:     req.query.limit      ? parseInt(req.query.limit  as string) : undefined,
+        offset:    req.query.offset     ? parseInt(req.query.offset as string) : undefined,
       };
 
       const orders = await OrderService.getOrders(filter, requesterId);
@@ -80,11 +68,7 @@ export class OrderController {
       const orderId     = getParamAsString(req.params.orderId, "orderId");
       const requesterId = req.user!.id;
 
-      const order = await OrderService.getOrderById(
-        orderId,
-        shopId,
-        requesterId
-      );
+      const order = await OrderService.getOrderById(orderId, shopId, requesterId);
       return res.json(order);
     } catch (err: any) { return handleError(res, err); }
   }
@@ -169,23 +153,4 @@ export class OrderController {
       return res.json(result);
     } catch (err: any) { return handleError(res, err); }
   }
-}
-
-// ── Shared error handler ──────────────────────────────────
-function handleError(res: Response, err: any) {
-  const map: Record<string, number> = {
-    FORBIDDEN:                 403,
-    ORDER_NOT_FOUND:           404,
-    ORDER_ITEM_NOT_FOUND:      404,
-    PRODUCT_ITEM_NOT_FOUND:    404,
-    PRODUCT_MODEL_NOT_FOUND:   404,
-    SHOP_NOT_FOUND:            404,
-    PRODUCT_ITEM_INACTIVE:     400,
-    ORDER_NOT_EDITABLE:        400,
-    INVALID_STATUS_TRANSITION: 400,
-  };
-
-  const status = map[err.message] ?? 500;
-  if (status === 500) console.error("[OrderController]", err);
-  return res.status(status).json({ message: err.message });
 }

@@ -1,14 +1,9 @@
-// =========================================================
-// user.controller.ts
-// Path: backend/src/modules/user/user.controller.ts
-// Line: Replace handleError function
-// =========================================================
-
 import { Request, Response } from "express";
 import { UserService } from "./user.service.js";
 import { toUserDTO } from "./user.dto.js";
 import { AuthService } from "../auth/auth.service.js";
 import { handleError } from "../../utils/handleError.js";
+import { env } from "../../config/env.js";
 
 export class UserController {
 
@@ -56,7 +51,7 @@ export class UserController {
       );
       res.cookie("access_token", token, {
         httpOnly: true,
-        secure: false,
+        secure: env.NODE_ENV === "development",
         sameSite: "lax",
       });
       res.json({ message: "Password changed successfully" });

@@ -1,59 +1,65 @@
+// =========================================================
+// shop.routes.ts
+// Path: backend/src/modules/shop/shop.routes.ts
+// =========================================================
+// INTENTIONAL DESIGN: requireRole("USER") is correct here.
+// ADMINs manage the platform — they do not own shops.
+// If an ADMIN needs to manage a shop they must create a
+// USER account first. This is by design.
+//
+// FIX: replaced requireBody() with Zod validate() on
+// createShop and updateShop so invalid enum values
+// (e.g. currency:"DOGECOIN") return a clean 400 instead
+// of a raw PostgreSQL enum constraint error.
+// =========================================================
+
 import { Router } from "express";
 import { ShopController } from "./shop.controller.js";
 import { requireAuth } from "../auth/auth.middleware.js";
 import { requireRole } from "../auth/role.middleware.js";
-import { requireBody } from "../../middlewares/validate.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import {
+  createShopSchema,
+  updateShopSchema,
+  addStaffSchema,
+} from "./shop.schema.js";
 
 const router = Router();
 
 router.use(requireAuth);
+
+// INTENTIONAL: only USER role can own/create shops.
+// ADMINs are platform administrators, not shop owners.
 router.use(requireRole("USER"));
-/**
- * Create a new shop
- * Any authenticated user can create a shop
- */
+
 router.post(
   "/",
-  requireBody(["name", "shopType", "currency"]),
+  validate(createShopSchema),
   ShopController.createShop
 );
 
-/**
- * Update shop info (OWNER only — enforced in service)
- */
 router.patch(
   "/:shopId",
+  validate(updateShopSchema),
   ShopController.updateShop
 );
 
-/**
- * Delete shop (OWNER only — enforced in service)
- */
 router.delete(
   "/:shopId",
   ShopController.deleteShop
 );
 
-/**
- * Add staff (OWNER / MANAGER — enforced in service)
- */
 router.post(
   "/:shopId/staff",
-  requireBody(["userId", "role"]),
+  validate(addStaffSchema),
   ShopController.addStaff
 );
 
-/**
- * Get shop staff (OWNER / MANAGER — enforced in service)
- */
 router.get(
   "/:shopId/staff",
   ShopController.getStaff
 );
 
-/**
- * Remove staff (OWNER / MANAGER — enforced in service)
- */
 router.delete(
   "/:shopId/staff/:userId",
   ShopController.removeStaff

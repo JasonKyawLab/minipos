@@ -1,13 +1,8 @@
-// =========================================================
-// auth.controller.ts
-// Path: backend/src/modules/auth/auth.controller.ts
-// Line: Replace entire file
-// =========================================================
-
 import { Request, Response } from "express";
 import { AuthService } from "./auth.service.js";
 import { LoginRequest } from "./auth.types.js";
 import { handleError } from "../../utils/handleError.js";
+import { env } from "../../config/env.js";
 
 export class AuthController {
 
@@ -27,7 +22,7 @@ export class AuthController {
 
       res.cookie("access_token", result.token, {
         httpOnly: true,
-        secure: false,
+        secure: env.NODE_ENV === "development",
         sameSite: "lax",
         maxAge: 24 * 60 * 60 * 1000,
       });
