@@ -17,6 +17,8 @@ import {
 } from "./order.types.js";
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
+import { SOCKET_EVENTS } from "../socket/socket.events.js";
+import { emitToShop ,emitToQrSession } from "../socket/socket.js";
 
 const ALL_ROLES = ["OWNER", "MANAGER", "CASHIER"] as const;
 const WRITE_ROLES = ["OWNER", "MANAGER"] as const;
@@ -126,6 +128,34 @@ export class OrderService {
       params.shopId,
       params.newStatus
     );
+
+// ── Notify QR customer if this is a QR order ─────────────
+if (order.order_type === "QR") {
+  try {
+    emitToQrSession(params.orderId, SOCKET_EVENTS.QR_ORDER_STATUS, {
+      orderId:   params.orderId,
+      orderNo:   order.order_no,
+      newStatus: params.newStatus,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (socketErr) {
+    console.error("QR session socket emit failed:", socketErr);
+  }
+}
+
+// Always notify staff room too
+try {
+  emitToShop(params.shopId, SOCKET_EVENTS.ORDER_STATUS_CHANGED, {
+    orderId:   params.orderId,
+    orderNo:   order.order_no,
+    newStatus: params.newStatus,
+    oldStatus: order.status,
+    orderType: order.order_type,
+    timestamp: new Date().toISOString(),
+  });
+} catch (socketErr) {
+  console.error("Shop socket emit failed:", socketErr);
+}
 
     await AuditService.log({
       shopId: params.shopId,

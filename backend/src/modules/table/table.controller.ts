@@ -82,16 +82,17 @@ export class TableController {
   }
 
   // Public endpoint — no auth — for QR scan landing page
-  static async getByQrToken(req: Request, res: Response) {
-    try {
-      const { token } = req.params;
+static async getByQrToken(req: Request, res: Response) {
+  try {
+    const token = getParamAsString(req.params.token, "token");
 
-    if (!token || typeof token !== 'string') {
-      return res.status(400).json({ message: "Invalid QR token" });
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!token || !uuidRegex.test(token)) {
+      return res.status(400).json({ message: "INVALID_QR_TOKEN" });
     }
 
-      const table = await TableService.getTableByQrToken(token);
-      return res.json(table);
-    } catch (err) { return handleError(res, err); }
-  }
+    const table = await TableService.getTableByQrToken(token);
+    return res.json(table);
+  } catch (err) { return handleError(res, err); }
+}
 }

@@ -87,7 +87,7 @@ export interface ModifierSnapshot {
 
 export interface CreateOrderInput {
   shopId: string;
-  cashierId: string;
+  cashierId: string | null;
   orderType: OrderType;
   tableId?: string;
   customerName?: string;
