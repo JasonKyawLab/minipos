@@ -13,6 +13,7 @@ import paymentRoutes from "./modules/payment/payment.routes.js";
 import refundRoutes  from "./modules/refund/refund.routes.js";
 import tableRoutes   from "./modules/table/table.routes.js";
 import qrRoutes from "./modules/qr/qr.routes.js";
+import reportRoutes from "./modules/report/report.routes.js";
 
 import { TableController } from "./modules/table/table.controller.js";
 import { handleError }     from "./utils/handleError.js";
@@ -70,6 +71,7 @@ app.use("/api/shops/:shopId/modifiers", modifierRoutes);
 app.use("/api/shops/:shopId/orders",    orderRoutes);
 app.use("/api/shops/:shopId/orders/:orderId/payments", paymentRoutes);
 app.use("/api/shops/:shopId/orders/:orderId/refunds",  refundRoutes);
+app.use("/api/shops/:shopId/reports", reportRoutes);
 
 // Public QR table lookup — no auth required
 app.get("/api/tables/qr/:token", TableController.getByQrToken);
