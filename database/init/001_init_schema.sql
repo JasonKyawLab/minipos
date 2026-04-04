@@ -129,6 +129,9 @@ CREATE TABLE shops (
               CHECK (tax_rate >= 0 AND tax_rate <= 100),
   timezone    VARCHAR(60)  NOT NULL DEFAULT 'UTC',
 
+  pin_max_attempts SMALLINT     NOT NULL DEFAULT 5
+                   CHECK (pin_max_attempts >= 1 AND pin_max_attempts <= 10),
+
   is_deleted  BOOLEAN     NOT NULL DEFAULT FALSE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -187,6 +190,10 @@ CREATE TABLE shop_users (
   id         UUID       PRIMARY KEY DEFAULT uuid_generate_v4(),
   shop_id    UUID       NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   user_id    UUID       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  pin_hash   VARCHAR(255),
+  pin_attempts      SMALLINT    NOT NULL    DEFAULT 0 CHECK (pin_attempts >= 0),
+  pin_locked_until  TIMESTAMPTZ,
 
   role       shop_role  NOT NULL,
   is_active  BOOLEAN    NOT NULL DEFAULT TRUE,
