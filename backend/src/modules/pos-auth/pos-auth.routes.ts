@@ -1,17 +1,21 @@
 // =========================================================
-// Nested under /api/shops/:shopId/pos-auth
-// mergeParams: true makes :shopId available in req.params
+// pos-auth.routes.ts
+// Path: backend/src/modules/pos-auth/pos-auth.routes.ts
+// =========================================================
+// Route order matters. Public routes MUST be defined before
+// requireAuth is applied, otherwise the middleware intercepts
+// them and returns 401 before the handler is ever reached.
 //
-// Auth layers per route:
+// Public (no cookie needed — tablet calls these before login):
+//   GET  /staff-list    → populate PIN grid
+//   POST /login         → PIN-based authentication
+//   POST /logout        → clear pos_token cookie
 //
-//   staff-list   — no auth (tablet reads this before login)
-//   login        — no auth (this IS the auth step)
-//   logout       — no auth (just clears cookie)
-//   pin (set)    — requireAuth (platform token — staff must
-//                  be logged into their account to set a PIN)
-//   pin (delete) — requireAuth
-//   reset-lock   — requireAuth + platform USER role
-//   settings     — requireAuth + platform USER role
+// Protected (require platform access_token cookie):
+//   POST   /pin         → staff sets their own PIN
+//   DELETE /pin         → staff removes their own PIN
+//   PATCH  /reset-lock/:userId → owner/manager unlocks cashier
+//   PATCH  /settings    → owner configures pin_max_attempts
 // =========================================================
 
 import { Router }            from "express";
@@ -27,7 +31,9 @@ import {
 
 const router = Router({ mergeParams: true });
 
-// ── No-auth routes (tablet public) ───────────────────────
+// ── PUBLIC ROUTES — no requireAuth above these ────────────
+// These must come BEFORE any router.use(requireAuth) call.
+// Express middleware is applied in registration order.
 
 // GET /api/shops/:shopId/pos-auth/staff-list
 router.get(
@@ -48,13 +54,14 @@ router.post(
   PosAuthController.logout
 );
 
-// ── Platform-auth routes (staff logged in) ────────────────
+// ── PROTECTED ROUTES — requireAuth applies from here down ─
+// router.use() at this point only affects routes registered
+// after it in this file.
 
 router.use(requireAuth);
-router.use(requireRole("USER"));   // ADMINs cannot own shops → cannot have PINs
+router.use(requireRole("USER")); // ADMINs are platform-only, not shop members
 
 // POST /api/shops/:shopId/pos-auth/pin
-// Staff sets their own PIN
 router.post(
   "/pin",
   validate(setPinSchema),
@@ -62,21 +69,18 @@ router.post(
 );
 
 // DELETE /api/shops/:shopId/pos-auth/pin
-// Staff removes their own PIN
 router.delete(
   "/pin",
   PosAuthController.removePin
 );
 
 // PATCH /api/shops/:shopId/pos-auth/reset-lock/:userId
-// OWNER / MANAGER unlocks a locked-out cashier
 router.patch(
   "/reset-lock/:userId",
   PosAuthController.resetStaffLock
 );
 
 // PATCH /api/shops/:shopId/pos-auth/settings
-// OWNER sets pin_max_attempts (1-10)
 router.patch(
   "/settings",
   validate(updatePinMaxAttemptsSchema),

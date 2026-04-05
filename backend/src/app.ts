@@ -63,6 +63,9 @@ app.get("/health", async (_req, res) => {
 
 // ── Routes ───────────────────────────────────────────────
 app.use("/api/auth",   authRoutes);
+app.use("/api/shops/:shopId/pos-auth",  posAuthRoutes);
+
+
 app.use("/api/shops",  shopRoutes);
 app.use("/api/users",  userRoutes);
 app.use("/api/admin",  adminRoutes);
@@ -73,7 +76,6 @@ app.use("/api/shops/:shopId/orders",    orderRoutes);
 app.use("/api/shops/:shopId/orders/:orderId/payments", paymentRoutes);
 app.use("/api/shops/:shopId/orders/:orderId/refunds",  refundRoutes);
 app.use("/api/shops/:shopId/reports", reportRoutes);
-app.use("/api/shops/:shopId/pos-auth",  posAuthRoutes);
 
 // Public QR table lookup — no auth required
 app.get("/api/tables/qr/:token", TableController.getByQrToken);
