@@ -19,6 +19,7 @@ import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
 import { SOCKET_EVENTS } from "../socket/socket.events.js";
 import { emitToShop ,emitToQrSession } from "../socket/socket.js";
+import { KitchenService } from '../kitchen/kitchen.service.js';
 
 const ALL_ROLES = ["OWNER", "MANAGER", "CASHIER"] as const;
 const WRITE_ROLES = ["OWNER", "MANAGER"] as const;
@@ -155,6 +156,46 @@ try {
   });
 } catch (socketErr) {
   console.error("Shop socket emit failed:", socketErr);
+}
+
+if (params.newStatus === 'CONFIRMED') {
+  try {
+    // Get table number if this is a dine-in order
+    let tableNumber: string | null = null;
+    if (order.order_type === 'DINE_IN' && order.table_id) {
+      const tableResult = await pool.query(
+        `SELECT table_number FROM restaurant_tables WHERE id = $1`,
+        [order.table_id]
+      );
+      tableNumber = tableResult.rows[0]?.table_number ?? null;
+    }
+
+    await KitchenService.createTicket({
+      shopId:       params.shopId,
+      orderId:      params.orderId,
+      orderNo:      order.order_no,
+      orderType:    order.order_type,
+      tableNumber,
+      customerName: order.customer_name,
+      notes:        order.notes,
+    });
+  } catch (kitchenErr) {
+    // Kitchen ticket creation failure is non-fatal.
+    // The order status change is already committed.
+    console.error('Kitchen ticket creation failed:', kitchenErr);
+  }
+}
+
+if (params.newStatus === 'CANCELLED') {
+  try {
+    await KitchenService.cancelTicket({
+      shopId:  params.shopId,
+      orderId: params.orderId,
+      orderNo: order.order_no,
+    });
+  } catch (kitchenErr) {
+    console.error('Kitchen ticket cancellation failed:', kitchenErr);
+  }
 }
 
     await AuditService.log({

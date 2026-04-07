@@ -41,6 +41,9 @@ CREATE TYPE currency         AS ENUM ('USD', 'SGD', 'THB', 'MMK', 'EUR');
 
 CREATE TYPE device_status    AS ENUM ('PENDING', 'APPROVED', 'REVOKED');
 
+CREATE TYPE kitchen_status AS ENUM ('PENDING', 'PREPARING', 'READY', 'SERVED', 'CANCELLED');
+CREATE TYPE kitchen_ticket_status AS ENUM ( 'QUEUED', 'IN_PROGRESS', 'READY', 'DONE', 'CANCELLED');
+CREATE TYPE kitchen_priority AS ENUM ('NORMAL', 'HIGH');
 
 -- =========================================================
 -- updated_at TRIGGER FUNCTION
@@ -530,6 +533,8 @@ CREATE TABLE order_items (
   order_id                UUID             NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   product_item_id         UUID             REFERENCES product_items(id) ON DELETE SET NULL,
 
+  kitchen_status          kitchen_status   NOT NULL DEFAULT 'PENDING',
+
   product_name_snapshot   VARCHAR(255)     NOT NULL,
   item_name_snapshot      VARCHAR(255)     NOT NULL,
   unit_price_snapshot     DECIMAL(12,2)    NOT NULL CHECK (unit_price_snapshot >= 0),
@@ -551,9 +556,98 @@ CREATE TABLE order_items (
 );
 
 CREATE INDEX idx_order_items_order        ON order_items(order_id);
-CREATE INDEX idx_order_items_product_item ON order_items(product_item_id)
-  WHERE product_item_id IS NOT NULL;
+CREATE INDEX idx_order_items_product_item ON order_items(product_item_id) WHERE product_item_id IS NOT NULL;
+CREATE INDEX idx_order_items_kitchen_status ON order_items(order_id, kitchen_status);
+CREATE INDEX idx_order_items_kitchen_active ON order_items(kitchen_status) WHERE kitchen_status IN ('PENDING', 'PREPARING');
 
+-- =========================================================
+-- Kitchen Stations 
+-- =========================================================
+-- Named prep zones: "Grill", "Cold Prep", "Bar", etc.
+-- Shops without stations run in all-in-one mode.
+-- Must be defined BEFORE kitchen_tickets references it.
+-- =========================================================
+
+CREATE TABLE kitchen_stations (
+  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+  shop_id     UUID         NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+
+  name        VARCHAR(100) NOT NULL,
+  description TEXT,
+  color       VARCHAR(7),  -- hex colour for the KDS UI e.g. #FF5733
+
+  is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
+  sort_order  SMALLINT     NOT NULL DEFAULT 0,
+
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+
+  UNIQUE (shop_id, name)
+);
+
+CREATE INDEX idx_kitchen_stations_shop ON kitchen_stations(shop_id);
+CREATE TRIGGER trg_kitchen_stations_updated_at BEFORE UPDATE ON kitchen_stations FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- Kitchen Tickets
+-- =========================================================
+-- One row per order that enters the kitchen.
+-- Denormalised order_no/order_type/table_number means the
+-- kitchen display never needs a JOIN back to orders.
+-- =========================================================
+
+
+CREATE TABLE kitchen_tickets (
+  id              UUID                  PRIMARY KEY DEFAULT uuid_generate_v4(),
+  shop_id         UUID                  NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  order_id        UUID                  NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+
+  -- Denormalised snapshot fields for fast display queries
+  order_no        VARCHAR(30)           NOT NULL,
+  order_type      order_type            NOT NULL,
+  table_number    VARCHAR(20),          -- NULL for non-dine-in
+  customer_name   VARCHAR(150),         -- NULL if anonymous
+  notes           TEXT,                 -- cashier notes for kitchen
+
+  ticket_status   kitchen_ticket_status NOT NULL DEFAULT 'QUEUED',
+  priority        kitchen_priority      NOT NULL DEFAULT 'NORMAL',
+
+  station_id      UUID                  REFERENCES kitchen_stations(id) ON DELETE SET NULL,
+
+  -- Performance timestamps for future kitchen analytics
+  queued_at       TIMESTAMPTZ           NOT NULL DEFAULT now(),
+  first_bump_at   TIMESTAMPTZ,          -- first item moved to PREPARING
+  all_ready_at    TIMESTAMPTZ,          -- all items READY
+  completed_at    TIMESTAMPTZ,          -- ticket marked DONE
+
+  created_at      TIMESTAMPTZ           NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ           NOT NULL DEFAULT now(),
+
+  UNIQUE (shop_id, order_id)
+);
+
+CREATE INDEX idx_kitchen_tickets_shop_status ON kitchen_tickets(shop_id, ticket_status);
+-- Primary index for the live kitchen display query
+CREATE INDEX idx_kitchen_tickets_active ON kitchen_tickets(shop_id, ticket_status, priority DESC, queued_at ASC) WHERE ticket_status IN ('QUEUED', 'IN_PROGRESS', 'READY');
+CREATE INDEX idx_kitchen_tickets_order ON kitchen_tickets(order_id);
+CREATE TRIGGER trg_kitchen_tickets_updated_at BEFORE UPDATE ON kitchen_tickets FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- Kitchen Station Categories 
+-- =========================================================
+-- Routes product models to a station.
+-- e.g. "Burger" model → "Grill" station.
+-- Product models with no mapping appear on ALL station displays.
+-- =========================================================
+
+CREATE TABLE kitchen_station_categories (
+  station_id        UUID NOT NULL REFERENCES kitchen_stations(id) ON DELETE CASCADE,
+  product_model_id  UUID NOT NULL REFERENCES product_models(id) ON DELETE CASCADE,
+
+  PRIMARY KEY (station_id, product_model_id)
+);
+
+CREATE INDEX idx_kitchen_station_categories_model ON kitchen_station_categories(product_model_id);
 
 -- =========================================================
 -- PAYMENTS

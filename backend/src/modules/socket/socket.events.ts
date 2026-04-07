@@ -41,8 +41,15 @@ export const SOCKET_EVENTS = {
   STOCK_UPDATED:        "stock:updated",
 
   // QR code 
-   QR_ORDER_PLACED:      "qr:order_placed",
-   QR_ORDER_STATUS:      "qr:order_status",
+  QR_ORDER_PLACED:      "qr:order_placed",
+  QR_ORDER_STATUS:      "qr:order_status",
+
+   // Add to the SOCKET_EVENTS object:
+  KITCHEN_TICKET_CREATED: "kitchen:ticket_created",
+  KITCHEN_TICKET_UPDATED: "kitchen:ticket_updated",
+  KITCHEN_TICKET_READY:   "kitchen:ticket_ready",
+  KITCHEN_ITEM_STATUS:    "kitchen:item_status",
+
 } as const;
 
 export type SocketEvent = typeof SOCKET_EVENTS[keyof typeof SOCKET_EVENTS];

@@ -26,6 +26,7 @@ import {
 import { pool } from "./db/pool.js";
 import { env }  from "./config/validation.js";
 import posAuthRoutes from "./modules/pos-auth/pos-auth.routes.js";
+import kitchenRoutes from "./modules/kitchen/kitchen.routes.js";
 
 const app = express();
 
@@ -76,6 +77,7 @@ app.use("/api/shops/:shopId/orders",    orderRoutes);
 app.use("/api/shops/:shopId/orders/:orderId/payments", paymentRoutes);
 app.use("/api/shops/:shopId/orders/:orderId/refunds",  refundRoutes);
 app.use("/api/shops/:shopId/reports", reportRoutes);
+app.use("/api/shops/:shopId/kitchen", kitchenRoutes);
 
 // Public QR table lookup — no auth required
 app.get("/api/tables/qr/:token", TableController.getByQrToken);
