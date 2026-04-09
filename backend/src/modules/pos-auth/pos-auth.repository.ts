@@ -26,9 +26,9 @@ export class PosAuthRepository {
         su.user_id,
         u.name,
         su.role,
-        (su.pin_hash IS NOT NULL)                         AS has_pin,
-        (su.pin_locked_until IS NOT NULL
-          AND su.pin_locked_until > now())                AS is_locked
+        (su.pos_pin_hash IS NOT NULL)                         AS has_pin,
+        (su.pos_pin_locked_until IS NOT NULL
+          AND su.pos_pin_locked_until > now())                AS is_locked
       FROM shop_users su
       JOIN users u ON u.id = su.user_id
       WHERE su.shop_id   = $1
@@ -50,9 +50,9 @@ export class PosAuthRepository {
       SELECT
         su.role,
         su.is_active,
-        su.pin_hash,
-        su.pin_attempts,
-        su.pin_locked_until
+        su.pos_pin_hash,
+        su.pos_pin_attempts,
+        su.pos_pin_locked_until
       FROM shop_users su
       WHERE su.shop_id = $1
         AND su.user_id = $2
@@ -72,9 +72,9 @@ export class PosAuthRepository {
     const result = await pool.query(
       `
       UPDATE shop_users
-      SET pin_hash         = $3,
-          pin_attempts     = 0,
-          pin_locked_until = NULL
+      SET pos_pin_hash         = $3,
+          pos_pin_attempts     = 0,
+          pos_pin_locked_until = NULL
       WHERE shop_id  = $1
         AND user_id  = $2
         AND is_active = true
@@ -89,9 +89,9 @@ export class PosAuthRepository {
     const result = await pool.query(
       `
       UPDATE shop_users
-      SET pin_hash         = NULL,
-          pin_attempts     = 0,
-          pin_locked_until = NULL
+      SET pos_pin_hash         = NULL,
+          pos_pin_attempts     = 0,
+          pos_pin_locked_until = NULL
       WHERE shop_id  = $1
         AND user_id  = $2
         AND is_active = true
@@ -113,11 +113,11 @@ export class PosAuthRepository {
       `
       UPDATE shop_users
       SET
-        pin_attempts     = pin_attempts + 1,
-        pin_locked_until = CASE
-          WHEN pin_attempts + 1 >= $3
+        pos_pin_attempts     = pos_pin_attempts + 1,
+        pos_pin_locked_until = CASE
+          WHEN pos_pin_attempts + 1 >= $3
           THEN now() + INTERVAL '15 minutes'
-          ELSE pin_locked_until
+          ELSE pos_pin_locked_until
         END
       WHERE shop_id = $1
         AND user_id = $2
@@ -131,8 +131,8 @@ export class PosAuthRepository {
     await pool.query(
       `
       UPDATE shop_users
-      SET pin_attempts     = 0,
-          pin_locked_until = NULL
+      SET pos_pin_attempts     = 0,
+          pos_pin_locked_until = NULL
       WHERE shop_id = $1
         AND user_id = $2
       `,
@@ -177,8 +177,8 @@ export class PosAuthRepository {
     const result = await pool.query(
       `
       UPDATE shop_users
-      SET pin_attempts     = 0,
-          pin_locked_until = NULL
+      SET pos_pin_attempts     = 0,
+          pos_pin_locked_until = NULL
       WHERE shop_id = $1
         AND user_id = $2
         AND is_active = true
@@ -187,4 +187,21 @@ export class PosAuthRepository {
     );
     return (result.rowCount ?? 0) > 0;
   }
+
+  static async incrementTokenVersion(
+  shopId: string,
+  userId: string
+): Promise<boolean> {
+  const result = await pool.query(
+    `
+    UPDATE shop_users
+    SET pos_token_version = pos_token_version + 1
+    WHERE shop_id = $1
+      AND user_id = $2
+      AND is_active = true
+    `,
+    [shopId, userId]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
 }

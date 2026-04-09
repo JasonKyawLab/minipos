@@ -14,7 +14,9 @@ import refundRoutes  from "./modules/refund/refund.routes.js";
 import tableRoutes   from "./modules/table/table.routes.js";
 import qrRoutes from "./modules/qr/qr.routes.js";
 import reportRoutes from "./modules/report/report.routes.js";
-
+import posAuthRoutes from "./modules/pos-auth/pos-auth.routes.js";
+import kitchenRoutes from "./modules/kitchen/kitchen.routes.js";
+import kitchenAuthRoutes from "./modules/kitchen-auth/kitchen-auth.routes.js";
 import { TableController } from "./modules/table/table.controller.js";
 import { handleError }     from "./utils/handleError.js";
 import { requestIdMiddleware } from "./middlewares/requestId.middleware.js";
@@ -25,8 +27,7 @@ import {
 } from "./middlewares/rateLimit.middleware.js";
 import { pool } from "./db/pool.js";
 import { env }  from "./config/validation.js";
-import posAuthRoutes from "./modules/pos-auth/pos-auth.routes.js";
-import kitchenRoutes from "./modules/kitchen/kitchen.routes.js";
+import { getSocketStatus } from "./modules/socket/socket.js";
 
 const app = express();
 
@@ -62,6 +63,14 @@ app.get("/health", async (_req, res) => {
   }
 });
 
+app.get("/health/socket", (_req, res) => {
+  const status = getSocketStatus();
+  res.json({
+    status: status.initialized ? "healthy" : "unhealthy",
+    connected_clients: status.connectedClients,
+  });
+});
+
 // ── Routes ───────────────────────────────────────────────
 app.use("/api/auth",   authRoutes);
 app.use("/api/shops/:shopId/pos-auth",  posAuthRoutes);
@@ -78,6 +87,7 @@ app.use("/api/shops/:shopId/orders/:orderId/payments", paymentRoutes);
 app.use("/api/shops/:shopId/orders/:orderId/refunds",  refundRoutes);
 app.use("/api/shops/:shopId/reports", reportRoutes);
 app.use("/api/shops/:shopId/kitchen", kitchenRoutes);
+app.use("/api/shops/:shopId/kitchen-auth", kitchenAuthRoutes);
 
 // Public QR table lookup — no auth required
 app.get("/api/tables/qr/:token", TableController.getByQrToken);

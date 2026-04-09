@@ -80,6 +80,21 @@ export class PosAuthController {
     } catch (err) { return handleError(res, err); }
   }
 
+  static async forceLogout(req: Request, res: Response) {
+  try {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const targetUserId = getParamAsString(req.params.userId, "userId");
+    const requesterId = req.user!.id;
+
+    const result = await PosAuthService.forceLogoutStaff({
+      shopId,
+      requesterId,
+      targetUserId,
+    });
+    return res.json(result);
+  } catch (err) { return handleError(res, err); }
+}
+
   // PATCH /api/shops/:shopId/pos-auth/reset-lock/:userId
   // OWNER / MANAGER can unlock a locked-out cashier.
   static async resetStaffLock(req: Request, res: Response) {

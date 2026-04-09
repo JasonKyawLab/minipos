@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { env } from "../config/validation.js";
-
+import { AsyncLocalStorage } from 'async_hooks';
 
 export const pool = new Pool({
   host: env.POSTGRES_HOST,
@@ -9,6 +9,8 @@ export const pool = new Pool({
   password: env.POSTGRES_PASSWORD,
   database: env.POSTGRES_DB,
 });
+
+export const requestContext = new AsyncLocalStorage<{ requestId: string }>();
 
 pool.on("connect", () => {
   console.log("Database connected");

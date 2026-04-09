@@ -129,21 +129,21 @@ export class PosAuthService {
     }
 
     // No PIN set yet
-    if (!membership.pin_hash) {
+    if (!membership.pos_pin_hash) {
       throw new appError("PIN_NOT_SET", 401);
     }
 
     // Check lockout (auto-expires, no manual reset needed for time-based)
     if (
-      membership.pin_locked_until &&
-      new Date(membership.pin_locked_until) > new Date()
+      membership.pos_pin_locked_until &&
+      new Date(membership.pos_pin_locked_until) > new Date()
     ) {
       throw new appError("PIN_LOCKED", 423);  // 423 Locked is semantically correct
     }
 
     const maxAttempts = await PosAuthRepository.getShopPinMaxAttempts(params.shopId);
 
-    const isValid = await bcrypt.compare(params.pin, membership.pin_hash);
+    const isValid = await bcrypt.compare(params.pin, membership.pos_pin_hash);
 
     if (!isValid) {
       await PosAuthRepository.recordFailedAttempt(
@@ -202,6 +202,41 @@ export class PosAuthService {
 
     return { token, role: membership.role };
   }
+
+  static async forceLogoutStaff(params: {
+  shopId: string;
+  requesterId: string;
+  targetUserId: string;
+}) {
+  // Check requester is OWNER or MANAGER
+  const requester = await PosAuthRepository.getMembership(params.shopId, params.requesterId);
+  if (!requester || !requester.is_active || !["OWNER", "MANAGER"].includes(requester.role)) {
+    throw new appError("FORBIDDEN", 403);
+  }
+
+  const target = await PosAuthRepository.getMembership(params.shopId, params.targetUserId);
+  if (!target || !target.is_active) {
+    throw new appError("STAFF_NOT_FOUND", 404);
+  }
+
+  // Increment token version – invalidates all active POS tokens for this user
+  const updated = await PosAuthRepository.incrementTokenVersion(
+    params.shopId,
+    params.targetUserId
+  );
+  if (!updated) throw new appError("STAFF_NOT_FOUND", 404);
+
+  await AuditService.log({
+    shopId: params.shopId,
+    userId: params.requesterId,
+    action: "POS_FORCE_LOGOUT",
+    entity: "SHOP_USER",
+    entityId: params.targetUserId,
+    metadata: { targetRole: target.role },
+  });
+
+  return { success: true };
+}
 
   // ── Owner resets a staff lock ────────────────────────────
   // Used when a cashier is locked out mid-shift and can't wait

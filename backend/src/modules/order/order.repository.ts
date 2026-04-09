@@ -14,6 +14,7 @@
 // =========================================================
 
 import { pool } from "../../db/pool.js";
+import { appError } from "../../utils/appError.js";
 import {
   Order,
   OrderItem,
@@ -407,6 +408,11 @@ static async updateOrderItem(
   orderId: string,
   qty: number
 ): Promise<OrderItem | null> {
+
+    if (qty <= 0) {
+    throw new appError("INVALID_QUANTITY", 400);
+  }
+
   const result = await pool.query<OrderItem>(
     `
     UPDATE order_items

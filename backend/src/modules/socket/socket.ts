@@ -273,3 +273,11 @@ export function emitToUser(userId: string, event: string, data: any): void {
     console.error(`Failed to emit to user ${userId}:`, err);
   }
 }
+
+export function getSocketStatus(): { initialized: boolean; connectedClients: number } {
+  return {
+    initialized: !!io,
+    connectedClients: connectedClients.size,
+  };
+}
+

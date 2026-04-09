@@ -26,7 +26,7 @@ CREATE TYPE user_role        AS ENUM ('ADMIN', 'USER');
 CREATE TYPE user_status      AS ENUM ('ACTIVE', 'SUSPENDED');
 
 CREATE TYPE shop_type        AS ENUM ('RETAIL', 'RESTAURANT', 'ONLINE_SHOP');
-CREATE TYPE shop_role        AS ENUM ('OWNER', 'MANAGER', 'CASHIER');
+CREATE TYPE shop_role        AS ENUM ('OWNER', 'MANAGER', 'CASHIER', 'CHEF', 'STAFF');
 
 CREATE TYPE order_type       AS ENUM ('RETAIL', 'DINE_IN', 'TAKEAWAY', 'QR', 'DELIVERY', 'PICKUP', 'ONLINE');
 CREATE TYPE order_status     AS ENUM ('OPEN', 'CONFIRMED', 'PAID', 'CANCELLED', 'REFUNDED');
@@ -40,6 +40,7 @@ CREATE TYPE payment_status   AS ENUM ('PENDING', 'PAID', 'FAILED', 'REFUNDED', '
 CREATE TYPE currency         AS ENUM ('USD', 'SGD', 'THB', 'MMK', 'EUR');
 
 CREATE TYPE device_status    AS ENUM ('PENDING', 'APPROVED', 'REVOKED');
+CREATE TYPE device_mode      AS ENUM ('POS', 'KITCHEN');
 
 CREATE TYPE kitchen_status AS ENUM ('PENDING', 'PREPARING', 'READY', 'SERVED', 'CANCELLED');
 CREATE TYPE kitchen_ticket_status AS ENUM ( 'QUEUED', 'IN_PROGRESS', 'READY', 'DONE', 'CANCELLED');
@@ -168,7 +169,10 @@ CREATE TABLE shop_devices (
   device_key    VARCHAR(100)  NOT NULL UNIQUE,
 
   status        device_status NOT NULL DEFAULT 'PENDING',
-  approved_by   UUID          REFERENCES users(id) ON DELETE SET NULL,
+  current_mode  device_mode   NULL,
+  mode_activated_by   UUID    REFERENCES users(id) ON DELETE SET NULL,
+  approved_by         UUID    REFERENCES users(id) ON DELETE SET NULL,
+  mode_activated_at   TIMESTAMPTZ  NULL;
 
   user_agent    TEXT,
   ip_address    INET,
@@ -181,12 +185,48 @@ CREATE INDEX idx_shop_devices_shop   ON shop_devices(shop_id);
 CREATE INDEX idx_shop_devices_key    ON shop_devices(device_key);
 CREATE INDEX idx_shop_devices_status ON shop_devices(shop_id, status);
 
+-- =========================================================
+-- STAFF MODE SESSIONS
+-- =========================================================
+-- Tracks each PIN login/logout within a device mode.
+-- This is the activity log the owner described:
+--   "record login time, logout time, actions performed"
+--
+-- logout_reason:
+--   SELF     = staff pressed logout themselves
+--   FORCE    = manager forced them out
+--   MODE_EXIT = device mode was exited (ends all sessions)
+-- =========================================================
+
+CREATE TABLE staff_mode_sessions (
+  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+  shop_id     UUID         NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  device_id   UUID         NOT NULL REFERENCES shop_devices(id) ON DELETE CASCADE,
+  user_id     UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  mode_type   device_mode  NOT NULL,
+
+  login_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  logout_at   TIMESTAMPTZ,           -- NULL = currently active
+  logout_reason VARCHAR(20),         -- SELF | FORCE | MODE_EXIT
+
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_staff_mode_sessions_device ON staff_mode_sessions(device_id, login_at DESC);
+CREATE INDEX idx_staff_mode_sessions_user ON staff_mode_sessions(shop_id, user_id, login_at DESC);
+-- Fast lookup: is this user currently active on this device?
+CREATE INDEX idx_staff_mode_sessions_active ON staff_mode_sessions(device_id, logout_at) WHERE logout_at IS NULL;
 
 -- =========================================================
 -- SHOP USERS
 -- =========================================================
 -- Staff membership per shop. A user may hold a different
 -- role in each shop they belong to.
+--
+-- pin is for POS MODE
+-- kitchen_pin is for KDS MODE — separate from POS pin to avoid conflicts
+--
 -- =========================================================
 
 CREATE TABLE shop_users (
@@ -194,9 +234,15 @@ CREATE TABLE shop_users (
   shop_id    UUID       NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   user_id    UUID       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
-  pin_hash   VARCHAR(255),
-  pin_attempts      SMALLINT    NOT NULL    DEFAULT 0 CHECK (pin_attempts >= 0),
-  pin_locked_until  TIMESTAMPTZ,
+  kitchen_pin_hash         TEXT,
+  kitchen_pin_attempts     SMALLINT NOT NULL DEFAULT 0 CHECK (kitchen_pin_attempts >= 0),
+  kitchen_pin_locked_until TIMESTAMPTZ,
+  kitchen_token_version    INTEGER NOT NULL DEFAULT 0,
+
+  pos_pin_hash   VARCHAR(255),
+  pos_pin_attempts      SMALLINT    NOT NULL    DEFAULT 0 CHECK (pos_pin_attempts >= 0),
+  pos_pin_locked_until  TIMESTAMPTZ,
+  pos_token_version INTEGER     NOT NULL    DEFAULT 0,
 
   role       shop_role  NOT NULL,
   is_active  BOOLEAN    NOT NULL DEFAULT TRUE,
