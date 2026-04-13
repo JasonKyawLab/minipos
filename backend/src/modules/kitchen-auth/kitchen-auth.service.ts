@@ -6,6 +6,7 @@ import { AuditService }          from "../audit/audit.service.js";
 import { appError }              from "../../utils/appError.js";
 import { env }                   from "../../config/validation.js";
 import { pool }                  from "../../db/pool.js";
+import { DeviceModeService } from "../device-mode/device-mode.service.js";
 
 const PIN_SALT_ROUNDS = 10;
 
@@ -76,7 +77,7 @@ export class KitchenAuthService {
     return { success: true };
   }
 
-  static async loginWithPin(params: { shopId: string; userId: string; pin: string }) {
+  static async loginWithPin(params: { shopId: string; userId: string; pin: string ; deviceId?: string }) {
     const membership = await KitchenAuthRepository.getMembership(params.shopId, params.userId);
 
     if (!membership || !membership.is_active) {
@@ -113,6 +114,19 @@ export class KitchenAuthService {
     }
 
     await KitchenAuthRepository.resetAttempts(params.shopId, params.userId);
+
+    if (params.deviceId) {
+  try {
+    await DeviceModeService.recordStaffLogin({
+      shopId:   params.shopId,
+      deviceId: params.deviceId,
+      userId:   params.userId,
+      mode:     'KITCHEN',
+    });
+  } catch {
+    // Non-fatal — PIN login succeeds regardless
+  }
+}
 
     const kitchenRole = membership.role as "OWNER" | "MANAGER" | "CHEF";
 

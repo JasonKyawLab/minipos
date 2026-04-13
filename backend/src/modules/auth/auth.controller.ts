@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { AuthService } from "./auth.service.js";
 import { LoginRequest } from "./auth.types.js";
 import { handleError } from "../../utils/handleError.js";
-import { env } from "../../config/env.js";
+import { env } from "../../config/validation.js";
 
 export class AuthController {
 

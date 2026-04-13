@@ -42,9 +42,9 @@ export class KitchenAuthController {
   static async login(req: Request, res: Response) {
     try {
       const shopId           = getParamAsString(req.params.shopId, "shopId");
-      const { user_id, pin } = req.body;
+      const { user_id, pin , device_id,} = req.body;
 
-      const result = await KitchenAuthService.loginWithPin({ shopId, userId: user_id, pin });
+      const result = await KitchenAuthService.loginWithPin({ shopId, userId: user_id, pin, deviceId: device_id, });
 
       res.cookie("kitchen_token", result.token, {
         httpOnly: true,
@@ -105,6 +105,7 @@ export class KitchenAuthController {
     const isValid = await comparePassword(password, user.password_hash);
     if (!isValid) throw new appError("INVALID_PASSWORD", 401);
 
+     await UserRepository.incrementTokenVersion(userId);
     // Clear both cookies
     res.clearCookie("access_token");
     res.clearCookie("kitchen_token");

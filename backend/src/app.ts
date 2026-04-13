@@ -17,6 +17,8 @@ import reportRoutes from "./modules/report/report.routes.js";
 import posAuthRoutes from "./modules/pos-auth/pos-auth.routes.js";
 import kitchenRoutes from "./modules/kitchen/kitchen.routes.js";
 import kitchenAuthRoutes from "./modules/kitchen-auth/kitchen-auth.routes.js";
+import deviceModeRoutes from './modules/device-mode/device-mode.routes.js';
+import { attachDevice } from './middlewares/device.middleware.js';
 import { TableController } from "./modules/table/table.controller.js";
 import { handleError }     from "./utils/handleError.js";
 import { requestIdMiddleware } from "./middlewares/requestId.middleware.js";
@@ -28,6 +30,7 @@ import {
 import { pool } from "./db/pool.js";
 import { env }  from "./config/validation.js";
 import { getSocketStatus } from "./modules/socket/socket.js";
+import deviceRoutes from "./modules/device/device.routes.js";
 
 const app = express();
 
@@ -39,6 +42,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+app.use(attachDevice);
 
 // -─ Rate limiting ───────────────────────────────────────
 app.use("/api/", apiLimiter);
@@ -73,21 +77,27 @@ app.get("/health/socket", (_req, res) => {
 
 // ── Routes ───────────────────────────────────────────────
 app.use("/api/auth",   authRoutes);
-app.use("/api/shops/:shopId/pos-auth",  posAuthRoutes);
-
-
-app.use("/api/shops",  shopRoutes);
 app.use("/api/users",  userRoutes);
 app.use("/api/admin",  adminRoutes);
 
+app.use("/api/shops/:shopId/pos-auth",  posAuthRoutes);
+app.use('/api/shops/:shopId/devices', deviceRoutes);
+app.use('/api/shops/:shopId/devices/:deviceId/mode', deviceModeRoutes);
 app.use("/api/shops/:shopId/products",  productRoutes);
 app.use("/api/shops/:shopId/modifiers", modifierRoutes);
 app.use("/api/shops/:shopId/orders",    orderRoutes);
 app.use("/api/shops/:shopId/orders/:orderId/payments", paymentRoutes);
 app.use("/api/shops/:shopId/orders/:orderId/refunds",  refundRoutes);
 app.use("/api/shops/:shopId/reports", reportRoutes);
-app.use("/api/shops/:shopId/kitchen", kitchenRoutes);
 app.use("/api/shops/:shopId/kitchen-auth", kitchenAuthRoutes);
+app.use("/api/shops/:shopId/kitchen", kitchenRoutes);
+
+app.use("/api/shops",  shopRoutes); 
+
+// Public QR table lookup — no auth required
+app.get("/api/tables/qr/:token", TableController.getByQrToken);
+app.use("/api/shops/:shopId/tables", tableRoutes);
+app.use("/api/qr", qrRoutes);
 
 // Public QR table lookup — no auth required
 app.get("/api/tables/qr/:token", TableController.getByQrToken);

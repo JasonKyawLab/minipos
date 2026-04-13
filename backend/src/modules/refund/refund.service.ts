@@ -144,7 +144,13 @@ export class RefundService {
     );
     if (existing) {
       // Return the existing refund without any validation or side effects
-      return { refund: existing, was_duplicate: true, /* ... */ };
+      return {
+      refund:          existing,
+      refund_amount:   parseFloat(String(existing.amount)),
+      restocked_items: 0,
+      skipped_restock: 0,
+      was_duplicate:   true,
+    };
     }
     }
 

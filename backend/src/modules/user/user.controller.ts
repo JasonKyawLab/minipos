@@ -3,7 +3,7 @@ import { UserService } from "./user.service.js";
 import { toUserDTO } from "./user.dto.js";
 import { AuthService } from "../auth/auth.service.js";
 import { handleError } from "../../utils/handleError.js";
-import { env } from "../../config/env.js";
+import { env } from "../../config/validation.js";
 
 export class UserController {
 

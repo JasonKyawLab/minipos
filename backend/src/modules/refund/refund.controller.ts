@@ -13,27 +13,29 @@ import { handleError }       from "../../utils/handleError.js";
 
 export class RefundController {
 
-  static async processRefund(req: Request, res: Response) {
-    try {
-      const shopId      = getParamAsString(req.params.shopId,  "shopId");
-      const orderId     = getParamAsString(req.params.orderId, "orderId");
-      const requesterId = req.user!.id;
+ static async processRefund(req: Request, res: Response) {
+  try {
+    const shopId      = getParamAsString(req.params.shopId,  "shopId");
+    const orderId     = getParamAsString(req.params.orderId, "orderId");
+    const requesterId = req.user!.id;
 
-      const { type, restock, items, reason } = req.body;
+    // idempotency_key must be included here
+    const { type, restock, items, reason, idempotency_key } = req.body;
 
-      const result = await RefundService.processRefund({
-        orderId,
-        shopId,
-        requesterId,
-        type,
-        restock,
-        items,
-        reason,
-      });
+    const result = await RefundService.processRefund({
+      orderId,
+      shopId,
+      requesterId,
+      type,
+      restock,
+      items,
+      reason,
+      idempotency_key,  // ← was missing
+    });
 
-      return res.status(201).json(result);
-    } catch (err: any) { return handleError(res, err); }
-  }
+    return res.status(201).json(result);
+  } catch (err: any) { return handleError(res, err); }
+}
 
 static async getRefunds(req: Request, res: Response) {
   try {

@@ -170,9 +170,10 @@ CREATE TABLE shop_devices (
 
   status        device_status NOT NULL DEFAULT 'PENDING',
   current_mode  device_mode   NULL,
+  
   mode_activated_by   UUID    REFERENCES users(id) ON DELETE SET NULL,
   approved_by         UUID    REFERENCES users(id) ON DELETE SET NULL,
-  mode_activated_at   TIMESTAMPTZ  NULL;
+  mode_activated_at   TIMESTAMPTZ  NULL,
 
   user_agent    TEXT,
   ip_address    INET,

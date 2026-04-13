@@ -6,6 +6,7 @@ export interface PosJwtPayload {
   shopId:    string;
   shopRole:  "OWNER" | "MANAGER" | "CASHIER";
   type:      "POS";
+  tokenVersion: number;
 }
 
 // What the staff-list endpoint returns — safe to send to

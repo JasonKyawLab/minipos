@@ -106,19 +106,19 @@ export class QrService {
     // Recalculate totals after all items are added
     const finalOrder = await OrderRepository.recalculateOrderTotals(order.id, taxRate);
 
-    try {
-  await KitchenService.createTicket({
-    shopId:       params.shopId,
-    orderId:      finalOrder.id,
-    orderNo:      finalOrder.order_no,
-    orderType:    'QR',
-    tableNumber:  null, // resolved from token — pass if needed
-    customerName: params.input.customer_name ?? null,
-    notes:        params.input.notes ?? null,
-  });
-} catch (kitchenErr) {
-  console.error('Kitchen ticket creation failed for QR order:', kitchenErr);
-}
+//     try {
+//   await KitchenService.createTicket({
+//     shopId:       params.shopId,
+//     orderId:      finalOrder.id,
+//     orderNo:      finalOrder.order_no,
+//     orderType:    'QR',
+//     tableNumber:  null, // resolved from token — pass if needed
+//     customerName: params.input.customer_name ?? null,
+//     notes:        params.input.notes ?? null,
+//   });
+// } catch (kitchenErr) {
+//   console.error('Kitchen ticket creation failed for QR order:', kitchenErr);
+// }
 
     // Notify staff in real-time
     try {

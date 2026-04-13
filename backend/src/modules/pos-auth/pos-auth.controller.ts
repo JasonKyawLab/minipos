@@ -50,12 +50,13 @@ export class PosAuthController {
   static async login(req: Request, res: Response) {
     try {
       const shopId           = getParamAsString(req.params.shopId, "shopId");
-      const { user_id, pin } = req.body;
+      const { user_id, pin , device_id,} = req.body;
 
       const result = await PosAuthService.loginWithPin({
         shopId,
         userId: user_id,
         pin,
+        deviceId: device_id,
       });
 
       // pos_token is separate from access_token —
