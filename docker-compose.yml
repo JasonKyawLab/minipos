@@ -27,7 +27,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${BACKEND_PORT}:3000"
+      - "3001:3001"        # host:container — both 3001
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,13 +41,20 @@ services:
       dockerfile: docker/frontend.Dockerfile
     container_name: minipos-frontend
     restart: always
+    env_file:
+      - .env
     ports:
-      - "${FRONTEND_PORT}:3000"
+      - "5173:3000"        # expose container's 3000 as host's 5173
     depends_on:
       - backend
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      - NEXT_PUBLIC_APP_URL=http://localhost:5173
+      - API_URL=http://backend:3001
 
 volumes:
   postgres_data:
