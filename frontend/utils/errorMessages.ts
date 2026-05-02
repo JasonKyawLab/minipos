@@ -80,6 +80,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   DEVICE_NOT_APPROVED:       "This device has not been approved.",
   DEVICE_ALREADY_IN_MODE:    "This device is already in a mode.",
   DEVICE_NOT_IN_MODE:        "This device is not currently in a mode.",
+  DEVICE_NOT_PENDING:                "This device is not awaiting approval.",
+  DEVICE_MUST_BE_REVOKED_BEFORE_DELETE: "Revoke the device before deleting it.",
+  DEVICE_ALREADY_REVOKED:            "This device is already revoked.",
+  DEVICE_SHOP_MISMATCH:              "Device does not belong to this shop.",
 
   // Staff
   STAFF_NOT_FOUND:           "Staff member not found.",
@@ -91,6 +95,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   INVALID_DATE_FORMAT:       "Invalid date format. Use YYYY-MM-DD.",
   FROM_DATE_AFTER_TO_DATE:   "Start date cannot be after end date.",
   DATE_RANGE_TOO_LARGE:      "Date range cannot exceed one year.",
+
+  INVALID_PASSWORD:          "Incorrect password. Please try again.",
+  MODE_GATE_PASSWORD_FAILED: "Incorrect password. Please try again.",
 };
 
 /**
