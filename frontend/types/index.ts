@@ -8,7 +8,11 @@
 
 export type UserRole = "ADMIN" | "USER";
 export type UserStatus = "ACTIVE" | "SUSPENDED";
-export type ShopRole = "OWNER" | "MANAGER" | "CASHIER";
+
+// CHEF is a valid DB shop_role (OWNER/MANAGER/CASHIER/CHEF/STAFF).
+// The kitchen auth layer maps MANAGER → CHEF for kitchen sessions,
+// but a user can also be assigned CHEF directly via addStaff.
+export type ShopRole = "OWNER" | "MANAGER" | "CASHIER" | "CHEF";
 
 export interface User {
   id: string;
