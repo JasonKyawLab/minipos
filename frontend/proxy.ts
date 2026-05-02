@@ -1,45 +1,43 @@
-// =========================================================
-// proxy.ts
-// Path: frontend/proxy.ts
-//
-// Next.js 16 uses "proxy.ts" (not "middleware.ts") for
-// request interception. Must have a DEFAULT export function.
-//
-// This runs on the Edge before every matched request.
-// We use it to protect routes — redirect unauthenticated
-// users to /login before any page code runs.
-//
-// Why cookies and not localStorage?
-//   Middleware runs server-side on the Edge — localStorage
-//   does not exist there. The backend sets access_token as
-//   an httpOnly cookie, readable here via request.cookies.
-// =========================================================
-
 import { NextRequest, NextResponse } from "next/server";
 
-// DEFAULT export — this is what Next.js 16 requires.
-// Named "proxy" export also works, but default is cleaner.
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const accessToken = request.cookies.get("access_token")?.value;
   const posToken    = request.cookies.get("pos_token")?.value;
+  const kitchenToken = request.cookies.get("kitchen_token")?.value;
 
-  // ── POS routes: require pos_token ────────────────────────
-  // The /pos/[shopId]/login page itself is public (no token needed).
-  // Every other POS page requires a valid pos_token cookie.
-  if (pathname.startsWith("/pos/") && !pathname.endsWith("/login")) {
-    if (!posToken) {
-      const parts  = pathname.split("/");
+  // ── POS routes ────────────────────────────────────────────
+  // /pos/:shopId          → PIN selection page (public, no token needed)
+  // /pos/:shopId/terminal → Working terminal (requires pos_token)
+  //
+  // Rule: only protect sub-paths BELOW /:shopId
+  // The PIN page itself must be public, otherwise we loop.
+  if (pathname.startsWith("/pos/")) {
+    const parts = pathname.split("/"); // ["", "pos", ":shopId", "terminal"]
+    const hasSubPath = parts.length > 3 && parts[3] !== "";
+
+    if (hasSubPath && !posToken) {
+      // No session → kick back to PIN login page
       const shopId = parts[2];
-      const loginUrl = shopId
-        ? new URL(`/pos/${shopId}/login`, request.url)
-        : new URL("/login", request.url);
-      return NextResponse.redirect(loginUrl);
+      return NextResponse.redirect(new URL(`/pos/${shopId}`, request.url));
     }
   }
 
-  // ── Platform routes: require access_token ────────────────
+  // ── Kitchen routes ────────────────────────────────────────
+  // /kitchen/:shopId         → Staff selection (public)
+  // /kitchen/:shopId/display → KDS working screen (requires kitchen_token)
+  if (pathname.startsWith("/kitchen/")) {
+    const parts = pathname.split("/");
+    const hasSubPath = parts.length > 3 && parts[3] !== "";
+
+    if (hasSubPath && !kitchenToken) {
+      const shopId = parts[2];
+      return NextResponse.redirect(new URL(`/kitchen/${shopId}`, request.url));
+    }
+  }
+
+  // ── Platform routes: require access_token ─────────────────
   const protectedPrefixes = ["/dashboard", "/shops", "/admin", "/profile"];
   const isProtected = protectedPrefixes.some((p) => pathname.startsWith(p));
 
@@ -49,9 +47,7 @@ export default function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // ── Already logged in: skip /login page ──────────────────
-  // If user has a valid cookie and tries to go to /login,
-  // redirect them to /dashboard instead.
+  // ── Already logged in: skip /login ────────────────────────
   if (pathname === "/login" && accessToken) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
@@ -59,8 +55,6 @@ export default function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
-// Tell Next.js which paths this proxy runs on.
-// Excludes _next (static assets) and API routes automatically.
 export const config = {
   matcher: [
     "/dashboard/:path*",
