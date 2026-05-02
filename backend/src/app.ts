@@ -31,6 +31,7 @@ import { pool } from "./db/pool.js";
 import { env }  from "./config/validation.js";
 import { getSocketStatus } from "./modules/socket/socket.js";
 import deviceRoutes from "./modules/device/device.routes.js";
+import shiftRoutes from "./modules/shift/shift.routes.js";
 
 const app = express();
 
@@ -91,7 +92,7 @@ app.use("/api/shops/:shopId/orders/:orderId/refunds",  refundRoutes);
 app.use("/api/shops/:shopId/reports", reportRoutes);
 app.use("/api/shops/:shopId/kitchen-auth", kitchenAuthRoutes);
 app.use("/api/shops/:shopId/kitchen", kitchenRoutes);
-
+app.use("/api/shops/:shopId/shifts",     shiftRoutes);
 app.use("/api/shops",  shopRoutes); 
 
 // Public QR table lookup — no auth required
