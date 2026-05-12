@@ -2,14 +2,28 @@
 // =========================================================
 // app/(pos)/pos/[shopId]/page.tsx
 //
-// PIN login screen — shown AFTER the owner password gate.
+// POS PIN login screen — shown AFTER the owner password gate
+// has activated POS mode (terminal_session cookie is set).
 //
 // Flow:
-//   ShopSidebar → ModeGate (owner password) → HERE (pick staff + PIN)
+//   ShopSidebar → ModeGate (owner password) → HERE (staff PIN)
 //   → /pos/:shopId/terminal
 //
 // "End shift" in terminal → back HERE (no password needed)
 // "Exit Mode" button HERE → ModeGate (owner password) → dashboard
+//
+// ── What changed ──────────────────────────────────────────
+// The old version read minipos_device_key from localStorage
+// and sent it as device_id in the PIN login POST body.
+// This has been removed. The backend's pos-auth/login route
+// accepts device_id as optional, and we deliberately omit it:
+//
+//   • The terminal_session cookie already identifies the
+//     session context server-side.
+//   • Sending a client-generated UUID as device_id would
+//     not add security — any value could be fabricated.
+//   • staff_mode_sessions records are created by the server
+//     based on the authenticated PIN login, not client input.
 //
 // Backend routes:
 //   GET  /api/shops/:shopId/pos-auth/staff-list  → staff grid
@@ -18,7 +32,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import posApi, { getOrCreateDeviceKey } from "@/lib/posApi";
+import posApi from "@/lib/posApi";
 import { getErrorMessage } from "@/utils/errorMessages";
 import { ModeGate } from "@/components/mode/ModeGate";
 import type { PosStaffItem } from "@/types";
@@ -40,10 +54,6 @@ export default function PosLoginPage() {
 
   // "Exit Mode" gate — shown when owner wants to leave POS entirely
   const [showExitGate, setShowExitGate] = useState(false);
-
-  useEffect(() => {
-    getOrCreateDeviceKey();
-  }, []);
 
   useEffect(() => {
     async function fetchStaff() {
@@ -92,11 +102,14 @@ export default function PosLoginPage() {
     if (!selected || currentPin.length < 4) return;
     setSubmitting(true);
     try {
-      const deviceKey = localStorage.getItem("minipos_device_key");
+      // ── No device_id sent ────────────────────────────────
+      // The server identifies the session via the terminal_session
+      // HttpOnly cookie that was set during mode activation.
+      // device_id is optional on the backend and intentionally
+      // omitted here — we do not read from localStorage.
       await posApi.post(`/api/shops/${shopId}/pos-auth/login`, {
-        user_id:   selected.user_id,
-        pin:       currentPin,
-        device_id: deviceKey ?? undefined,
+        user_id: selected.user_id,
+        pin:     currentPin,
       });
       // Logged in — go to working terminal
       router.push(`/pos/${shopId}/terminal`);
@@ -114,7 +127,8 @@ export default function PosLoginPage() {
   // Called when owner passes the exit password gate
   function handleExitConfirmed() {
     setShowExitGate(false);
-    router.push(`/shops/${shopId}/dashboard`);
+    // ModeGate already hard-navigated to the dashboard.
+    // onSuccess is called just to close the gate overlay.
   }
 
   function getInitials(name: string) {
@@ -123,12 +137,10 @@ export default function PosLoginPage() {
 
   // ── PIN entry screen ──────────────────────────────────────
 
-// ── PIN entry screen ──────────────────────────────────────
-
   if (screen === "ENTER_PIN" && selected) {
     return (
       <div className="min-h-screen bg-[#0F2B4C] flex flex-col items-center justify-center relative px-6">
-        
+
         <button
           onClick={() => { setScreen("SELECT_STAFF"); setPin(""); setError(""); }}
           className="absolute top-6 left-6 text-[13px] text-white/60 hover:text-white/90 transition"
@@ -144,22 +156,17 @@ export default function PosLoginPage() {
           <p className="text-white/50 text-[13px]">{selected.role}</p>
         </div>
 
-        {/* Text Message Box for PIN */}
+        {/* Text input for PIN */}
         <div className={`w-[240px] mb-6 ${shake ? "animate-shake" : ""}`}>
-          <div className="relative group">
-            <input
-              type="password"
-              readOnly
-              value={pin}
-              placeholder="ENTER PIN"
-              className="w-full h-16 bg-white/5 border-2 border-white/10 rounded-2xl text-center text-2xl tracking-[0.5em] text-white placeholder:text-white/10 placeholder:tracking-normal focus:outline-none focus:border-[#0D7A5F] transition-all"
-            />
-            {/* Visual feedback glow when typing */}
-            <div className={`absolute inset-0 rounded-2xl transition-opacity duration-300 pointer-events-none ${pin.length > 0 ? "shadow-[0_0_15px_rgba(13,122,95,0.2)] border-[#0D7A5F]/50" : "opacity-0"}`} />
-          </div>
-          
+          <input
+            type="password"
+            readOnly
+            value={pin}
+            placeholder="ENTER PIN"
+            className="w-full h-16 bg-white/5 border-2 border-white/10 rounded-2xl text-center text-2xl tracking-[0.5em] text-white placeholder:text-white/10 placeholder:tracking-normal focus:outline-none focus:border-[#0D7A5F] transition-all"
+          />
           {error && (
-            <p className="text-[#FF6B6B] text-[12px] mt-3 text-center animate-in fade-in slide-in-from-top-1">
+            <p className="text-[#FF6B6B] text-[12px] mt-3 text-center">
               {error}
             </p>
           )}
@@ -199,9 +206,9 @@ export default function PosLoginPage() {
         <button
           onClick={() => submitPin(pin)}
           disabled={submitting || pin.length < 4}
-          className="mt-6 w-[240px] h-14 rounded-2xl text-[15px] font-bold uppercase tracking-wider text-white bg-[#0D7A5F] shadow-lg shadow-[#0D7A5F]/20 hover:bg-opacity-90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:grayscale disabled:pointer-events-none"
+          className="mt-6 w-[240px] h-14 rounded-2xl text-[15px] font-bold uppercase tracking-wider text-white bg-[#0D7A5F] hover:bg-opacity-90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:pointer-events-none"
         >
-          {submitting ? "Verifying..." : "Sign In"}
+          {submitting ? "Verifying…" : "Sign In"}
         </button>
       </div>
     );
@@ -290,8 +297,8 @@ export default function PosLoginPage() {
 
       {/*
         Exit Mode gate — requires owner/manager password.
-        Without correct password, they stay in POS mode.
-        Staff cannot use this to escape — they don't know the password.
+        ModeGate handles navigation internally (hard redirect).
+        onSuccess here just closes the gate overlay on the parent.
       */}
       {showExitGate && (
         <ModeGate
