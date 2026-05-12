@@ -2,8 +2,7 @@
 // src/modules/shift/shift.repository.ts
 //
 // Raw SQL only. No business logic.
-// All joins and computed columns are handled directly here,
-// completely eliminating the need for a database SQL View.
+// All joins and computed columns are handled directly here.
 // =========================================================
 
 import { pool } from "../../db/pool.js";
@@ -34,7 +33,7 @@ export interface ShiftSummaryStats {
 }
 
 // ── Shared Base Query ────────────────────────────────────
-// This replaces the SQL view entirely.
+// Uses 'shop_users' as defined in your provided schema.
 const SHIFT_BASE_QUERY = `
   SELECT
     sms.id                                          AS session_id,
@@ -72,13 +71,12 @@ const SHIFT_BASE_QUERY = `
     sms.created_at
   FROM staff_mode_sessions sms
   JOIN users u ON u.id = sms.user_id
-  JOIN shop_users su ON su.user_id = sms.user_id AND su.shop_id = sms.shop_id
+  LEFT JOIN shop_users su ON su.user_id = sms.user_id AND su.shop_id = sms.shop_id
   LEFT JOIN shop_devices sd ON sd.id = sms.device_id
 `;
 
 export class ShiftRepository {
 
-  // ── List shifts for a shop ──────────────────────────────
   static async findShiftsForShop(params: {
     shopId:   string;
     from?:    string;
@@ -97,7 +95,8 @@ export class ShiftRepository {
       values.push(params.from);
     }
     if (params.to) {
-      conditions.push(`sms.login_at < $${idx++}::timestamptz + INTERVAL '1 day'`);
+      // Ensure the end date is inclusive by adding a 1-day interval
+      conditions.push(`sms.login_at < ($${idx++}::DATE + INTERVAL '1 day')::timestamptz`);
       values.push(params.to);
     }
     if (params.userId) {
@@ -109,6 +108,8 @@ export class ShiftRepository {
       values.push(params.mode);
     }
 
+    const limitIdx = idx++;
+    const offsetIdx = idx++;
     values.push(params.limit);
     values.push(params.offset);
 
@@ -117,7 +118,7 @@ export class ShiftRepository {
       ${SHIFT_BASE_QUERY}
       WHERE ${conditions.join(" AND ")}
       ORDER BY sms.login_at DESC
-      LIMIT $${idx++} OFFSET $${idx++}
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
       `,
       values
     );
@@ -125,8 +126,6 @@ export class ShiftRepository {
     return rows;
   }
 
-  // ── Count total shifts (for pagination) ────────────────
-  // We don't need joins just to count rows, so we query the base table directly
   static async countShiftsForShop(params: {
     shopId:  string;
     from?:   string;
@@ -143,7 +142,7 @@ export class ShiftRepository {
       values.push(params.from);
     }
     if (params.to) {
-      conditions.push(`login_at < $${idx++}::timestamptz + INTERVAL '1 day'`);
+      conditions.push(`login_at < ($${idx++}::DATE + INTERVAL '1 day')::timestamptz`);
       values.push(params.to);
     }
     if (params.userId) {
@@ -167,7 +166,6 @@ export class ShiftRepository {
     return parseInt(rows[0].total);
   }
 
-  // ── List own shifts (for Staff/Chef/Cashier) ───────────
   static async findShiftsForUser(params: {
     shopId:  string;
     userId:  string;
@@ -176,10 +174,7 @@ export class ShiftRepository {
     limit:   number;
     offset:  number;
   }): Promise<ShiftRecord[]> {
-    const conditions: string[] = [
-      "sms.shop_id = $1",
-      "sms.user_id = $2",
-    ];
+    const conditions: string[] = ["sms.shop_id = $1", "sms.user_id = $2"];
     const values: unknown[] = [params.shopId, params.userId];
     let   idx               = 3;
 
@@ -188,10 +183,12 @@ export class ShiftRepository {
       values.push(params.from);
     }
     if (params.to) {
-      conditions.push(`sms.login_at < $${idx++}::timestamptz + INTERVAL '1 day'`);
+      conditions.push(`sms.login_at < ($${idx++}::DATE + INTERVAL '1 day')::timestamptz`);
       values.push(params.to);
     }
 
+    const limitIdx = idx++;
+    const offsetIdx = idx++;
     values.push(params.limit);
     values.push(params.offset);
 
@@ -200,7 +197,7 @@ export class ShiftRepository {
       ${SHIFT_BASE_QUERY}
       WHERE ${conditions.join(" AND ")}
       ORDER BY sms.login_at DESC
-      LIMIT $${idx++} OFFSET $${idx++}
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
       `,
       values
     );
@@ -208,19 +205,13 @@ export class ShiftRepository {
     return rows;
   }
 
-  // ── Summary stats for a user ───────────────────────────
-  // Averages/Sums calculated directly from timestamps to avoid needing a view
   static async getStaffShiftStats(params: {
     shopId: string;
     userId: string;
     from?:  string;
     to?:    string;
   }): Promise<ShiftSummaryStats> {
-    const conditions: string[] = [
-      "shop_id = $1",
-      "user_id = $2",
-      "logout_at IS NOT NULL", 
-    ];
+    const conditions: string[] = ["shop_id = $1", "user_id = $2", "logout_at IS NOT NULL"];
     const values: unknown[] = [params.shopId, params.userId];
     let   idx               = 3;
 
@@ -229,7 +220,7 @@ export class ShiftRepository {
       values.push(params.from);
     }
     if (params.to) {
-      conditions.push(`login_at < $${idx++}::timestamptz + INTERVAL '1 day'`);
+      conditions.push(`login_at < ($${idx++}::DATE + INTERVAL '1 day')::timestamptz`);
       values.push(params.to);
     }
 
@@ -250,7 +241,6 @@ export class ShiftRepository {
     return rows[0];
   }
 
-  // ── Get list of staff who have logged shifts ───────────
   static async getActiveStaffForShop(shopId: string) {
     const { rows } = await pool.query(
       `
@@ -260,8 +250,7 @@ export class ShiftRepository {
         su.role
       FROM shop_users su
       JOIN users u ON u.id = su.user_id
-      WHERE su.shop_id   = $1
-        AND su.is_active = true
+      WHERE su.shop_id = $1
         AND u.is_deleted = false
       ORDER BY u.name ASC
       `,
