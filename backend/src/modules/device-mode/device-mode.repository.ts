@@ -99,16 +99,17 @@ export class DeviceModeRepository {
   // If the staff member is already active on this device,
   // close their previous session first (handles missed logouts).
   static async recordStaffLogin(params: {
-    shopId:   string;
-    deviceId: string;
-    userId:   string;
-    mode:     DeviceMode;
-  }): Promise<StaffModeSession> {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
+  shopId:   string;
+  deviceId: string | null;   // CHANGED: was 'string', now nullable
+  userId:   string;
+  mode:     DeviceMode;
+}): Promise<StaffModeSession> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-      // Close any dangling active session for this user on this device
+    if (params.deviceId) {
+      // Device known: close any existing session on this specific device
       await client.query(
         `
         UPDATE staff_mode_sessions
@@ -120,27 +121,45 @@ export class DeviceModeRepository {
         `,
         [params.deviceId, params.userId]
       );
-
-      // Create new session
-      const result = await client.query<StaffModeSession>(
+    } else {
+      // No device_id: close any active session for this user in this shop.
+      // This prevents duplicate open sessions when a user logs in from
+      // a terminal we cannot identify by hardware.
+      await client.query(
         `
-        INSERT INTO staff_mode_sessions
-          (shop_id, device_id, user_id, mode_type)
-        VALUES ($1, $2, $3, $4::device_mode)
-        RETURNING *
+        UPDATE staff_mode_sessions
+        SET logout_at     = now(),
+            logout_reason = 'SELF'
+        WHERE shop_id  = $1
+          AND user_id  = $2
+          AND logout_at IS NULL
         `,
-        [params.shopId, params.deviceId, params.userId, params.mode]
+        [params.shopId, params.userId]
       );
-
-      await client.query('COMMIT');
-      return result.rows[0];
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
     }
+
+    // Insert the new session.
+    // device_id is stored as NULL when not available — this is
+    // expected and the shift.repository LEFT JOIN handles it correctly.
+    const result = await client.query<StaffModeSession>(
+      `
+      INSERT INTO staff_mode_sessions
+        (shop_id, device_id, user_id, mode_type)
+      VALUES ($1, $2, $3, $4::device_mode)
+      RETURNING *
+      `,
+      [params.shopId, params.deviceId, params.userId, params.mode]
+    );
+
+    await client.query('COMMIT');
+    return result.rows[0];
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
+}
 
   // ── Record staff PIN logout ───────────────────────────
   static async recordStaffLogout(params: {
