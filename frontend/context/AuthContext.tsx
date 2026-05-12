@@ -64,21 +64,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Refresh: load current user from the httpOnly cookie ─
   // We always call /auth/me — we cannot read httpOnly cookies in JS.
-  const refresh = useCallback(async () => {
-    try {
-      const { data } = await api.get<{ user: User }>("/api/auth/me");
-      if (data?.user?.id) {
-        setUser(data.user);
-      } else {
-        setUser(null);
-      }
-    } catch {
-      // 401 = no valid session. Normal on first visit or after logout.
+// Modify the refresh function to be terminal-aware
+const refresh = useCallback(async () => {
+  // FIX: Don't do pathname checks inside the callback.
+  // Instead, catch the 401 gracefully and set user to null.
+  // The SessionGuard already handles routing for terminal devices.
+  try {
+    const { data } = await api.get<{ user: User }>("/api/auth/me");
+    if (data?.user?.id) {
+      setUser(data.user);
+    } else {
       setUser(null);
-    } finally {
-      setIsLoading(false);
     }
-  }, []);
+  } catch {
+    // 401 on /auth/me is expected for terminal devices — not an error.
+    setUser(null);
+  } finally {
+    setIsLoading(false);
+  }
+}, []);
 
   // ── Logout ─────────────────────────────────────────────
   const logout = useCallback(async () => {

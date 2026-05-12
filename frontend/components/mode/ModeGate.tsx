@@ -1,22 +1,37 @@
-// components/mode/ModeGate.tsx
-
 "use client";
 // =========================================================
 // components/mode/ModeGate.tsx
 //
-// Full-screen password gate with mode-aware theming.
+// Full-screen password gate for entering/exiting POS or
+// Kitchen mode.
 //
-// POS Mode    → Navy blue theme  (#0F2B4C) — professional, daytime
-// Kitchen Mode → Dark charcoal   (#0A0A0A) — dark environment, night
+// ── Security model ────────────────────────────────────────
+// This component deliberately sends NO device_id to the
+// backend. The server creates a terminal_session record and
+// issues an HttpOnly cookie — the cookie IS the identity.
+// No client-side storage (localStorage, sessionStorage) is
+// ever read or written here. Any previous implementation
+// that read minipos_device_key has been removed.
 //
-// The entire overlay (header + form) now reflects the active
-// mode so staff instantly know which mode they are entering
-// or exiting — no ambiguity between POS and Kitchen.
+// ── Two action paths ──────────────────────────────────────
+//
+//   action="enter" → Called from the dashboard (ShopSidebar).
+//     The device has an access_token cookie. Calls
+//     POST /api/shops/:shopId/terminal/activate
+//     On success, server sets terminal_session cookie and
+//     clears access_token. We hard-navigate to the mode page.
+//
+//   action="exit" → Called from inside POS/Kitchen screens.
+//     The device has pos_token or kitchen_token but NO
+//     access_token. Calls POST /api/shops/:shopId/terminal/exit
+//     On success, server clears mode cookie, sets a fresh
+//     access_token. We hard-navigate to the dashboard.
+//     Hard-navigate (window.location.href) is intentional —
+//     it forces AuthContext to re-read the new cookie.
 // =========================================================
 
 import React, { useState, useRef, useEffect } from "react";
 import api from "@/lib/api";
-import { getErrorMessage } from "@/utils/errorMessages";
 
 type Mode   = "POS" | "KITCHEN";
 type Action = "enter" | "exit";
@@ -26,88 +41,51 @@ interface ModeGateProps {
   shopName:    string;
   mode:        Mode;
   action:      Action;
+  allowCancel: boolean;
   onSuccess:   () => void;
   onCancel:    () => void;
-  allowCancel: boolean;
 }
 
 // ── Mode-specific theme tokens ─────────────────────────────
-//
-// Each mode gets its own complete colour palette so every
-// element — overlay, header, form background, input, button —
-// consistently reflects the active mode.
-//
-// POS:
-//   headerBg   → brand navy (matches POS sidebar button)
-//   formBg     → slightly lighter navy for depth
-//   inputBg    → white/10 tint so text is readable on dark
-//   buttonBg   → teal accent (same as platform confirm actions)
-//   cancelBg   → white/10 subtle
-//   overlay    → navy-tinted black
-//
-// KITCHEN:
-//   headerBg   → near-black (matches kitchen display bg)
-//   formBg     → dark charcoal — clearly different from POS
-//   inputBg    → white/8 tint
-//   buttonBg   → kitchen green (0D7A5F — matches chef avatar)
-//   cancelBg   → white/8 subtle
-//   overlay    → pure dark black
-// =========================================================
 
 interface ModeTheme {
-  // Full-screen overlay tint
-  overlay:      string;
-  // Top coloured header section
-  headerBg:     string;
-  // Mode label text (small uppercase above title)
-  labelText:    string;
-  // Main title + subtitle text
-  titleText:    string;
-  subtitleText: string;
-  // Shop name hint
-  shopText:     string;
-  // Form section below the header
-  formBg:       string;
-  // Label above the input
-  inputLabel:   string;
-  // The password input field
-  inputBg:      string;
-  inputBorder:  string;
-  inputFocus:   string;
-  inputText:    string;
+  overlay:          string;
+  headerBg:         string;
+  labelText:        string;
+  titleText:        string;
+  subtitleText:     string;
+  shopText:         string;
+  formBg:           string;
+  inputLabel:       string;
+  inputBg:          string;
+  inputBorder:      string;
+  inputFocus:       string;
+  inputText:        string;
   inputPlaceholder: string;
-  // Error message banner
-  errorBg:      string;
-  errorBorder:  string;
-  errorText:    string;
-  // Primary action button (Unlock / Exit mode)
-  buttonBg:     string;
-  buttonHover:  string;
-  buttonText:   string;
-  // Cancel button (only shown when allowCancel=true)
-  cancelBg:     string;
-  cancelBorder: string;
-  cancelText:   string;
-  cancelHover:  string;
-  // Spinner ring inside the button
-  spinnerRing:  string;
-  // Lock icon background
-  iconBg:       string;
-  // Mode badge dot
-  badgeDot:     string;
-  badgeText:    string;
+  errorBg:          string;
+  errorBorder:      string;
+  errorText:        string;
+  buttonBg:         string;
+  buttonHover:      string;
+  buttonText:       string;
+  cancelBg:         string;
+  cancelBorder:     string;
+  cancelText:       string;
+  cancelHover:      string;
+  spinnerRing:      string;
+  iconBg:           string;
+  badgeDot:         string;
+  badgeText:        string;
 }
 
 const THEMES: Record<Mode, ModeTheme> = {
   POS: {
     overlay:          "rgba(0, 0, 0, 0.85)",
-    headerBg:         "#0F2B4C",   // brand navy
+    headerBg:         "#0F2B4C",
     labelText:        "text-white/50",
     titleText:        "text-white",
     subtitleText:     "text-white/50",
     shopText:         "text-white/30",
-    // Form is a slightly lighter navy — creates depth without
-    // breaking the navy theme established by the header.
     formBg:           "#1A3A5C",
     inputLabel:       "text-white/60",
     inputBg:          "bg-white/10",
@@ -132,13 +110,11 @@ const THEMES: Record<Mode, ModeTheme> = {
   },
   KITCHEN: {
     overlay:          "rgba(0, 0, 0, 0.92)",
-    headerBg:         "#0A0A0A",   // near-black kitchen theme
+    headerBg:         "#0A0A0A",
     labelText:        "text-white/30",
     titleText:        "text-white",
     subtitleText:     "text-white/40",
     shopText:         "text-white/20",
-    // Form is dark charcoal — clearly different from the
-    // POS navy form, but still readable in a bright kitchen.
     formBg:           "#1A1A1A",
     inputLabel:       "text-white/50",
     inputBg:          "bg-white/8",
@@ -149,8 +125,6 @@ const THEMES: Record<Mode, ModeTheme> = {
     errorBg:          "bg-[#A32D2D]/20",
     errorBorder:      "border-[#FF6B6B]/30",
     errorText:        "text-[#FF9B9B]",
-    // Kitchen confirm uses the same green as chef avatars
-    // so the action colour is consistent with kitchen UI.
     buttonBg:         "bg-[#0D7A5F]",
     buttonHover:      "hover:bg-[#0a6b52]",
     buttonText:       "text-white",
@@ -183,6 +157,27 @@ const ACTION_COPY: Record<Action, { title: string; subtitle: string; button: str
   },
 };
 
+// ── Error messages ─────────────────────────────────────────
+// Maps backend `message` codes to user-friendly text.
+// Backend always returns { message: "SOME_CODE" }, not { code: ... }.
+const GATE_ERRORS: Record<string, string> = {
+  INVALID_PASSWORD:         "Incorrect password. Please try again.",
+  FORBIDDEN:                "Only the owner or manager can do this.",
+  USER_NOT_FOUND:           "Account not found. Please log in again.",
+  NO_ACTIVE_MODE_SESSION:   "No active session found. Please refresh the page.",
+  TERMINAL_SESSION_INVALID: "Your session has expired. Please log in again.",
+  TERMINAL_SHOP_MISMATCH:   "Session does not match this shop.",
+  "Not authenticated":      "Your session has expired. Please log in again.",
+  "Forbidden":              "You don't have permission to do this.",
+  "Invalid token":          "Your session has expired. Please log in again.",
+  "Invalid user":           "Your session is invalid. Please log in again.",
+};
+
+function getGateError(message?: string): string {
+  if (!message) return "Something went wrong. Please try again.";
+  return GATE_ERRORS[message] ?? "Something went wrong. Please try again.";
+}
+
 export function ModeGate({
   shopId,
   shopName,
@@ -202,44 +197,81 @@ export function ModeGate({
   const modeLabel  = MODE_LABELS[mode];
   const actionCopy = ACTION_COPY[action];
 
+  // Normalise shopId (Next.js params can be string | string[])
+  const targetShopId = Array.isArray(shopId) ? shopId[0] : shopId;
+
+  // Focus the input as soon as the gate appears
   useEffect(() => {
     const timer = setTimeout(() => inputRef.current?.focus(), 100);
     return () => clearTimeout(timer);
   }, []);
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password || loading) return;
+    if (!password.trim()) {
+      setError("Password is required.");
+      return;
+    }
 
     setLoading(true);
     setError("");
 
     try {
-      await api.post(`/api/shops/${shopId}/verify-password`, { password });
+      if (action === "enter") {
+        // ── Activate terminal mode ──────────────────────────
+        // Sends ONLY password + mode. NO device_id.
+        // The server creates a terminal_session record, sets
+        // an HttpOnly terminal_session cookie, and clears the
+        // access_token cookie. Identity is purely cookie-based.
+        await api.post(`/api/shops/${targetShopId}/terminal/activate`, {
+          password,
+          mode: mode.toUpperCase(),
+          // device_id intentionally omitted — it is optional on the
+          // backend (z.string().uuid().optional()) and we do not
+          // want to trust any client-generated identifier.
+        });
+
+        // Hard navigate so the browser sends the new terminal_session
+        // cookie on the very next request, and AuthContext fully resets.
+        // SessionGuardContext will pick up the TERMINAL session type
+        // and redirect to the correct mode page automatically.
+        window.location.href = `/${mode.toLowerCase()}/${targetShopId}`;
+
+      } else {
+        // ── Exit terminal mode ──────────────────────────────
+        // The terminal_session cookie is present on this request.
+        // The backend reads it, verifies the password against the
+        // authorized_by user, deletes the session, and sets a
+        // fresh access_token cookie for the dashboard.
+        await api.post(`/api/shops/${targetShopId}/terminal/exit`, {
+          password,
+        });
+
+        // Hard navigate to force a full page + cookie re-read.
+        // router.push() would not re-run AuthContext's session check.
+        window.location.href = `/shops/${targetShopId}/dashboard`;
+      }
+
+      // onSuccess is called after navigation is triggered.
+      // It allows the parent to clean up local state (e.g. hide modal).
       onSuccess();
+
     } catch (err: any) {
+      // Backend always returns { message: "SOME_CODE" }
+      // NEVER use err.response?.data?.code — that field does not exist.
       const code = err.response?.data?.message;
+      const friendlyError = getGateError(code);
 
-      const GATE_ERRORS: Record<string, string> = {
-        INVALID_PASSWORD:       "Incorrect password. Please try again.",
-        FORBIDDEN:              "Only the owner or manager can do this.",
-        USER_NOT_FOUND:         "Account not found. Please log in again.",
-        "Not authenticated":    "Your session has expired. Please log in again.",
-        "Forbidden":            "You don't have permission to do this.",
-        "Invalid token":        "Your session has expired. Please log in again.",
-        "Invalid user":         "Your session is invalid. Please log in again.",
-      };
-
-      const msg = (code ? GATE_ERRORS[code] : undefined) ?? getErrorMessage(code);
-      setError(msg);
+      setError(friendlyError);
       setPassword("");
+
+      // Shake the card to give tactile feedback
       setShake(true);
       setTimeout(() => setShake(false), 500);
-      inputRef.current?.focus();
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
     <div
@@ -251,7 +283,7 @@ export function ModeGate({
           shake ? "animate-shake" : ""
         }`}
       >
-        {/* ── Header — coloured by mode ──────────────────── */}
+        {/* ── Header ── */}
         <div
           className="px-6 pt-6 pb-5"
           style={{ background: theme.headerBg }}
@@ -285,7 +317,6 @@ export function ModeGate({
             {actionCopy.subtitle}
           </p>
 
-          {/* Shop name context */}
           {shopName && (
             <div className="mt-3 flex items-center gap-2">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -302,7 +333,7 @@ export function ModeGate({
           )}
         </div>
 
-        {/* ── Form — themed by mode ──────────────────────── */}
+        {/* ── Form ── */}
         <form
           onSubmit={handleSubmit}
           className="px-6 py-5"
@@ -341,7 +372,7 @@ export function ModeGate({
             />
           </div>
 
-          {/* Action buttons */}
+          {/* Buttons */}
           <div className={`flex gap-2 ${allowCancel ? "flex-row" : "flex-col"}`}>
             {allowCancel && (
               <button
