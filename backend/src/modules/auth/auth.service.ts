@@ -159,4 +159,14 @@ export class AuthService {
       { expiresIn: "1d" }
     );
   }
+
+  static async issueTokenForUser(userId: string): Promise<string> {
+    const user = await UserRepository.findById(userId);
+    if (!user) {
+      throw new appError("USER_NOT_FOUND", 404);
+    }
+    
+    // Call the existing private generator
+    return this.generateToken(user);
+  }
 }
