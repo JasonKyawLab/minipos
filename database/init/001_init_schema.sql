@@ -46,6 +46,14 @@ CREATE TYPE kitchen_status AS ENUM ('PENDING', 'PREPARING', 'READY', 'SERVED', '
 CREATE TYPE kitchen_ticket_status AS ENUM ( 'QUEUED', 'IN_PROGRESS', 'READY', 'DONE', 'CANCELLED');
 CREATE TYPE kitchen_priority AS ENUM ('NORMAL', 'HIGH');
 
+CREATE TYPE terminal_mode AS ENUM ('POS', 'KITCHEN');
+
+CREATE TYPE terminal_auth_method AS ENUM (
+  'OWNER_PASSWORD',    -- Standard: owner enters their password
+  'MANAGER_PIN',       -- Level 1 delegation: manager PIN refresh
+  'EMERGENCY_CODE'     -- Level 2 delegation: single-use code from dashboard
+);
+
 -- =========================================================
 -- updated_at TRIGGER FUNCTION
 -- =========================================================
@@ -256,6 +264,116 @@ CREATE TABLE shop_users (
 CREATE INDEX idx_shop_users_shop ON shop_users(shop_id);
 CREATE INDEX idx_shop_users_user ON shop_users(user_id);
 
+-- =========================================================
+-- TERMINAL SESSIONS
+-- =========================================================
+
+CREATE TABLE terminal_sessions (
+  id              UUID              PRIMARY KEY DEFAULT uuid_generate_v4(),
+  shop_id         UUID              NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  
+  -- Which physical device (still tracked for audit, but NOT trusted as auth)
+  device_id       UUID              REFERENCES shop_devices(id) ON DELETE SET NULL,
+  
+  -- The opaque token stored in the HttpOnly cookie.
+  -- This is what the backend validates on every request.
+  -- 32 random bytes → 64 hex chars. Never stored client-side.
+  session_token   VARCHAR(128)      NOT NULL UNIQUE,
+  
+  mode            terminal_mode     NOT NULL,
+  
+  -- Who activated this terminal and how.
+  -- AUDIT CHECKLIST: authorized_by must always be populated.
+  authorized_by   UUID              NOT NULL REFERENCES users(id),
+  auth_method     terminal_auth_method NOT NULL DEFAULT 'OWNER_PASSWORD',
+  
+  -- Emergency code tracking (Level 2 delegation)
+  -- References emergency_codes.id if auth_method = 'EMERGENCY_CODE'
+  emergency_code_id UUID,
+  
+  -- Heartbeat: updated by the requireTerminalSession middleware
+  -- on every authenticated request. Enables stale session detection.
+  -- AUDIT CHECKLIST: last_seen_at must be updated on every API call.
+  last_seen_at    TIMESTAMPTZ       NOT NULL DEFAULT now(),
+  
+  -- Automatic expiry. NULL = no expiry (standard sessions).
+  -- Emergency code sessions expire after a fixed duration.
+  expires_at      TIMESTAMPTZ,
+  
+  -- Soft revocation: owner marks as revoked without deleting.
+  -- Deleted sessions cannot be queried at all; revoked ones
+  -- appear in the "Active Terminals" view as "Revoked".
+  is_revoked      BOOLEAN           NOT NULL DEFAULT FALSE,
+  revoked_by      UUID              REFERENCES users(id),
+  revoked_at      TIMESTAMPTZ,
+  
+  created_at      TIMESTAMPTZ       NOT NULL DEFAULT now()
+);
+
+-- Fast lookup on every authenticated terminal request
+CREATE UNIQUE INDEX idx_terminal_sessions_token
+  ON terminal_sessions(session_token)
+  WHERE is_revoked = FALSE;
+
+-- Owner dashboard: "show me all active terminals for shop X"
+CREATE INDEX idx_terminal_sessions_shop_active
+  ON terminal_sessions(shop_id, is_revoked, last_seen_at DESC)
+  WHERE is_revoked = FALSE;
+
+CREATE INDEX idx_terminal_sessions_device
+  ON terminal_sessions(device_id)
+  WHERE device_id IS NOT NULL;
+
+-- =========================================================
+-- EMERGENCY CODES
+-- =========================================================
+-- Single-use codes generated from the owner's dashboard.
+-- A code can only be used ONCE and expires after 5 minutes.
+-- After use, used_at is stamped and used_by is recorded.
+-- The code can never be used again even before expiry.
+--
+-- Why a separate table and not just a field on terminal_sessions?
+--   The owner generates the code BEFORE the terminal uses it.
+--   There's a gap between generation and use that must be tracked.
+--   Storing it separately also lets us show "pending codes" in
+--   the dashboard and prevents reuse across sessions.
+-- =========================================================
+
+CREATE TABLE emergency_codes (
+  id          UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+  shop_id     UUID          NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  
+  -- The 8-character alphanumeric code shown to the owner.
+  -- Stored as bcrypt hash, NEVER plaintext.
+  code_hash   TEXT          NOT NULL,
+  
+  -- Which mode this code authorizes. Codes are mode-specific
+  -- so a kitchen code cannot activate POS mode.
+  mode        terminal_mode NOT NULL,
+  
+  -- Who generated this code (must be OWNER)
+  generated_by UUID         NOT NULL REFERENCES users(id),
+  generated_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  
+  -- Codes expire 5 minutes after generation
+  expires_at  TIMESTAMPTZ   NOT NULL DEFAULT (now() + INTERVAL '5 minutes'),
+  
+  -- Usage tracking (single-use enforcement)
+  used_at     TIMESTAMPTZ,
+  used_by     UUID          REFERENCES users(id),
+  
+  -- The terminal session created by this code
+  -- Populated AFTER successful use
+  terminal_session_id UUID  REFERENCES terminal_sessions(id) ON DELETE SET NULL
+);
+
+-- Fast lookup during terminal activation
+CREATE UNIQUE INDEX idx_emergency_codes_unused
+  ON emergency_codes(shop_id, mode)
+  WHERE used_at IS NULL;
+
+CREATE INDEX idx_emergency_codes_shop
+  ON emergency_codes(shop_id, generated_at DESC);
 
 -- =========================================================
 -- RESTAURANT TABLES
@@ -337,6 +455,7 @@ CREATE TRIGGER trg_product_models_updated_at
 -- is_sold_out      — manual override for restaurants when
 --                    an item is temporarily unavailable.
 -- cost_price       — used for profit margin reporting.
+-- is_deleted       — soft delete for lifecycle management.
 -- =========================================================
 
 CREATE TABLE product_items (
@@ -356,17 +475,17 @@ CREATE TABLE product_items (
 
   is_active        BOOLEAN       NOT NULL DEFAULT TRUE,
   is_sold_out      BOOLEAN       NOT NULL DEFAULT FALSE,
+  is_deleted       BOOLEAN       NOT NULL DEFAULT FALSE,
 
   created_at       TIMESTAMPTZ   NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
--- Barcode must be globally unique across all items (not just per shop).
--- A shop-scoped unique index lives on product_models.shop_id JOIN.
--- Global uniqueness prevents cross-shop barcode scanning bugs.
+-- Unique constraint excludes deleted items.
+-- This allows barcode recycling after deletion.
 CREATE UNIQUE INDEX idx_product_items_barcode
   ON product_items(barcode)
-  WHERE barcode IS NOT NULL;
+  WHERE barcode IS NOT NULL AND is_deleted = FALSE;
 
 CREATE INDEX idx_product_items_model  ON product_items(product_model_id);
 CREATE INDEX idx_product_items_active ON product_items(product_model_id, is_active);
@@ -791,47 +910,26 @@ CREATE INDEX idx_audit_logs_shop   ON audit_logs(shop_id, created_at DESC);
 CREATE INDEX idx_audit_logs_entity ON audit_logs(entity, entity_id);
 CREATE INDEX idx_audit_logs_user   ON audit_logs(user_id, created_at DESC);
 
-
 -- =========================================================
--- SUBSCRIPTION PLANS (future — uncomment when ready)
+-- FOREIGN KEY ADDITIONS FOR EMERGENCY CODES
 -- =========================================================
--- CREATE TABLE subscription_plans (
---   id          UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
---   name        VARCHAR(100)  NOT NULL,
---   price       DECIMAL(10,2) NOT NULL CHECK (price >= 0),
---   max_shops   INTEGER       NOT NULL CHECK (max_shops > 0),
---   max_users   INTEGER       NOT NULL CHECK (max_users > 0),
---   features    JSONB,
---   is_active   BOOLEAN       NOT NULL DEFAULT TRUE,
---   created_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
--- );
---
--- CREATE TYPE subscription_status AS ENUM (
---   'TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELLED', 'EXPIRED'
--- );
---
--- CREATE TABLE user_subscriptions (
---   id          UUID                  PRIMARY KEY DEFAULT uuid_generate_v4(),
---   user_id     UUID                  NOT NULL REFERENCES users(id),
---   plan_id     UUID                  NOT NULL REFERENCES subscription_plans(id),
---   status      subscription_status   NOT NULL,
---   start_date  DATE                  NOT NULL,
---   end_date    DATE,
---   created_at  TIMESTAMPTZ           NOT NULL DEFAULT now()
--- );
---
--- CREATE TABLE subscription_payments (
---   id               UUID           PRIMARY KEY DEFAULT uuid_generate_v4(),
---   subscription_id  UUID           NOT NULL REFERENCES user_subscriptions(id) ON DELETE CASCADE,
---   amount           DECIMAL(10,2)  NOT NULL CHECK (amount >= 0),
---   method           payment_method NOT NULL,
---   paid_at          TIMESTAMPTZ    NOT NULL DEFAULT now()
--- );
-
+-- Added after initial table creation to avoid circular dependency issues.
+-- The emergency_codes table references terminal_sessions, and terminal_sessions references emergency_codes.
+-- This FK ensures referential integrity: if an emergency code is deleted, the terminal session's emergency_code_id is set to NULL.
+-- =========================================================
+ALTER TABLE terminal_sessions
+  ADD CONSTRAINT fk_terminal_sessions_emergency_code
+  FOREIGN KEY (emergency_code_id) REFERENCES emergency_codes(id) ON DELETE SET NULL;
 
 -- =========================================================
 -- DESIGN NOTES
 -- =========================================================
+--
+-- NIL UUID BUG (Important)
+--   If you see "Key (user_id)=(00000000-...) is not present",
+--   your backend code is accidentally passing an empty/null
+--   UUID (the 'nil' UUID). Check your Service layer: ensure
+--   userId is a valid string before calling the Repository.
 --
 -- TIMESTAMPS
 --   All timestamps use TIMESTAMPTZ (timezone-aware).
