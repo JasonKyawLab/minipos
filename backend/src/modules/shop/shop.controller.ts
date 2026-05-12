@@ -1,5 +1,8 @@
 // =========================================================
-// src/modules/shop/shop.controller.ts
+// shop.controller.ts
+// Path: backend/src/modules/shop/shop.controller.ts
+//
+// NEW: changeStaffRole() — HTTP handler for role changes
 // =========================================================
 
 import { Request, Response }  from "express";
@@ -66,17 +69,28 @@ export class ShopController {
     } catch (err: any) { return handleError(res, err); }
   }
 
-  // ── Mode gate ─────────────────────────────────────────────
-  // POST /api/shops/:shopId/verify-password
+  // ── NEW: Change a staff member's role ────────────────────
+  // PATCH /api/shops/:shopId/staff/:userId/role
+  // Body: { role: "MANAGER" | "CASHIER" | "CHEF" }
   //
-  // Verifies that the currently logged-in user's platform
-  // password is correct. Used by the frontend mode gate to
-  // confirm identity before entering or exiting POS/Kitchen.
-  //
-  // Returns 200 { valid: true } on success.
-  // Returns 401 { message: "INVALID_PASSWORD" } on failure.
-  // Never reveals whether the user exists — same response shape
-  // for wrong password regardless of reason.
+  // Permission: OWNER can change any non-OWNER role.
+  //             MANAGER can change CASHIER ↔ CHEF only.
+  static async changeStaffRole(req: Request, res: Response) {
+    try {
+      const shopId       = getParamAsString(req.params.shopId, "shopId");
+      const targetUserId = getParamAsString(req.params.userId, "userId");
+      const { role }     = req.body;
+
+      const result = await ShopService.changeStaffRole({
+        shopId,
+        requesterId:  req.user!.id,
+        targetUserId,
+        newRole:      role,
+      });
+      res.json(result);
+    } catch (err: any) { return handleError(res, err); }
+  }
+
   static async verifyPassword(req: Request, res: Response) {
     try {
       const shopId   = getParamAsString(req.params.shopId, "shopId");
@@ -88,28 +102,19 @@ export class ShopController {
     } catch (err: any) { return handleError(res, err); }
   }
 
-  // ── Staff invitation ───────────────────────────────────
-  // POST /api/shops/:shopId/staff/invite
-  //
-  // Invites a new staff member by email. The user must register first before being added to the shop.ß
-  // Only OWNER or MANAGER can send an invite.
-  // Body: { email: string, role: "MANAGER"|"CASHIER" }
-  // Response: 201 { success: true } on success.
-  //           400 if user with email doesn't exist or is already active in this shop.
   static async inviteStaff(req: Request, res: Response) {
-  try {
-    const shopId = getParamAsString(req.params.shopId, "shopId");
-    const { email, role } = req.body;
-    const result = await ShopService.inviteStaffByEmail({
-      shopId,
-      requesterId: req.user!.id,
-      email,
-      role,
-    });
-    res.status(201).json(result);
-  } catch (err: any) {
-    return handleError(res, err);
+    try {
+      const shopId = getParamAsString(req.params.shopId, "shopId");
+      const { email, role } = req.body;
+      const result = await ShopService.inviteStaffByEmail({
+        shopId,
+        requesterId: req.user!.id,
+        email,
+        role,
+      });
+      res.status(201).json(result);
+    } catch (err: any) {
+      return handleError(res, err);
+    }
   }
-}
-  
 }

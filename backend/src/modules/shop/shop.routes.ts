@@ -1,11 +1,8 @@
 // =========================================================
-// src/modules/shop/shop.routes.ts
-// =========================================================
-// Added: POST /:shopId/verify-password
-//   Verifies the requesting user's platform password.
-//   Used by the frontend mode gate before entering POS/Kitchen.
-//   Only OWNER or MANAGER of the shop can call this.
-//   Returns { valid: true } or 401 — never leaks password data.
+// shop.routes.ts
+// Path: backend/src/modules/shop/shop.routes.ts
+//
+// NEW: PATCH /:shopId/staff/:userId/role — change staff role
 // =========================================================
 
 import { Router }          from "express";
@@ -19,12 +16,13 @@ import {
   addStaffSchema,
   verifyPasswordSchema,
   inviteStaffSchema,
+  changeStaffRoleSchema,
 } from "./shop.schema.js";
 
 const router = Router();
 
 router.use(requireAuth);
-router.use(requireRole("USER", "ADMINß"));
+router.use(requireRole("USER", "ADMIN"));
 
 router.post("/",         validate(createShopSchema), ShopController.createShop);
 router.patch("/:shopId", validate(updateShopSchema), ShopController.updateShop);
@@ -34,16 +32,24 @@ router.post("/:shopId/staff",         validate(addStaffSchema), ShopController.a
 router.get("/:shopId/staff",                                     ShopController.getStaff);
 router.delete("/:shopId/staff/:userId",                          ShopController.removeStaff);
 
-// ── Mode password gate ────────────────────────────────────
-// Called by the frontend before showing the POS/Kitchen PIN screen.
-// Verifies the user's own platform password.
-// OWNER or MANAGER of this shop can call this.
+// NEW: Change a staff member's role within this shop.
+// OWNER can change any non-OWNER role.
+// MANAGER can change CASHIER ↔ CHEF only (cannot grant MANAGER).
+// Side effects: clears stale PINs when role changes mode eligibility.
+router.patch(
+  "/:shopId/staff/:userId/role",
+  validate(changeStaffRoleSchema),
+  ShopController.changeStaffRole
+);
+
+// Mode password gate
 router.post(
   "/:shopId/verify-password",
   validate(verifyPasswordSchema),
   ShopController.verifyPassword
 );
 
+// Staff invitation by email
 router.post(
   "/:shopId/staff/invite",
   validate(inviteStaffSchema),

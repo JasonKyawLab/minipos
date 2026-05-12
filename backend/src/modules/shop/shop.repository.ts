@@ -1,9 +1,12 @@
 // =========================================================
-// shop.repository.ts
+// shop.repository.ts (additions only — add these methods)
 // Path: backend/src/modules/shop/shop.repository.ts
-// =========================================================
-// CHANGE: activateShopUser now accepts "CHEF" as a valid role.
-// Previously typed as "MANAGER" | "CASHIER" only.
+//
+// NEW: changeStaffRole() — changes a staff member's role
+// within a shop. Used by the new role management endpoint.
+//
+// Note: The full file keeps all existing methods unchanged.
+// Only changeStaffRole() is new.
 // =========================================================
 
 import { pool } from "../../db/pool.js";
@@ -105,7 +108,13 @@ export class ShopRepository {
         u.id,
         u.name,
         u.email,
-        su.role
+        su.role,
+        su.pos_pin_hash IS NOT NULL   AS has_pos_pin,
+        su.kitchen_pin_hash IS NOT NULL AS has_kitchen_pin,
+        (su.pos_pin_locked_until IS NOT NULL
+          AND su.pos_pin_locked_until > now()) AS pos_pin_locked,
+        (su.kitchen_pin_locked_until IS NOT NULL
+          AND su.kitchen_pin_locked_until > now()) AS kitchen_pin_locked
       FROM shop_users su
       JOIN users u ON u.id = su.user_id
       JOIN shops s ON s.id = su.shop_id
@@ -142,7 +151,6 @@ export class ShopRepository {
     return result.rowCount;
   }
 
-  // ── CHANGE: now accepts CHEF as assignable role ─────────
   static async activateShopUser(
     shopId: string,
     userId: string,
@@ -160,6 +168,74 @@ export class ShopRepository {
       [shopId, userId, role]
     );
     return result.rowCount;
+  }
+
+  // ── NEW: Change a staff member's role ────────────────────
+  // Updates the role column for an active shop_users row.
+  //
+  // Why a dedicated method?
+  //   - Role changes need to be atomic (single UPDATE)
+  //   - They also need to clear PINs that no longer apply
+  //     (e.g. a CASHIER promoted to CHEF should lose their
+  //     POS PIN since they can no longer log into POS mode)
+  //   - Having this in the repository keeps the business
+  //     logic decisions in the service layer
+  //
+  // Returns true if the role was changed, false if user
+  // not found or not active.
+  static async changeStaffRole(
+    shopId:  string,
+    userId:  string,
+    newRole: AssignableRole
+  ): Promise<boolean> {
+    const result = await pool.query(
+      `
+      UPDATE shop_users
+      SET role = $3
+      WHERE shop_id  = $1
+        AND user_id  = $2
+        AND is_active = true
+        AND role     != 'OWNER'   -- Owners cannot have their role changed here
+      `,
+      [shopId, userId, newRole]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ── NEW: Clear POS PIN when role no longer allows POS ────
+  // Called when a CASHIER or MANAGER is changed to CHEF.
+  // A CHEF cannot log into POS mode, so their POS PIN
+  // should be cleared to avoid confusion and stale data.
+  static async clearPosPinForUser(shopId: string, userId: string): Promise<void> {
+    await pool.query(
+      `
+      UPDATE shop_users
+      SET pos_pin_hash         = NULL,
+          pos_pin_attempts     = 0,
+          pos_pin_locked_until = NULL
+      WHERE shop_id = $1
+        AND user_id = $2
+      `,
+      [shopId, userId]
+    );
+  }
+
+  // ── NEW: Clear Kitchen PIN when role no longer allows kitchen ──
+  // Called when a CHEF is changed to CASHIER.
+  // A CASHIER cannot log into Kitchen Mode, so their kitchen
+  // PIN should be cleared.
+  static async clearKitchenPinForUser(shopId: string, userId: string): Promise<void> {
+    await pool.query(
+      `
+      UPDATE shop_users
+      SET kitchen_pin_hash         = NULL,
+          kitchen_pin_attempts     = 0,
+          kitchen_pin_locked_until = NULL
+      WHERE shop_id = $1
+        AND user_id = $2
+      `,
+      [shopId, userId]
+    );
   }
 
   static async softDeleteShop(shopId: string) {
