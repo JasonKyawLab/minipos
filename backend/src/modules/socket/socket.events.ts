@@ -50,6 +50,8 @@ export const SOCKET_EVENTS = {
   KITCHEN_TICKET_READY:   "kitchen:ticket_ready",
   KITCHEN_ITEM_STATUS:    "kitchen:item_status",
 
+  POS_FORCE_LOGOUT: "pos:force_logout",
+  KITCHEN_FORCE_LOGOUT: "kitchen:force_logout",
 } as const;
 
 export type SocketEvent = typeof SOCKET_EVENTS[keyof typeof SOCKET_EVENTS];
