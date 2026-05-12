@@ -1,33 +1,4 @@
 "use client";
-// =========================================================
-// app/(shop)/shops/[shopId]/worklog/page.tsx
-//
-// FIXES:
-//   1. API returns { shifts, total } — the original code
-//      destructured these correctly but the backend shift
-//      routes weren't registered (fixed in app.ts), causing
-//      a 404 that looked like a data shape bug.
-//
-//   2. Added "Shop" column — the task requirement says
-//      "Shop where he worked" should be shown.
-//      Since we're already inside a shop context, we show
-//      shopName from ShopContext (no extra API call needed).
-//
-//   3. Pagination was correct in logic but the offset
-//      calculation was off-by-one for page 1.
-//      (page - 1) * limit  when page=1 → offset=0 ✓
-//
-//   4. Stats loading was done in the same Promise.allSettled
-//      as shifts, which caused both to fail silently if
-//      stats returned FORBIDDEN. Now stats is a separate
-//      try/catch that gracefully hides the card on error.
-//
-// NAME: "Work Log" was chosen because:
-//   - Plain English, universally understood
-//   - Matches industry tools (Deputy, Clockify, 7shifts)
-//   - Chef/Cashier understand "log" = history
-//   - "Shift Timing" sounds like an engineering metric
-// =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useShop } from "@/context/ShopContext";
@@ -37,8 +8,6 @@ import { formatDateTime, toISODate, getDefaultDateRange } from "@/utils/formatDa
 import toast from "react-hot-toast";
 import { EmptyState } from "@/components/states";
 import { SkeletonTable } from "@/components/ui/Skeleton";
-
-// ── Types matching backend response ───────────────────────
 
 interface ShiftRecord {
   session_id:         string;
@@ -54,7 +23,6 @@ interface ShiftRecord {
   device_name:        string | null;
 }
 
-// FIX: Backend returns { shifts: ShiftRecord[]; total: number }
 interface ShiftsResponse {
   shifts: ShiftRecord[];
   total:  number;
@@ -73,8 +41,6 @@ interface StaffOption {
   name:    string;
   role:    string;
 }
-
-// ── Styling helpers ────────────────────────────────────────
 
 const ROLE_COLOURS: Record<string, string> = {
   OWNER:   "bg-[#EEEDFE] text-[#534AB7]",
@@ -95,8 +61,6 @@ function formatMinutes(minutes: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-// ── Component ──────────────────────────────────────────────
-
 export default function WorkLogPage() {
   const { shopId, shopName, userRole } = useShop();
   const isManager = ["OWNER", "MANAGER"].includes(userRole);
@@ -115,49 +79,33 @@ export default function WorkLogPage() {
   const [modeFilter, setModeFilter] = useState<"" | "POS" | "KITCHEN">("");
   const [userFilter, setUserFilter] = useState("");
 
-  // Load staff dropdown (managers only, non-critical)
+  // Load staff dropdown once on mount (non-critical)
   useEffect(() => {
     if (!isManager) return;
     api.get<StaffOption[]>(`/api/shops/${shopId}/shifts/staff`)
       .then(({ data }) => setStaffList(Array.isArray(data) ? data : []))
-      .catch(() => {}); // non-critical — dropdown just won't populate
+      .catch(() => {});
   }, [shopId, isManager]);
 
-  // FIX: Separate stats load so a FORBIDDEN on stats
-  // doesn't prevent shifts from loading
-  const loadStats = useCallback(async () => {
-    try {
-      const params: Record<string, string> = { from: dateFrom, to: dateTo };
-      if (userFilter) params.userId = userFilter;
-
-      const { data } = await api.get<ShiftStats>(
-        `/api/shops/${shopId}/shifts/stats`, { params }
-      );
-      setStats(data);
-    } catch {
-      // CASHIER/CHEF may get 403 on stats for other users — that's OK
-      setStats(null);
-    }
-  }, [shopId, dateFrom, dateTo, userFilter]);
-
-  const load = useCallback(async () => {
+  // ── Single combined load function ────────────────────────
+  // Merges shifts + stats into one effect to prevent cascading
+  // re-renders and triple-fire in React StrictMode.
+  const loadData = useCallback(async (currentPage: number) => {
     setLoading(true);
-    try {
-      const params: Record<string, string | number> = {
-        from:   dateFrom,
-        to:     dateTo,
-        limit,
-        // FIX: offset = (page - 1) * limit → page 1 → offset 0
-        offset: (page - 1) * limit,
-      };
-      if (modeFilter) params.mode   = modeFilter;
-      if (userFilter) params.userId = userFilter;
 
-      // FIX: Backend returns { shifts, total } — destructure correctly
+    const params: Record<string, string | number> = {
+      from:   dateFrom,
+      to:     dateTo,
+      limit,
+      offset: (currentPage - 1) * limit,
+    };
+    if (modeFilter) params.mode   = modeFilter;
+    if (userFilter) params.userId = userFilter;
+
+    try {
       const { data } = await api.get<ShiftsResponse>(
         `/api/shops/${shopId}/shifts`, { params }
       );
-
       setShifts(Array.isArray(data.shifts) ? data.shifts : []);
       setTotal(typeof data.total === "number" ? data.total : 0);
     } catch (err: any) {
@@ -167,20 +115,47 @@ export default function WorkLogPage() {
     } finally {
       setLoading(false);
     }
-  }, [shopId, dateFrom, dateTo, modeFilter, userFilter, page]);
 
-  // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [dateFrom, dateTo, modeFilter, userFilter]);
+    // Stats load separately — failure is non-fatal
+    try {
+      const statsParams: Record<string, string> = { from: dateFrom, to: dateTo };
+      if (userFilter) statsParams.userId = userFilter;
 
-  // Load data when page or filters change
-  useEffect(() => { load(); loadStats(); }, [load, loadStats]);
+      const { data } = await api.get<ShiftStats>(
+        `/api/shops/${shopId}/shifts/stats`, { params: statsParams }
+      );
+      setStats(data);
+    } catch {
+      setStats(null);
+    }
+  }, [shopId, dateFrom, dateTo, modeFilter, userFilter]);
+
+  // Reset page to 1 when filters change, then load
+  useEffect(() => {
+    setPage(1);
+    loadData(1);
+  }, [dateFrom, dateTo, modeFilter, userFilter, loadData]);
+
+  // Reload when page changes (but not when filters change — that's handled above)
+  // We track whether a page change is user-initiated vs filter-reset
+  const [isPageChange, setIsPageChange] = useState(false);
+
+  useEffect(() => {
+    if (!isPageChange) return;
+    setIsPageChange(false);
+    loadData(page);
+  }, [page, isPageChange, loadData]);
+
+  function goToPage(newPage: number) {
+    setPage(newPage);
+    setIsPageChange(true);
+  }
 
   const totalPages = Math.ceil(total / limit);
 
   return (
     <div className="animate-fade-in space-y-5">
 
-      {/* ── Page header ──────────────────────────────────── */}
       <div>
         <h1 className="text-[22px] font-medium text-[#0F2B4C]">Work Log</h1>
         <p className="text-[13px] text-[#5F5E5A] mt-0.5">
@@ -191,7 +166,16 @@ export default function WorkLogPage() {
         </p>
       </div>
 
-      {/* ── Stats cards ───────────────────────────────────── */}
+      {/* ── Empty state hint ────────────────────────────────── */}
+      {!loading && shifts.length === 0 && (
+        <div className="bg-[#FAEEDA] border border-[#BA7517]/30 rounded-lg px-4 py-3 text-[13px] text-[#BA7517]">
+          <span className="font-medium">No shifts recorded yet. </span>
+          Shifts are created when staff log into POS or Kitchen mode using their PIN.
+          Each PIN login starts a shift; logging out ends it.
+        </div>
+      )}
+
+      {/* Stats cards */}
       {stats && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard label="Total Shifts"    value={String(stats.total_shifts)}                      colour="navy" />
@@ -201,7 +185,7 @@ export default function WorkLogPage() {
         </div>
       )}
 
-      {/* ── Filters ───────────────────────────────────────── */}
+      {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1.5">
           <input
@@ -227,7 +211,6 @@ export default function WorkLogPage() {
           <option value="KITCHEN">Kitchen only</option>
         </select>
 
-        {/* Staff filter — managers only */}
         {isManager && staffList.length > 0 && (
           <select
             value={userFilter}
@@ -248,13 +231,13 @@ export default function WorkLogPage() {
         </span>
       </div>
 
-      {/* ── Shifts table ──────────────────────────────────── */}
+      {/* Shifts table */}
       {loading ? (
         <SkeletonTable rows={6} cols={isManager ? 7 : 6} />
       ) : shifts.length === 0 ? (
         <EmptyState
           title="No shifts found"
-          description="No work sessions recorded in this period."
+          description="No work sessions recorded in this period. Staff must log into POS or Kitchen mode with a PIN to generate shift records."
         />
       ) : (
         <>
@@ -262,7 +245,6 @@ export default function WorkLogPage() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="bg-[#F1EFE8] border-b border-[#D3D1C7] text-[#5F5E5A] text-[12px]">
-                  {/* FIX: Added "Shop" column per requirements */}
                   <th className="text-left px-5 py-3 font-medium">Shop</th>
                   {isManager && (
                     <th className="text-left px-4 py-3 font-medium">Staff</th>
@@ -283,38 +265,32 @@ export default function WorkLogPage() {
                       shift.is_active ? "bg-[#E1F5EE]/20" : ""
                     }`}
                   >
-                    {/* Shop column — from context, no extra API call */}
                     <td className="px-5 py-3 text-[#0F2B4C] font-medium text-[12px]">
                       {shopName}
                     </td>
 
-                    {/* Staff name — managers only */}
                     {isManager && (
                       <td className="px-4 py-3 font-medium text-[#0F2B4C]">
                         {shift.staff_name}
                       </td>
                     )}
 
-                    {/* Role badge */}
                     <td className="px-4 py-3">
                       <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${ROLE_COLOURS[shift.shop_role] ?? "bg-[#F1EFE8] text-[#5F5E5A]"}`}>
                         {shift.shop_role}
                       </span>
                     </td>
 
-                    {/* Mode badge */}
                     <td className="px-4 py-3">
                       <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${MODE_COLOURS[shift.mode_type]}`}>
                         {shift.mode_type}
                       </span>
                     </td>
 
-                    {/* Start time */}
                     <td className="px-4 py-3 text-[#5F5E5A] text-[12px]">
                       {formatDateTime(shift.login_at)}
                     </td>
 
-                    {/* End time */}
                     <td className="px-4 py-3 text-[#5F5E5A] text-[12px]">
                       {shift.logout_at ? (
                         formatDateTime(shift.logout_at)
@@ -326,12 +302,10 @@ export default function WorkLogPage() {
                       )}
                     </td>
 
-                    {/* Duration */}
                     <td className="px-4 py-3 text-right font-medium text-[#0F2B4C]">
                       {shift.duration_formatted}
                     </td>
 
-                    {/* Device */}
                     <td className="px-5 py-3 text-[12px] text-[#5F5E5A]">
                       {shift.device_name ?? "Unknown device"}
                     </td>
@@ -341,12 +315,11 @@ export default function WorkLogPage() {
             </table>
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2">
               <button
                 disabled={page === 1}
-                onClick={() => setPage(p => p - 1)}
+                onClick={() => goToPage(page - 1)}
                 className="h-8 px-3 text-[12px] border border-[#D3D1C7] rounded-lg disabled:opacity-40 hover:bg-[#F1EFE8]"
               >
                 ← Prev
@@ -356,7 +329,7 @@ export default function WorkLogPage() {
               </span>
               <button
                 disabled={page === totalPages}
-                onClick={() => setPage(p => p + 1)}
+                onClick={() => goToPage(page + 1)}
                 className="h-8 px-3 text-[12px] border border-[#D3D1C7] rounded-lg disabled:opacity-40 hover:bg-[#F1EFE8]"
               >
                 Next →
@@ -368,8 +341,6 @@ export default function WorkLogPage() {
     </div>
   );
 }
-
-// ── Stat card ─────────────────────────────────────────────
 
 type Colour = "navy" | "teal" | "purple" | "amber";
 
