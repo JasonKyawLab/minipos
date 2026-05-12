@@ -64,11 +64,14 @@ const ERROR_MESSAGES: Record<string, string> = {
   TABLE_NOT_FOUND:           "Table not found.",
   TABLE_NUMBER_ALREADY_EXISTS: "This table number is already in use.",
 
-  // PIN / POS
+  // PIN 
   PIN_NOT_SET:               "PIN not set. Ask a manager to set your PIN.",
-  PIN_LOCKED:                "Account locked for 15 minutes. Contact a manager.",
   PIN_INVALID_FORMAT:        "PIN must be 4–6 digits.",
   SHOP_MEMBER_NOT_FOUND:     "Staff member not found in this shop.",
+  STAFF_NOT_POS_ELIGIBLE: "This staff member cannot use the POS terminal.",
+  KITCHEN_NOT_AUTHENTICATED: "Kitchen session expired. Please sign in again.",
+  INVALID_KITCHEN_TOKEN: "Kitchen session is invalid. Please sign in again.",
+  PIN_LOCKED: "Too many incorrect attempts. Account locked for 15 minutes.",
 
   // Modifiers
   GROUP_NOT_FOUND:           "Modifier group not found.",
