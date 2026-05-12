@@ -1,18 +1,17 @@
 // =========================================================
 // pos-auth.service.ts
-// Path: src/modules/pos-auth/pos-auth.service.ts
-// =========================================================
-// Business logic for POS PIN authentication.
+// Path: backend/src/modules/pos-auth/pos-auth.service.ts
 //
-// Fixes:
-//   1. loginWithPin() now accepts deviceId (was silently undefined)
-//   2. loginWithPin() reads pos_token_version and embeds it in JWT
-//   3. Failed attempt audit log uses correct column names:
-//      pos_pin_attempts / pos_pin_locked_until (not pin_attempts)
-//   4. getStaffList() uses top-level pool import instead of
-//      dynamic import() — cleaner and consistent with the rest
-//   5. forceLogoutStaff() re-uses assertOwnerOrManager() helper
-//      instead of duplicating the role check inline
+// NEW: setStaffPin() — lets a manager/owner set the POS PIN
+// for another staff member. The existing setPin() only sets
+// your own PIN (reads requesterId from the JWT). This new
+// method lets OWNER/MANAGER set it for any CASHIER/MANAGER.
+//
+// Why is this needed?
+//   New staff members can't set their own PIN because:
+//   a) They may not have access to the dashboard (CASHIER)
+//   b) They need a manager to do initial onboarding
+//   The manager enters the PIN on their behalf in the UI.
 // =========================================================
 
 import jwt             from "jsonwebtoken";
@@ -22,21 +21,19 @@ import { PosAuthRepository }  from "./pos-auth.repository.js";
 import { ShopRepository }     from "../shop/shop.repository.js";
 import { AuditService }       from "../audit/audit.service.js";
 import { DeviceModeService }  from "../device-mode/device-mode.service.js";
+import { DeviceModeRepository } from '../device-mode/device-mode.repository.js';
 import { appError }           from "../../utils/appError.js";
 import { env }                from "../../config/validation.js";
 import { PosJwtPayload }      from "./pos-auth.types.js";
+import { emitToShop, emitToPosTerminals } from '../socket/socket.js';
+import { SOCKET_EVENTS } from '../socket/socket.events.js';
 
-// ── Constants ─────────────────────────────────────────────
 
 const PIN_SALT_ROUNDS = 10;
-
-// PIN lock duration in minutes — communicated to the client
-// so the UI can show a countdown.
 export const PIN_LOCK_MINUTES = 15;
 
-// ── Permission helpers ────────────────────────────────────
-// Both helpers are used in multiple methods, so they live at
-// the top of the file rather than being inlined each time.
+// POS-eligible roles — matches the repository filter
+const POS_ELIGIBLE_ROLES = ["OWNER", "MANAGER", "CASHIER"] as const;
 
 async function assertShopMember(shopId: string, userId: string) {
   const member = await ShopRepository.getUserShopMembership(shopId, userId);
@@ -54,23 +51,17 @@ async function assertOwnerOrManager(shopId: string, userId: string) {
   return member;
 }
 
-// ── PIN format validation ─────────────────────────────────
-
 function validatePinFormat(pin: string): void {
   if (!/^\d{4,6}$/.test(pin)) {
     throw new appError("PIN_INVALID_FORMAT", 400);
   }
 }
 
-// =========================================================
-// SERVICE
-// =========================================================
-
 export class PosAuthService {
 
   // ── GET staff list ───────────────────────────────────────
-  // Public within the shop — no role restriction.
-  // The tablet login screen needs this before any PIN is entered.
+  // Returns only POS-eligible staff (OWNER, MANAGER, CASHIER).
+  // CHEF is filtered out at the repository level.
   static async getStaffList(shopId: string) {
     const { rows } = await pool.query(
       `SELECT id FROM shops WHERE id = $1 AND is_deleted = false`,
@@ -82,18 +73,23 @@ export class PosAuthService {
   }
 
   // ── Set own PIN ──────────────────────────────────────────
-  // Any active shop member can set their own PIN.
-  // Requires platform access_token (they must be logged in).
+  // Any active POS-eligible shop member sets their own PIN.
+  // Requires platform access_token (logged in as themselves).
   static async setPin(params: {
     shopId:      string;
     requesterId: string;
     pin:         string;
   }) {
-    await assertShopMember(params.shopId, params.requesterId);
+    const member = await assertShopMember(params.shopId, params.requesterId);
+
+    // CHEF cannot have a POS PIN — they use Kitchen Mode only
+    if (!POS_ELIGIBLE_ROLES.includes(member.role as any)) {
+      throw new appError("FORBIDDEN", 403);
+    }
+
     validatePinFormat(params.pin);
 
     const pinHash = await bcrypt.hash(params.pin, PIN_SALT_ROUNDS);
-
     const updated = await PosAuthRepository.setPin(
       params.shopId,
       params.requesterId,
@@ -107,6 +103,65 @@ export class PosAuthService {
       action:   "POS_PIN_SET",
       entity:   "SHOP_USER",
       entityId: params.requesterId,
+    });
+
+    return { success: true };
+  }
+
+  // ── NEW: Set another staff member's PIN ──────────────────
+  // OWNER or MANAGER sets the POS PIN for a specific staff member.
+  // This is the "manager onboarding" flow — the manager enters
+  // the PIN on behalf of the new cashier.
+  //
+  // Permission rules:
+  //   - Only OWNER or MANAGER can call this
+  //   - MANAGER cannot set the PIN for another MANAGER or OWNER
+  //   - The target must be a POS-eligible role (not CHEF)
+  static async setStaffPin(params: {
+    shopId:       string;
+    requesterId:  string;  // the manager doing the action
+    targetUserId: string;  // the staff member getting a PIN
+    pin:          string;
+  }) {
+    // Requester must be OWNER or MANAGER
+    const actor = await assertOwnerOrManager(params.shopId, params.requesterId);
+
+    // Fetch target membership
+    const target = await ShopRepository.getUserShopMembership(
+      params.shopId,
+      params.targetUserId
+    );
+    if (!target || !target.is_active) {
+      throw new appError("STAFF_NOT_FOUND", 404);
+    }
+
+    // Target must be POS-eligible (not CHEF, not OWNER if actor is MANAGER)
+    if (!POS_ELIGIBLE_ROLES.includes(target.role as any)) {
+      throw new appError("STAFF_NOT_POS_ELIGIBLE", 400);
+    }
+
+    // MANAGER cannot set PIN for OWNER or another MANAGER
+    if (actor.role === "MANAGER" && ["OWNER", "MANAGER"].includes(target.role)) {
+      throw new appError("FORBIDDEN", 403);
+    }
+
+    validatePinFormat(params.pin);
+
+    const pinHash = await bcrypt.hash(params.pin, PIN_SALT_ROUNDS);
+    const updated = await PosAuthRepository.setPin(
+      params.shopId,
+      params.targetUserId,
+      pinHash
+    );
+    if (!updated) throw new appError("SHOP_MEMBER_NOT_FOUND", 404);
+
+    await AuditService.log({
+      shopId:   params.shopId,
+      userId:   params.requesterId,
+      action:   "POS_PIN_SET_BY_MANAGER",
+      entity:   "SHOP_USER",
+      entityId: params.targetUserId,
+      metadata: { setBy: params.requesterId },
     });
 
     return { success: true };
@@ -136,23 +191,53 @@ export class PosAuthService {
     return { success: true };
   }
 
+  // ── NEW: Remove another staff member's PIN ───────────────
+  // OWNER or MANAGER removes a staff member's POS PIN.
+  static async removeStaffPin(params: {
+    shopId:       string;
+    requesterId:  string;
+    targetUserId: string;
+  }) {
+    const actor = await assertOwnerOrManager(params.shopId, params.requesterId);
+
+    const target = await ShopRepository.getUserShopMembership(
+      params.shopId,
+      params.targetUserId
+    );
+    if (!target || !target.is_active) {
+      throw new appError("STAFF_NOT_FOUND", 404);
+    }
+
+    // MANAGER cannot remove PIN for OWNER or another MANAGER
+    if (actor.role === "MANAGER" && ["OWNER", "MANAGER"].includes(target.role)) {
+      throw new appError("FORBIDDEN", 403);
+    }
+
+    const updated = await PosAuthRepository.removePin(
+      params.shopId,
+      params.targetUserId
+    );
+    if (!updated) throw new appError("SHOP_MEMBER_NOT_FOUND", 404);
+
+    await AuditService.log({
+      shopId:   params.shopId,
+      userId:   params.requesterId,
+      action:   "POS_PIN_REMOVED_BY_MANAGER",
+      entity:   "SHOP_USER",
+      entityId: params.targetUserId,
+    });
+
+    return { success: true };
+  }
+
   // ── PIN login ────────────────────────────────────────────
-  // No platform token required — the tablet is unauthenticated.
-  // Staff taps their name, enters PIN, gets back pos_token cookie.
-  //
-  // FIX 1: added deviceId? so staff sessions are actually recorded.
-  // FIX 2: reads pos_token_version from DB and embeds it in JWT
-  //        so requirePosAuth middleware can verify it and make
-  //        force-logout effective.
-  // FIX 3: failed attempt metadata now uses the correct DB column
-  //        names (pos_pin_attempts, pos_pin_locked_until).
   static async loginWithPin(params: {
     shopId:    string;
     userId:    string;
     pin:       string;
-    deviceId?: string; // FIX 1 — optional: present when called from a device
+    deviceId?: string;
   }) {
-    const membership = await PosAuthRepository.getMembership(
+    const membership = await PosAuthRepository.getMembershipWithTokenVersion(
       params.shopId,
       params.userId
     );
@@ -161,20 +246,23 @@ export class PosAuthService {
       throw new appError("INVALID_CREDENTIALS", 401);
     }
 
+    // CHEF cannot log into POS mode
+    if (!POS_ELIGIBLE_ROLES.includes(membership.role as any)) {
+      throw new appError("FORBIDDEN", 403);
+    }
+
     if (!membership.pos_pin_hash) {
       throw new appError("PIN_NOT_SET", 401);
     }
 
-    // Time-based lockout — auto-expires, no manual reset required
     if (
       membership.pos_pin_locked_until &&
       new Date(membership.pos_pin_locked_until) > new Date()
     ) {
-      throw new appError("PIN_LOCKED", 423); // 423 Locked is semantically correct
+      throw new appError("PIN_LOCKED", 423);
     }
 
     const maxAttempts = await PosAuthRepository.getShopPinMaxAttempts(params.shopId);
-
     const isValid = await bcrypt.compare(params.pin, membership.pos_pin_hash);
 
     if (!isValid) {
@@ -184,13 +272,11 @@ export class PosAuthService {
         maxAttempts
       );
 
-      // Re-read so we have the updated attempt count for the error metadata
       const fresh = await PosAuthRepository.getMembership(
         params.shopId,
         params.userId
       );
 
-      // FIX 3 — correct column names: pos_pin_attempts, pos_pin_locked_until
       const remaining = Math.max(
         0,
         maxAttempts - (fresh?.pos_pin_attempts ?? maxAttempts)
@@ -202,9 +288,9 @@ export class PosAuthService {
         action: "POS_PIN_FAILED",
         entity: "SHOP_USER",
         metadata: {
-          attempts:    fresh?.pos_pin_attempts,    // FIX 3
+          attempts:    fresh?.pos_pin_attempts,
           maxAttempts,
-          locked:      fresh?.pos_pin_locked_until != null, // FIX 3
+          locked:      fresh?.pos_pin_locked_until != null,
         },
       });
 
@@ -215,44 +301,33 @@ export class PosAuthService {
       throw new appError("INVALID_CREDENTIALS", 401);
     }
 
-    // Success — reset the failed attempt counter
     await PosAuthRepository.resetAttempts(params.shopId, params.userId);
 
-    // FIX 1 — record staff session only when a deviceId was provided.
-    // Non-fatal: PIN login succeeds even if device session recording fails.
     if (params.deviceId) {
       try {
-        await DeviceModeService.recordStaffLogin({
-          shopId:   params.shopId,
-          deviceId: params.deviceId,
-          userId:   params.userId,
-          mode:     "POS",
-        });
-      } catch (err) {
-        console.error("POS staff session record failed (non-fatal):", err);
-      }
+        await DeviceModeRepository.recordStaffLogin({
+    shopId:   params.shopId,
+    deviceId: params.deviceId ?? null,
+    userId:   params.userId,
+    mode:     "POS",
+          });
+    } catch (shiftErr) {
+  // Non-fatal: PIN login succeeds even if shift recording fails.
+  // This prevents a DB issue from blocking the cashier from working.
+    console.error("POS shift recording failed (non-fatal):", shiftErr);
+    }
     }
 
-    // FIX 2 — read current token version so it can be embedded in the JWT.
-    // requirePosAuth middleware will compare this against the DB on every
-    // request, making force-logout effective immediately.
-    const { rows: versionRows } = await pool.query(
-      `SELECT pos_token_version
-       FROM shop_users
-       WHERE shop_id = $1 AND user_id = $2`,
-      [params.shopId, params.userId]
-    );
-    const tokenVersion: number = versionRows[0]?.pos_token_version ?? 0;
+    const tokenVersion: number = membership.pos_token_version ?? 0;
 
     const payload: PosJwtPayload = {
       userId:       params.userId,
       shopId:       params.shopId,
       shopRole:     membership.role as "OWNER" | "MANAGER" | "CASHIER",
       type:         "POS",
-      tokenVersion, // FIX 2
+      tokenVersion,
     };
 
-    // Short-lived: 8 hours = one shift
     const token = jwt.sign(payload, env.JWT_SECRET, { expiresIn: "8h" });
 
     await AuditService.log({
@@ -267,47 +342,61 @@ export class PosAuthService {
   }
 
   // ── Force logout a staff member ──────────────────────────
-  // Increments pos_token_version in the DB.
-  // requirePosAuth will reject the old JWT on the next request.
-  // Only OWNER or MANAGER can do this.
   static async forceLogoutStaff(params: {
-    shopId:       string;
-    requesterId:  string;
-    targetUserId: string;
-  }) {
-    // FIX 5 — use the shared helper instead of duplicating the role check
-    await assertOwnerOrManager(params.shopId, params.requesterId);
+  shopId:       string;
+  requesterId:  string;
+  targetUserId: string;
+}) {
+  await assertOwnerOrManager(params.shopId, params.requesterId);
 
-    const target = await PosAuthRepository.getMembership(
-      params.shopId,
-      params.targetUserId
-    );
-    if (!target || !target.is_active) {
-      throw new appError("STAFF_NOT_FOUND", 404);
-    }
-
-    const updated = await PosAuthRepository.incrementTokenVersion(
-      params.shopId,
-      params.targetUserId
-    );
-    if (!updated) throw new appError("STAFF_NOT_FOUND", 404);
-
-    await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   "POS_FORCE_LOGOUT",
-      entity:   "SHOP_USER",
-      entityId: params.targetUserId,
-      metadata: { targetRole: target.role },
-    });
-
-    return { success: true };
+  const target = await PosAuthRepository.getMembership(params.shopId, params.targetUserId);
+  if (!target || !target.is_active) {
+    throw new appError("STAFF_NOT_FOUND", 404);
   }
 
+  // Increment token version — this invalidates the JWT server-side.
+  // Any subsequent API call from the terminal will return 401.
+  const updated = await PosAuthRepository.incrementTokenVersion(
+    params.shopId,
+    params.targetUserId
+  );
+  if (!updated) throw new appError("STAFF_NOT_FOUND", 404);
+
+  try {
+    // 1. Notify the owner's dashboard (Browser B) — optional UX feedback
+    emitToShop(params.shopId, SOCKET_EVENTS.POS_FORCE_LOGOUT, {
+      targetUserId: params.targetUserId,
+      timestamp:    new Date().toISOString(),
+    });
+
+    // 2. Notify the actual POS terminal (Browser A) — this is the fix.
+    //    The terminal joined room terminal:<shopId>:POS automatically
+    //    on socket connect by presenting its terminal_session cookie.
+    //    Receiving this event triggers an immediate redirect to the
+    //    PIN login screen without waiting for the next API call to 401.
+    emitToPosTerminals(params.shopId, SOCKET_EVENTS.POS_FORCE_LOGOUT, {
+      targetUserId: params.targetUserId,
+      timestamp:    new Date().toISOString(),
+    });
+  } catch (socketErr) {
+    // Non-fatal: the token version increment already happened.
+    // The terminal will be kicked on its next API call (401).
+    console.error("Socket emit for force logout failed:", socketErr);
+  }
+
+  await AuditService.log({
+    shopId:   params.shopId,
+    userId:   params.requesterId,
+    action:   "POS_FORCE_LOGOUT",
+    entity:   "SHOP_USER",
+    entityId: params.targetUserId,
+    metadata: { targetRole: target.role },
+  });
+
+  return { success: true };
+}
+
   // ── Reset a locked-out staff member ─────────────────────
-  // Clears pos_pin_attempts and pos_pin_locked_until WITHOUT
-  // removing the PIN itself. Used mid-shift when a cashier is
-  // locked out and can't wait 15 minutes.
   static async resetStaffLock(params: {
     shopId:       string;
     requesterId:  string;
@@ -334,8 +423,6 @@ export class PosAuthService {
   }
 
   // ── Update shop pin_max_attempts ─────────────────────────
-  // OWNER only — this is a shop-level security setting.
-  // Validation is done here AND in the Zod schema (defence in depth).
   static async updatePinMaxAttempts(params: {
     shopId:      string;
     requesterId: string;
