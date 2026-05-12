@@ -6,7 +6,10 @@ import { AuditService }          from "../audit/audit.service.js";
 import { appError }              from "../../utils/appError.js";
 import { env }                   from "../../config/validation.js";
 import { pool }                  from "../../db/pool.js";
-import { DeviceModeService } from "../device-mode/device-mode.service.js";
+import { DeviceModeRepository } from "../device-mode/device-mode.repository.js";
+import { emitToShop, emitToKitchenTerminals } from '../socket/socket.js';
+import { SOCKET_EVENTS } from '../socket/socket.events.js';
+
 
 const PIN_SALT_ROUNDS = 10;
 
@@ -117,15 +120,15 @@ export class KitchenAuthService {
 
     if (params.deviceId) {
   try {
-    await DeviceModeService.recordStaffLogin({
-      shopId:   params.shopId,
-      deviceId: params.deviceId,
-      userId:   params.userId,
-      mode:     'KITCHEN',
-    });
-  } catch {
-    // Non-fatal — PIN login succeeds regardless
-  }
+  await DeviceModeRepository.recordStaffLogin({
+    shopId:   params.shopId,
+    deviceId: params.deviceId ?? null,
+    userId:   params.userId,
+    mode:     'KITCHEN',
+  });
+} catch (shiftErr) {
+  console.error("Kitchen shift recording failed (non-fatal):", shiftErr);
+}
 }
 
     const kitchenRole = membership.role as "OWNER" | "MANAGER" | "CHEF";
@@ -166,12 +169,97 @@ export class KitchenAuthService {
     return { success: true };
   }
 
-  static async forceLogoutStaff(params: {
+  static async setStaffPin(params: {
+    shopId:       string;
+    requesterId:  string;
+    targetUserId: string;
+    pin:          string;
+  }) {
+    // Requester must be OWNER or MANAGER
+    const actor = await assertOwnerOrManager(params.shopId, params.requesterId);
+
+    // Fetch target membership
+    const target = await KitchenAuthRepository.getMembership(
+      params.shopId,
+      params.targetUserId
+    );
+
+    // getMembership returns null for CASHIER (blocked at query level)
+    if (!target || !target.is_active) {
+      throw new appError("STAFF_NOT_FOUND", 404);
+    }
+
+    // MANAGER cannot set PIN for OWNER or another MANAGER
+    if (actor.role === "MANAGER" && ["OWNER", "MANAGER"].includes(target.role)) {
+      throw new appError("FORBIDDEN", 403);
+    }
+
+    if (!/^\d{4,6}$/.test(params.pin)) {
+      throw new appError("PIN_INVALID_FORMAT", 400);
+    }
+
+    const pinHash = await bcrypt.hash(params.pin, PIN_SALT_ROUNDS);
+    const updated = await KitchenAuthRepository.setPin(
+      params.shopId,
+      params.targetUserId,
+      pinHash
+    );
+    if (!updated) throw new appError("SHOP_MEMBER_NOT_FOUND", 404);
+
+    await AuditService.log({
+      shopId:   params.shopId,
+      userId:   params.requesterId,
+      action:   "KITCHEN_PIN_SET_BY_MANAGER",
+      entity:   "SHOP_USER",
+      entityId: params.targetUserId,
+      metadata: { setBy: params.requesterId },
+    });
+
+    return { success: true };
+  }
+
+    static async removeStaffPin(params: {
+    shopId:       string;
+    requesterId:  string;
+    targetUserId: string;
+  }) {
+    const actor = await assertOwnerOrManager(params.shopId, params.requesterId);
+
+    const target = await KitchenAuthRepository.getMembership(
+      params.shopId,
+      params.targetUserId
+    );
+    if (!target || !target.is_active) {
+      throw new appError("STAFF_NOT_FOUND", 404);
+    }
+
+    // MANAGER cannot remove PIN for OWNER or another MANAGER
+    if (actor.role === "MANAGER" && ["OWNER", "MANAGER"].includes(target.role)) {
+      throw new appError("FORBIDDEN", 403);
+    }
+
+    const updated = await KitchenAuthRepository.removePin(
+      params.shopId,
+      params.targetUserId
+    );
+    if (!updated) throw new appError("SHOP_MEMBER_NOT_FOUND", 404);
+
+    await AuditService.log({
+      shopId:   params.shopId,
+      userId:   params.requesterId,
+      action:   "KITCHEN_PIN_REMOVED_BY_MANAGER",
+      entity:   "SHOP_USER",
+      entityId: params.targetUserId,
+    });
+
+    return { success: true };
+  }
+
+static async forceLogoutStaff(params: {
   shopId: string;
-  requesterId: string;   // owner/manager doing the action
-  targetUserId: string;  // chef (or any kitchen user)
+  requesterId: string;
+  targetUserId: string;
 }) {
-  // Check requester is OWNER or MANAGER
   const requester = await KitchenAuthRepository.getMembership(params.shopId, params.requesterId);
   if (!requester || !requester.is_active || !["OWNER", "MANAGER"].includes(requester.role)) {
     throw new appError("FORBIDDEN", 403);
@@ -182,18 +270,44 @@ export class KitchenAuthService {
     throw new appError("STAFF_NOT_FOUND", 404);
   }
 
-  // Increment token version – invalidates all active kitchen tokens for this user
+  // Increment token version — invalidates all active kitchen tokens for this user.
+  // requireKitchenAuth middleware checks version on every request, so the next
+  // API call from the kitchen terminal will return 401 and redirect to PIN screen.
   const updated = await KitchenAuthRepository.incrementKitchenTokenVersion(
     params.shopId,
     params.targetUserId
   );
   if (!updated) throw new appError("STAFF_NOT_FOUND", 404);
 
+  try {
+    // 1. Notify the owner's dashboard (shop room) — optional UX feedback
+    //    so the dashboard can update the staff list indicator.
+    emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_FORCE_LOGOUT, {
+      targetUserId: params.targetUserId,
+      timestamp:    new Date().toISOString(),
+    });
+
+    // 2. Notify the kitchen terminal itself — this is the critical one.
+    //    The terminal joined room terminal:<shopId>:KITCHEN automatically
+    //    when its terminal_session cookie was validated during socket connect.
+    //    Receiving this event triggers an immediate redirect to the PIN screen
+    //    WITHOUT waiting for the next API call to fail with 401.
+    emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_FORCE_LOGOUT, {
+      targetUserId: params.targetUserId,
+      timestamp:    new Date().toISOString(),
+    });
+  } catch (socketErr) {
+    // Non-fatal: the token version increment already happened.
+    // The kitchen terminal will be kicked on its next API call (401).
+    // Socket is best-effort.
+    console.error("Socket emit for kitchen force logout failed:", socketErr);
+  }
+
   await AuditService.log({
-    shopId: params.shopId,
-    userId: params.requesterId,
-    action: "KITCHEN_FORCE_LOGOUT",
-    entity: "SHOP_USER",
+    shopId:   params.shopId,
+    userId:   params.requesterId,
+    action:   "KITCHEN_FORCE_LOGOUT",
+    entity:   "SHOP_USER",
     entityId: params.targetUserId,
     metadata: { targetRole: target.role },
   });
