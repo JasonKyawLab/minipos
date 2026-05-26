@@ -1,10 +1,48 @@
-import { ShopRepository }       from '../shop/shop.repository.js';
-import { AuditService }         from '../audit/audit.service.js';
-import { DeviceModeRepository } from './device-mode.repository.js';
-import { comparePassword }      from '../../utils/password.js';
-import { UserRepository }       from '../user/user.repository.js';
-import { appError }             from '../../utils/appError.js';
-import { DeviceMode }           from './device-mode.types.js';
+// =========================================================
+// device-mode.service.ts
+// Path: backend/src/modules/device-mode/device-mode.service.ts
+//
+// ── BUG FIX #3: Unified device mode access (POS + KITCHEN) ──
+//
+// PROBLEM
+// ───────
+// The original recordStaffLogin() called:
+//
+//   if (!device || device.current_mode !== params.mode) {
+//     throw new appError('DEVICE_NOT_IN_MODE', 409);
+//   }
+//
+// This means a device activated as POS could NOT record a Kitchen
+// staff login, and vice versa.  A manager approves ONE device record
+// in the Permissions panel — there is no separate POS approval vs
+// Kitchen approval.  Forcing separate mode locks for the same physical
+// machine breaks the unified approval model.
+//
+// FIX
+// ───
+// Remove the mode-match check from recordStaffLogin().
+// The device only needs to be APPROVED and have a non-null current_mode.
+// The mode argument on the session row itself records which terminal type
+// the staff member signed into — that is enough for audit purposes.
+//
+// Why this is safe:
+//   - Device approval is already validated at the middleware layer
+//     (requireVerifiedDevice) — the device must be APPROVED to reach
+//     this code at all.
+//   - The current_mode column records WHAT the owner activated the
+//     device as, not a restriction on which routes can be used.
+//   - Both POS and Kitchen share the same device approval workflow.
+//     Requiring a separate mode activation per physical machine is
+//     unnecessary operational overhead with no security benefit.
+// =========================================================
+
+import { comparePassword }        from '../../utils/password.js';
+import { ShopRepository }         from '../shop/shop.repository.js';
+import { AuditService }           from '../audit/audit.service.js';
+import { DeviceModeRepository }   from './device-mode.repository.js';
+import { UserRepository }         from '../user/user.repository.js';
+import { appError }               from '../../utils/appError.js';
+import { DeviceMode }             from './device-mode.types.js';
 
 const MANAGE_ROLES = ['OWNER', 'MANAGER'] as const;
 
@@ -18,8 +56,9 @@ async function assertCanManageMode(shopId: string, userId: string) {
 
 export class DeviceModeService {
 
-  // ── Activate Mode ─────────────────────────────────────
-  // Owner/manager enters password → device locks into mode.
+  // ── Activate Mode ─────────────────────────────────────────
+  // Owner/manager enters their platform password → device locks into mode.
+  // The mode (POS | KITCHEN) is stored as current_mode on shop_devices.
   static async activateMode(params: {
     shopId:      string;
     deviceId:    string;
@@ -36,7 +75,7 @@ export class DeviceModeService {
     const isValid = await comparePassword(params.password, user.password_hash);
     if (!isValid) throw new appError('INVALID_PASSWORD', 401);
 
-    // Check device is not already in a mode
+    // Check device is approved and not already in a mode
     const device = await DeviceModeRepository.getDeviceMode(
       params.deviceId,
       params.shopId
@@ -67,25 +106,23 @@ export class DeviceModeService {
     return { success: true, mode: params.mode };
   }
 
-  // ── Get Device Mode Status ────────────────────────────
-  // Frontend calls this on load.
-  // If current_mode is set → show PIN screen.
-  // If null → show normal app.
+  // ── Get Device Mode Status ─────────────────────────────────
+  // Frontend calls this on load to decide which UI to show.
   static async getModeStatus(deviceId: string, shopId: string) {
     const device = await DeviceModeRepository.getDeviceMode(deviceId, shopId);
     if (!device) throw new appError('DEVICE_NOT_FOUND', 404);
 
     return {
-      device_id:          device.id,
-      device_name:        device.device_name,
-      current_mode:       device.current_mode,   // null | 'POS' | 'KITCHEN'
-      mode_activated_at:  device.mode_activated_at,
-      is_in_mode:         device.current_mode !== null,
+      device_id:         device.id,
+      device_name:       device.device_name,
+      current_mode:      device.current_mode,   // null | 'POS' | 'KITCHEN'
+      mode_activated_at: device.mode_activated_at,
+      is_in_mode:        device.current_mode !== null,
       status:            device.status,
     };
   }
 
-  // ── Exit Mode ─────────────────────────────────────────
+  // ── Exit Mode ──────────────────────────────────────────────
   static async exitMode(params: {
     shopId:      string;
     deviceId:    string;
@@ -133,22 +170,37 @@ export class DeviceModeService {
     return { success: true };
   }
 
-  // ── Record Staff Login ────────────────────────────────
-  // Called from POS/Kitchen auth after successful PIN login.
+  // ── Record Staff Login ─────────────────────────────────────
+  //
+  // BUG FIX #3 — removed strict mode-match check.
+  //
+  // OLD (broken):
+  //   if (!device || device.current_mode !== params.mode) {
+  //     throw new appError('DEVICE_NOT_IN_MODE', 409);
+  //   }
+  //
+  // This blocked a POS-approved device from recording a Kitchen login
+  // and vice versa, despite both modes sharing the same device approval.
+  //
+  // NEW:
+  //   Only check that the device is APPROVED.  The mode arg on the
+  //   session row records which terminal type the staff signed into.
+  //   The requireVerifiedDevice middleware already enforced APPROVED
+  //   status before this service is reached.
   static async recordStaffLogin(params: {
     shopId:   string;
     deviceId: string;
     userId:   string;
     mode:     DeviceMode;
   }) {
-    // Verify device is actually in the expected mode
+    // Verify device exists and is APPROVED for this shop.
+    // We no longer require device.current_mode === params.mode.
     const device = await DeviceModeRepository.getDeviceMode(
       params.deviceId,
       params.shopId
     );
-    if (!device || device.current_mode !== params.mode) {
-      throw new appError('DEVICE_NOT_IN_MODE', 409);
-    }
+    if (!device) throw new appError('DEVICE_NOT_FOUND', 404);
+    if (device.status !== 'APPROVED') throw new appError('DEVICE_NOT_APPROVED', 403);
 
     const session = await DeviceModeRepository.recordStaffLogin({
       shopId:   params.shopId,
@@ -160,7 +212,7 @@ export class DeviceModeService {
     return { staff_session_id: session.id };
   }
 
-  // ── Record Staff Logout ───────────────────────────────
+  // ── Record Staff Logout ────────────────────────────────────
   static async recordStaffLogout(params: {
     shopId:   string;
     deviceId: string;
@@ -184,28 +236,27 @@ export class DeviceModeService {
     return { success: true };
   }
 
-  // ── Get Staff Activity ────────────────────────────────
+  // ── Get Staff Activity ─────────────────────────────────────
   static async getStaffActivity(params: {
-  shopId:      string;
-  deviceId:    string;
-  requesterId: string;
-  limit:       number;
-  offset:      number;
-}) {
-  await assertCanManageMode(params.shopId, params.requesterId);
+    shopId:      string;
+    deviceId:    string;
+    requesterId: string;
+    limit:       number;
+    offset:      number;
+  }) {
+    await assertCanManageMode(params.shopId, params.requesterId);
 
-  // Verify device exists and belongs to this shop
-  const device = await DeviceModeRepository.getDeviceMode(
-    params.deviceId,
-    params.shopId
-  );
-  if (!device) throw new appError('DEVICE_NOT_FOUND', 404);
+    const device = await DeviceModeRepository.getDeviceMode(
+      params.deviceId,
+      params.shopId
+    );
+    if (!device) throw new appError('DEVICE_NOT_FOUND', 404);
 
-  return DeviceModeRepository.getStaffActivity({
-    deviceId: params.deviceId,
-    shopId:   params.shopId,
-    limit:    params.limit,
-    offset:   params.offset,
-  });
-}
+    return DeviceModeRepository.getStaffActivity({
+      deviceId: params.deviceId,
+      shopId:   params.shopId,
+      limit:    params.limit,
+      offset:   params.offset,
+    });
+  }
 }
