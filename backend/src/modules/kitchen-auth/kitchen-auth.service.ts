@@ -80,81 +80,136 @@ export class KitchenAuthService {
     return { success: true };
   }
 
-  static async loginWithPin(params: { shopId: string; userId: string; pin: string ; deviceId?: string }) {
-    const membership = await KitchenAuthRepository.getMembership(params.shopId, params.userId);
+static async loginWithPin(params: {
+  shopId:      string;
+  userId:      string;
+  pin:         string;
+  terminalId?: string; // value from terminal_id HttpOnly cookie
+}) {
+  const membership = await KitchenAuthRepository.getMembership(
+    params.shopId,
+    params.userId
+  );
 
-    if (!membership || !membership.is_active) {
-      throw new appError("INVALID_CREDENTIALS", 401);
-    }
+  if (!membership || !membership.is_active) {
+    throw new appError("INVALID_CREDENTIALS", 401);
+  }
 
-    if (!membership.kitchen_pin_hash) {
-      throw new appError("PIN_NOT_SET", 401);
-    }
+  if (!membership.kitchen_pin_hash) {
+    throw new appError("PIN_NOT_SET", 401);
+  }
 
-    if (
-      membership.kitchen_pin_locked_until &&
-      new Date(membership.kitchen_pin_locked_until) > new Date()
-    ) {
-      throw new appError("PIN_LOCKED", 423);
-    }
+  if (
+    membership.kitchen_pin_locked_until &&
+    new Date(membership.kitchen_pin_locked_until) > new Date()
+  ) {
+    throw new appError("PIN_LOCKED", 423);
+  }
 
-    const maxAttempts = await KitchenAuthRepository.getShopPinMaxAttempts(params.shopId);
-    const isValid = await bcrypt.compare(params.pin, membership.kitchen_pin_hash);
+  const maxAttempts = await KitchenAuthRepository.getShopPinMaxAttempts(
+    params.shopId
+  );
+  const isValid = await bcrypt.compare(params.pin, membership.kitchen_pin_hash);
 
-    if (!isValid) {
-      await KitchenAuthRepository.recordFailedAttempt(params.shopId, params.userId, maxAttempts);
-      const fresh = await KitchenAuthRepository.getMembership(params.shopId, params.userId);
-      const remaining = Math.max(0, maxAttempts - (fresh?.kitchen_pin_attempts ?? maxAttempts));
-
-      await AuditService.log({
-        shopId: params.shopId, userId: params.userId,
-        action: "KITCHEN_PIN_FAILED", entity: "SHOP_USER",
-        metadata: { attempts: fresh?.kitchen_pin_attempts, maxAttempts, locked: remaining === 0 },
-      });
-
-      if (remaining === 0) throw new appError("PIN_LOCKED", 423);
-      throw new appError("INVALID_CREDENTIALS", 401);
-    }
-
-    await KitchenAuthRepository.resetAttempts(params.shopId, params.userId);
-
-    if (params.deviceId) {
-  try {
-  await DeviceModeRepository.recordStaffLogin({
-    shopId:   params.shopId,
-    deviceId: params.deviceId ?? null,
-    userId:   params.userId,
-    mode:     'KITCHEN',
-  });
-} catch (shiftErr) {
-  console.error("Kitchen shift recording failed (non-fatal):", shiftErr);
-}
-}
-
-    const kitchenRole = membership.role as "OWNER" | "MANAGER" | "CHEF";
-
-    const tokenVersion = membership.kitchen_token_version;
-
-    const token = jwt.sign(
-      {
-        userId:   params.userId,
-        shopId:   params.shopId,
-        shopRole: kitchenRole,   
-        type:     "KITCHEN_SESSION",
-        version:  tokenVersion,
-      },
-      env.JWT_SECRET,
-      { expiresIn: "12h" }
+  if (!isValid) {
+    await KitchenAuthRepository.recordFailedAttempt(
+      params.shopId,
+      params.userId,
+      maxAttempts
+    );
+    const fresh = await KitchenAuthRepository.getMembership(
+      params.shopId,
+      params.userId
+    );
+    const remaining = Math.max(
+      0,
+      maxAttempts - (fresh?.kitchen_pin_attempts ?? maxAttempts)
     );
 
     await AuditService.log({
-      shopId: params.shopId, userId: params.userId,
-      action: "KITCHEN_PIN_LOGIN_SUCCESS", entity: "SHOP_USER",
-      metadata: { role: kitchenRole },
+      shopId:   params.shopId,
+      userId:   params.userId,
+      action:   "KITCHEN_PIN_FAILED",
+      entity:   "SHOP_USER",
+      metadata: {
+        attempts:    fresh?.kitchen_pin_attempts,
+        maxAttempts,
+        locked:      remaining === 0,
+      },
     });
 
-    return { token, role: kitchenRole };
+    if (remaining === 0) throw new appError("PIN_LOCKED", 423);
+    throw new appError("INVALID_CREDENTIALS", 401);
   }
+
+  await KitchenAuthRepository.resetAttempts(params.shopId, params.userId);
+
+  // ── Resolve physical device from hardware passport cookie ──
+  // The terminal_id cookie was set during mode activation and
+  // survives staff logouts. It has zero permissions on its own —
+  // it is only used here to annotate the work log entry.
+  let deviceId: string | null = null;
+
+  if (params.terminalId) {
+    const { rows } = await pool.query(
+      `
+      SELECT id
+      FROM shop_devices
+      WHERE terminal_token = $1
+        AND shop_id        = $2
+        AND status         = 'APPROVED'
+      `,
+      [params.terminalId, params.shopId]
+    );
+    deviceId = rows[0]?.id ?? null;
+  }
+
+  // ── Record the shift with a real device_id ─────────────────
+  // If deviceId is null (terminal_id cookie was missing or the
+  // device was revoked), the shift is still recorded — just
+  // without a device reference. This prevents login failures
+  // due to a missing hardware passport.
+  try {
+    await DeviceModeRepository.recordStaffLogin({
+      shopId:   params.shopId,
+      deviceId: deviceId, // null-safe — column is now nullable
+      userId:   params.userId,
+      mode:     "KITCHEN",
+    });
+  } catch (shiftErr) {
+    // Non-fatal: shift recording failure must never block login.
+    // The chef still needs to access the kitchen display.
+    console.error("Kitchen shift recording failed (non-fatal):", shiftErr);
+  }
+
+  const kitchenRole = membership.role as "OWNER" | "MANAGER" | "CHEF";
+  const tokenVersion = membership.kitchen_token_version;
+
+  const token = jwt.sign(
+    {
+      userId:   params.userId,
+      shopId:   params.shopId,
+      shopRole: kitchenRole,
+      type:     "KITCHEN_SESSION",
+      version:  tokenVersion,
+    },
+    env.JWT_SECRET,
+    { expiresIn: "12h" }
+  );
+
+  await AuditService.log({
+    shopId:   params.shopId,
+    userId:   params.userId,
+    action:   "KITCHEN_PIN_LOGIN_SUCCESS",
+    entity:   "SHOP_USER",
+    metadata: {
+      role:     kitchenRole,
+      deviceId: deviceId ?? "unknown",
+    },
+  });
+
+  return { token, role: kitchenRole };
+}
   static async resetStaffLock(params: { shopId: string; requesterId: string; targetUserId: string }) {
     await assertOwnerOrManager(params.shopId, params.requesterId);
 

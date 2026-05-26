@@ -95,30 +95,37 @@ static async removeStaffKitchenPin(req: Request, res: Response) {
   }
 
   // POST /api/shops/:shopId/kitchen-auth/login
-  static async login(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const { user_id, pin, device_id } = req.body;
+static async login(req: Request, res: Response) {
+  try {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const { user_id, pin } = req.body;
 
-      const result = await KitchenAuthService.loginWithPin({
-        shopId,
-        userId:   user_id,
-        pin,
-        deviceId: device_id,
-      });
+    // Read the hardware passport from the HttpOnly cookie.
+    // The frontend cannot access or forge this value.
+    // This is the same terminal_id cookie set during mode activation.
+    const terminalId = req.cookies.terminal_id as string | undefined;
 
-      res.cookie("kitchen_token", result.token, {
-        httpOnly: true,
-        secure:   env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge:   12 * 60 * 60 * 1000,
-      });
+    const result = await KitchenAuthService.loginWithPin({
+      shopId,
+      userId:     user_id,
+      pin,
+      terminalId, // pass cookie value, not body value
+    });
 
-      res.clearCookie("access_token");
+    res.cookie("kitchen_token", result.token, {
+      httpOnly: true,
+      secure:   env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge:   12 * 60 * 60 * 1000,
+    });
 
-      return res.json({ role: result.role });
-    } catch (err) { return handleError(res, err); }
+    res.clearCookie("access_token");
+
+    return res.json({ role: result.role });
+  } catch (err) {
+    return handleError(res, err);
   }
+}
 
   // POST /api/shops/:shopId/kitchen-auth/logout
   static async logout(_req: Request, res: Response) {
@@ -157,31 +164,38 @@ static async removeStaffKitchenPin(req: Request, res: Response) {
   }
 
   // POST /api/shops/:shopId/kitchen-auth/exit
-  static async exitKitchenMode(req: Request, res: Response) {
-    try {
-      const shopId   = getParamAsString(req.params.shopId, "shopId");
-      const { password } = req.body;
-      const userId   = req.user!.id;
+static async exitKitchenMode(req: Request, res: Response) {
+  try {
+    const shopId       = getParamAsString(req.params.shopId, "shopId");
+    const { password } = req.body;
+    const userId       = req.user!.id;
 
-      const user = await UserRepository.findById(userId);
-      if (!user) throw new appError("USER_NOT_FOUND", 404);
+    const user = await UserRepository.findById(userId);
+    if (!user) throw new appError("USER_NOT_FOUND", 404);
 
-      const isValid = await comparePassword(password, user.password_hash);
-      if (!isValid) throw new appError("INVALID_PASSWORD", 401);
+    const isValid = await comparePassword(password, user.password_hash);
+    if (!isValid) throw new appError("INVALID_PASSWORD", 401);
 
-      await UserRepository.incrementTokenVersion(userId);
-      res.clearCookie("access_token");
-      res.clearCookie("kitchen_token");
+    await UserRepository.incrementTokenVersion(userId);
 
-      await AuditService.log({
-        shopId,
-        userId,
-        action: "KITCHEN_MODE_EXITED",
-        entity: "USER",
-        entityId: userId,
-      });
+    // Burn the mode cookies — staff session is destroyed
+    res.clearCookie("access_token");
+    res.clearCookie("kitchen_token");
+    // NOTE: terminal_id is deliberately NOT cleared.
+    // The hardware passport survives the logout so the next
+    // chef who logs in on this tablet is still traceable.
 
-      return res.json({ success: true });
-    } catch (err) { return handleError(res, err); }
+    await AuditService.log({
+      shopId,
+      userId,
+      action:   "KITCHEN_MODE_EXITED",
+      entity:   "USER",
+      entityId: userId,
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    return handleError(res, err);
   }
+}
 }
