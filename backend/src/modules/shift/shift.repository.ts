@@ -10,7 +10,7 @@ import { pool } from "../../db/pool.js";
 export interface ShiftRecord {
   session_id:         string;
   shop_id:            string;
-  device_id:          string;
+  device_id:          string| null;
   user_id:            string;
   staff_name:         string;
   shop_role:          string;
