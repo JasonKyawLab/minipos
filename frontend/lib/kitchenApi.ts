@@ -5,31 +5,30 @@
 // require the kitchen_token HttpOnly cookie (set by the
 // server after a successful kitchen PIN login).
 //
-// ── What changed from the old version ────────────────────
-// The old version injected an x-device-key header from
-// localStorage on every request, mirroring posApi. This was
-// part of the client-side device binding model that we are
-// replacing with a pure server-side session model.
-//
-// The x-device-key header has been removed because:
-//   • Kitchen session creation does not require a device_id.
-//   • device_id in terminal_sessions is nullable (optional).
-//   • The server trusts only the HttpOnly cookie.
-//   • Sending a client-controlled header that influences
-//     auth decisions is a security antipattern.
-//
-// ── Why kitchenApi is separate from posApi ───────────────
-// posApi is used in POS context → the browser sends pos_token.
-// kitchenApi is used in Kitchen context → sends kitchen_token.
-// They must never be mixed. Keeping them separate also means
-// their 401 redirect targets differ (pos/ vs kitchen/).
-//
 // ── 401 handling ─────────────────────────────────────────
-// When kitchen_token is missing or expired, redirect to the
-// kitchen staff selection screen for this shop.
+// kitchen_token is missing or expired → redirect to staff
+// selection screen for this shop.
+//
+// ── 403 handling (NEW) ───────────────────────────────────
+// Mirrors posApi.ts exactly. Device-verification errors
+// (DEVICE_NOT_VERIFIED, DEVICE_NOT_APPROVED) redirect to
+// /kitchen/:shopId?error=<CODE> so the staff selection page
+// can render a persistent "device not activated" banner
+// instead of an invisible or confusing error state.
+//
+// See posApi.ts for the full rationale on why we centralise
+// this in the API client rather than each page component.
 // =========================================================
 
 import axios from "axios";
+
+// Device-verification error codes returned by the backend
+// requireVerifiedDevice middleware.
+const DEVICE_ERRORS = new Set([
+  "DEVICE_NOT_VERIFIED",
+  "DEVICE_NOT_APPROVED",
+  "DEVICE_VERIFICATION_UNAVAILABLE",
+]);
 
 const kitchenApi = axios.create({
   baseURL:         process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001",
@@ -40,23 +39,44 @@ const kitchenApi = axios.create({
   },
 });
 
-// ── Response interceptor — 401 → kitchen staff selection ──
-// kitchen_token is missing or expired.
-// Navigate to staff selection so the cook can re-authenticate.
+// ── Response interceptor ──────────────────────────────────
+
 kitchenApi.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && typeof window !== "undefined") {
-      // Extract shopId from current path: /kitchen/:shopId/display
-      const parts  = window.location.pathname.split("/");
-      const shopId = parts[2]; // ["", "kitchen", ":shopId", ...]
+    if (typeof window === "undefined") return Promise.reject(error);
 
-      if (shopId && !window.location.pathname.endsWith(`/kitchen/${shopId}`)) {
-        // Only redirect if not already on the staff selection page,
-        // to prevent an infinite redirect loop.
-        window.location.href = `/kitchen/${shopId}`;
+    const status = error.response?.status;
+    const code   = error.response?.data?.message as string | undefined;
+
+    // Extract shopId from current path: /kitchen/:shopId/display
+    const parts  = window.location.pathname.split("/");
+    const shopId = parts[2]; // ["", "kitchen", ":shopId", ...]
+
+    if (!shopId) return Promise.reject(error);
+
+    const loginBase = `/kitchen/${shopId}`;
+
+    // ── 403: device verification failure ─────────────────
+    if (status === 403 && code && DEVICE_ERRORS.has(code)) {
+      const alreadyOnLoginWithError = window.location.pathname === loginBase
+        && window.location.search.includes("error=");
+
+      if (!alreadyOnLoginWithError) {
+        window.location.href = `${loginBase}?error=${encodeURIComponent(code)}`;
       }
+      return Promise.reject(error);
     }
+
+    // ── 401: session expired ──────────────────────────────
+    if (status === 401) {
+      const alreadyOnLogin = window.location.pathname === loginBase;
+      if (!alreadyOnLogin) {
+        window.location.href = loginBase;
+      }
+      return Promise.reject(error);
+    }
+
     return Promise.reject(error);
   }
 );
