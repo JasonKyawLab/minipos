@@ -43,22 +43,20 @@ CREATE TYPE device_status    AS ENUM ('PENDING', 'APPROVED', 'REVOKED');
 CREATE TYPE device_mode      AS ENUM ('POS', 'KITCHEN');
 
 CREATE TYPE kitchen_status AS ENUM ('PENDING', 'PREPARING', 'READY', 'SERVED', 'CANCELLED');
-CREATE TYPE kitchen_ticket_status AS ENUM ( 'QUEUED', 'IN_PROGRESS', 'READY', 'DONE', 'CANCELLED');
+CREATE TYPE kitchen_ticket_status AS ENUM ('QUEUED', 'IN_PROGRESS', 'READY', 'DONE', 'CANCELLED');
 CREATE TYPE kitchen_priority AS ENUM ('NORMAL', 'HIGH');
 
 CREATE TYPE terminal_mode AS ENUM ('POS', 'KITCHEN');
 
 CREATE TYPE terminal_auth_method AS ENUM (
-  'OWNER_PASSWORD',    -- Standard: owner enters their password
-  'MANAGER_PIN',       -- Level 1 delegation: manager PIN refresh
-  'EMERGENCY_CODE'     -- Level 2 delegation: single-use code from dashboard
+  'OWNER_PASSWORD',
+  'MANAGER_PIN',
+  'EMERGENCY_CODE'
 );
+
 
 -- =========================================================
 -- updated_at TRIGGER FUNCTION
--- =========================================================
--- Reusable trigger that keeps updated_at in sync automatically.
--- Attach to any table that has an updated_at column.
 -- =========================================================
 
 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -86,29 +84,28 @@ $$;
 -- =========================================================
 
 CREATE TABLE users (
-  id               UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id               UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
   name             VARCHAR(100) NOT NULL,
   email            VARCHAR(150) NOT NULL,
 
-  password_hash    TEXT        NOT NULL,
+  password_hash    TEXT         NOT NULL,
 
-  role             user_role   NOT NULL,
-  status           user_status NOT NULL DEFAULT 'ACTIVE',
+  role             user_role    NOT NULL,
+  status           user_status  NOT NULL DEFAULT 'ACTIVE',
 
-  token_version    INTEGER     NOT NULL DEFAULT 0,
+  token_version    INTEGER      NOT NULL DEFAULT 0,
 
-  failed_attempts  SMALLINT    NOT NULL DEFAULT 0,
+  failed_attempts  SMALLINT     NOT NULL DEFAULT 0,
   locked_until     TIMESTAMPTZ,
 
-  is_deleted       BOOLEAN     NOT NULL DEFAULT FALSE,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  is_deleted       BOOLEAN      NOT NULL DEFAULT FALSE,
+  created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
--- Case-insensitive unique email across ALL users, including soft-deleted ones.
+-- Case-insensitive unique email across ALL users including soft-deleted.
 -- Email is permanently reserved. A deleted account must be reactivated,
--- not re-registered. This also prevents someone from claiming a previously
--- deleted admin's email address.
+-- not re-registered.
 CREATE UNIQUE INDEX idx_users_email
   ON users (LOWER(email));
 
@@ -124,18 +121,19 @@ CREATE TRIGGER trg_users_updated_at
 -- owner_id always maps to a shop_users row with role=OWNER.
 --
 -- tax_rate         — shop-wide default tax percentage (0–100).
---                    Store as NUMERIC to avoid float drift.
+--                    Stored as NUMERIC to avoid float drift.
 -- timezone         — IANA timezone string used for
 --                    order_no generation and reporting.
+-- pin_max_attempts — how many wrong PINs before lockout.
 -- =========================================================
 
 CREATE TABLE shops (
-  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
-  owner_id    UUID        NOT NULL REFERENCES users(id),
+  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+  owner_id    UUID         NOT NULL REFERENCES users(id),
 
   name        VARCHAR(120) NOT NULL,
-  shop_type   shop_type   NOT NULL,
-  currency    currency    NOT NULL,
+  shop_type   shop_type    NOT NULL,
+  currency    currency     NOT NULL,
 
   tax_rate    NUMERIC(5,2) NOT NULL DEFAULT 0
               CHECK (tax_rate >= 0 AND tax_rate <= 100),
@@ -144,9 +142,9 @@ CREATE TABLE shops (
   pin_max_attempts SMALLINT     NOT NULL DEFAULT 5
                    CHECK (pin_max_attempts >= 1 AND pin_max_attempts <= 10),
 
-  is_deleted  BOOLEAN     NOT NULL DEFAULT FALSE,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  is_deleted  BOOLEAN      NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_shops_owner ON shops(owner_id);
@@ -164,7 +162,18 @@ CREATE TRIGGER trg_shops_updated_at
 -- by an OWNER or MANAGER before they can process orders.
 --
 -- device_key       — random token generated on first install
---                    (UUID v4 or 32-byte hex).
+--                    (UUID v4 or 32-byte hex). Used for device
+--                    management (approve/revoke in dashboard).
+--
+-- terminal_token   — Hardware Passport. Issued once during
+--                    the first mode activation on this device.
+--                    Stored in an HttpOnly cookie on the tablet
+--                    permanently. Survives staff logouts.
+--                    Used ONLY to annotate work log entries —
+--                    it has zero permissions on its own.
+--                    Never rotated so the audit trail stays
+--                    traceable across the device's lifetime.
+--
 -- approved_by      — user who approved / revoked the device.
 -- last_seen_at     — updated on every authenticated request.
 -- =========================================================
@@ -176,12 +185,17 @@ CREATE TABLE shop_devices (
   device_name   VARCHAR(100),
   device_key    VARCHAR(100)  NOT NULL UNIQUE,
 
+  -- Hardware passport: issued once, permanent, zero permissions.
+  -- NULL until the device's first mode activation.
+  terminal_token            VARCHAR(128) UNIQUE,
+  terminal_token_issued_at  TIMESTAMPTZ,
+
   status        device_status NOT NULL DEFAULT 'PENDING',
   current_mode  device_mode   NULL,
-  
-  mode_activated_by   UUID    REFERENCES users(id) ON DELETE SET NULL,
-  approved_by         UUID    REFERENCES users(id) ON DELETE SET NULL,
-  mode_activated_at   TIMESTAMPTZ  NULL,
+
+  mode_activated_by  UUID     REFERENCES users(id) ON DELETE SET NULL,
+  approved_by        UUID     REFERENCES users(id) ON DELETE SET NULL,
+  mode_activated_at  TIMESTAMPTZ NULL,
 
   user_agent    TEXT,
   ip_address    INET,
@@ -194,38 +208,65 @@ CREATE INDEX idx_shop_devices_shop   ON shop_devices(shop_id);
 CREATE INDEX idx_shop_devices_key    ON shop_devices(device_key);
 CREATE INDEX idx_shop_devices_status ON shop_devices(shop_id, status);
 
+-- Fast lookup on every PIN login: terminal_id cookie → device row.
+-- Partial index excludes the NULL rows (devices not yet activated).
+CREATE INDEX idx_shop_devices_terminal_token
+  ON shop_devices(terminal_token)
+  WHERE terminal_token IS NOT NULL;
+
+
 -- =========================================================
 -- STAFF MODE SESSIONS
 -- =========================================================
 -- Tracks each PIN login/logout within a device mode.
--- This is the activity log the owner described:
---   "record login time, logout time, actions performed"
+-- This is the work log the owner sees:
+--   "who logged in, on which tablet, when, for how long"
+--
+-- device_id        — NULLABLE. Resolved from the terminal_id
+--                    HttpOnly cookie during PIN login. If the
+--                    cookie is absent (device never registered,
+--                    or very first activation), the shift is
+--                    still recorded without a device reference.
+--                    Login must never fail because of a missing
+--                    hardware passport.
 --
 -- logout_reason:
---   SELF     = staff pressed logout themselves
---   FORCE    = manager forced them out
+--   SELF      = staff pressed logout themselves
+--   FORCE     = manager forced them out
 --   MODE_EXIT = device mode was exited (ends all sessions)
 -- =========================================================
 
 CREATE TABLE staff_mode_sessions (
   id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
   shop_id     UUID         NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-  device_id   UUID         NOT NULL REFERENCES shop_devices(id) ON DELETE CASCADE,
+
+  -- Nullable: resolved from terminal_id HttpOnly cookie at PIN login time.
+  -- ON DELETE SET NULL so deleting a device record does not destroy
+  -- the historical work log entries for that device.
+  device_id   UUID         REFERENCES shop_devices(id) ON DELETE SET NULL,
+
   user_id     UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
   mode_type   device_mode  NOT NULL,
 
   login_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
-  logout_at   TIMESTAMPTZ,           -- NULL = currently active
-  logout_reason VARCHAR(20),         -- SELF | FORCE | MODE_EXIT
+  logout_at   TIMESTAMPTZ,            -- NULL = currently active
+  logout_reason VARCHAR(20),          -- SELF | FORCE | MODE_EXIT
 
   created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_staff_mode_sessions_device ON staff_mode_sessions(device_id, login_at DESC);
-CREATE INDEX idx_staff_mode_sessions_user ON staff_mode_sessions(shop_id, user_id, login_at DESC);
+CREATE INDEX idx_staff_mode_sessions_device
+  ON staff_mode_sessions(device_id, login_at DESC);
+
+CREATE INDEX idx_staff_mode_sessions_user
+  ON staff_mode_sessions(shop_id, user_id, login_at DESC);
+
 -- Fast lookup: is this user currently active on this device?
-CREATE INDEX idx_staff_mode_sessions_active ON staff_mode_sessions(device_id, logout_at) WHERE logout_at IS NULL;
+CREATE INDEX idx_staff_mode_sessions_active
+  ON staff_mode_sessions(device_id, logout_at)
+  WHERE logout_at IS NULL;
+
 
 -- =========================================================
 -- SHOP USERS
@@ -233,9 +274,8 @@ CREATE INDEX idx_staff_mode_sessions_active ON staff_mode_sessions(device_id, lo
 -- Staff membership per shop. A user may hold a different
 -- role in each shop they belong to.
 --
--- pin is for POS MODE
--- kitchen_pin is for KDS MODE — separate from POS pin to avoid conflicts
---
+-- pos_pin_hash     — for POS MODE login
+-- kitchen_pin_hash — for KDS MODE login (separate from POS)
 -- =========================================================
 
 CREATE TABLE shop_users (
@@ -246,12 +286,12 @@ CREATE TABLE shop_users (
   kitchen_pin_hash         TEXT,
   kitchen_pin_attempts     SMALLINT NOT NULL DEFAULT 0 CHECK (kitchen_pin_attempts >= 0),
   kitchen_pin_locked_until TIMESTAMPTZ,
-  kitchen_token_version    INTEGER NOT NULL DEFAULT 0,
+  kitchen_token_version    INTEGER  NOT NULL DEFAULT 0,
 
-  pos_pin_hash   VARCHAR(255),
-  pos_pin_attempts      SMALLINT    NOT NULL    DEFAULT 0 CHECK (pos_pin_attempts >= 0),
-  pos_pin_locked_until  TIMESTAMPTZ,
-  pos_token_version INTEGER     NOT NULL    DEFAULT 0,
+  pos_pin_hash         VARCHAR(255),
+  pos_pin_attempts     SMALLINT    NOT NULL DEFAULT 0 CHECK (pos_pin_attempts >= 0),
+  pos_pin_locked_until TIMESTAMPTZ,
+  pos_token_version    INTEGER     NOT NULL DEFAULT 0,
 
   role       shop_role  NOT NULL,
   is_active  BOOLEAN    NOT NULL DEFAULT TRUE,
@@ -264,58 +304,52 @@ CREATE TABLE shop_users (
 CREATE INDEX idx_shop_users_shop ON shop_users(shop_id);
 CREATE INDEX idx_shop_users_user ON shop_users(user_id);
 
+
 -- =========================================================
 -- TERMINAL SESSIONS
 -- =========================================================
 
 CREATE TABLE terminal_sessions (
-  id              UUID              PRIMARY KEY DEFAULT uuid_generate_v4(),
-  shop_id         UUID              NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-  
-  -- Which physical device (still tracked for audit, but NOT trusted as auth)
-  device_id       UUID              REFERENCES shop_devices(id) ON DELETE SET NULL,
-  
+  id              UUID                 PRIMARY KEY DEFAULT uuid_generate_v4(),
+  shop_id         UUID                 NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+
+  -- Which physical device (tracked for audit, NOT trusted as auth).
+  device_id       UUID                 REFERENCES shop_devices(id) ON DELETE SET NULL,
+
   -- The opaque token stored in the HttpOnly cookie.
   -- This is what the backend validates on every request.
   -- 32 random bytes → 64 hex chars. Never stored client-side.
-  session_token   VARCHAR(128)      NOT NULL UNIQUE,
-  
-  mode            terminal_mode     NOT NULL,
-  
+  session_token   VARCHAR(128)         NOT NULL UNIQUE,
+
+  mode            terminal_mode        NOT NULL,
+
   -- Who activated this terminal and how.
-  -- AUDIT CHECKLIST: authorized_by must always be populated.
-  authorized_by   UUID              NOT NULL REFERENCES users(id),
+  authorized_by   UUID                 NOT NULL REFERENCES users(id),
   auth_method     terminal_auth_method NOT NULL DEFAULT 'OWNER_PASSWORD',
-  
-  -- Emergency code tracking (Level 2 delegation)
-  -- References emergency_codes.id if auth_method = 'EMERGENCY_CODE'
+
+  -- Emergency code tracking (Level 2 delegation).
   emergency_code_id UUID,
-  
-  -- Heartbeat: updated by the requireTerminalSession middleware
-  -- on every authenticated request. Enables stale session detection.
-  -- AUDIT CHECKLIST: last_seen_at must be updated on every API call.
-  last_seen_at    TIMESTAMPTZ       NOT NULL DEFAULT now(),
-  
+
+  -- Heartbeat: updated by middleware on every authenticated request.
+  last_seen_at    TIMESTAMPTZ          NOT NULL DEFAULT now(),
+
   -- Automatic expiry. NULL = no expiry (standard sessions).
-  -- Emergency code sessions expire after a fixed duration.
   expires_at      TIMESTAMPTZ,
-  
+
   -- Soft revocation: owner marks as revoked without deleting.
-  -- Deleted sessions cannot be queried at all; revoked ones
-  -- appear in the "Active Terminals" view as "Revoked".
-  is_revoked      BOOLEAN           NOT NULL DEFAULT FALSE,
-  revoked_by      UUID              REFERENCES users(id),
+  is_revoked      BOOLEAN              NOT NULL DEFAULT FALSE,
+  revoked_by      UUID                 REFERENCES users(id),
   revoked_at      TIMESTAMPTZ,
-  
-  created_at      TIMESTAMPTZ       NOT NULL DEFAULT now()
+
+  created_at      TIMESTAMPTZ          NOT NULL DEFAULT now()
 );
 
--- Fast lookup on every authenticated terminal request
+-- Fast lookup on every authenticated terminal request.
 CREATE UNIQUE INDEX idx_terminal_sessions_token
   ON terminal_sessions(session_token)
   WHERE is_revoked = FALSE;
 
--- Owner dashboard: "show me all active terminals for shop X"
+-- Owner dashboard: show all active terminals for shop X.
 CREATE INDEX idx_terminal_sessions_shop_active
   ON terminal_sessions(shop_id, is_revoked, last_seen_at DESC)
   WHERE is_revoked = FALSE;
@@ -324,6 +358,7 @@ CREATE INDEX idx_terminal_sessions_device
   ON terminal_sessions(device_id)
   WHERE device_id IS NOT NULL;
 
+
 -- =========================================================
 -- EMERGENCY CODES
 -- =========================================================
@@ -331,43 +366,35 @@ CREATE INDEX idx_terminal_sessions_device
 -- A code can only be used ONCE and expires after 5 minutes.
 -- After use, used_at is stamped and used_by is recorded.
 -- The code can never be used again even before expiry.
---
--- Why a separate table and not just a field on terminal_sessions?
---   The owner generates the code BEFORE the terminal uses it.
---   There's a gap between generation and use that must be tracked.
---   Storing it separately also lets us show "pending codes" in
---   the dashboard and prevents reuse across sessions.
 -- =========================================================
 
 CREATE TABLE emergency_codes (
   id          UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
   shop_id     UUID          NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-  
+
   -- The 8-character alphanumeric code shown to the owner.
   -- Stored as bcrypt hash, NEVER plaintext.
   code_hash   TEXT          NOT NULL,
-  
-  -- Which mode this code authorizes. Codes are mode-specific
-  -- so a kitchen code cannot activate POS mode.
+
+  -- Which mode this code authorises.
   mode        terminal_mode NOT NULL,
-  
-  -- Who generated this code (must be OWNER)
+
+  -- Who generated this code (must be OWNER).
   generated_by UUID         NOT NULL REFERENCES users(id),
   generated_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
-  
-  -- Codes expire 5 minutes after generation
+
+  -- Codes expire 5 minutes after generation.
   expires_at  TIMESTAMPTZ   NOT NULL DEFAULT (now() + INTERVAL '5 minutes'),
-  
-  -- Usage tracking (single-use enforcement)
+
+  -- Usage tracking (single-use enforcement).
   used_at     TIMESTAMPTZ,
   used_by     UUID          REFERENCES users(id),
-  
-  -- The terminal session created by this code
-  -- Populated AFTER successful use
+
+  -- The terminal session created by this code.
   terminal_session_id UUID  REFERENCES terminal_sessions(id) ON DELETE SET NULL
 );
 
--- Fast lookup during terminal activation
+-- Fast lookup during terminal activation.
 CREATE UNIQUE INDEX idx_emergency_codes_unused
   ON emergency_codes(shop_id, mode)
   WHERE used_at IS NULL;
@@ -375,16 +402,9 @@ CREATE UNIQUE INDEX idx_emergency_codes_unused
 CREATE INDEX idx_emergency_codes_shop
   ON emergency_codes(shop_id, generated_at DESC);
 
+
 -- =========================================================
 -- RESTAURANT TABLES
--- =========================================================
--- Physical dining tables. Only meaningful for RESTAURANT
--- shops but the schema is not enforced at DB level so a
--- future shop_type can reuse the concept.
---
--- qr_token         — rotated periodically by the app; the
---                    UNIQUE constraint prevents collisions.
--- capacity         — optional seat count for floor planning.
 -- =========================================================
 
 CREATE TABLE restaurant_tables (
@@ -395,9 +415,9 @@ CREATE TABLE restaurant_tables (
   capacity     SMALLINT    CHECK (capacity > 0),
 
   qr_token     VARCHAR(100) NOT NULL UNIQUE,
-  is_active    BOOLEAN     NOT NULL DEFAULT TRUE,
+  is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
 
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
 
   UNIQUE (shop_id, table_number)
 );
@@ -445,17 +465,14 @@ CREATE TRIGGER trg_product_models_updated_at
 -- The actual SKU that gets scanned and sold.
 -- A model always has at least one item.
 --
--- track_stock      — FALSE for restaurants (food is made
---                    to order; no physical stock to track).
--- stock_qty        — only meaningful when track_stock=TRUE.
---                    Protected against negative values by
---                    a CHECK constraint AND a serialised
---                    UPDATE in application code
---                    (SELECT ... FOR UPDATE).
--- is_sold_out      — manual override for restaurants when
---                    an item is temporarily unavailable.
--- cost_price       — used for profit margin reporting.
--- is_deleted       — soft delete for lifecycle management.
+-- track_stock  — FALSE for restaurants (food made to order).
+-- stock_qty    — only meaningful when track_stock = TRUE.
+--                Protected against negative values by CHECK
+--                AND serialised UPDATE in application code
+--                (SELECT ... FOR UPDATE).
+-- is_sold_out  — manual override for temporary unavailability.
+-- cost_price   — used for profit margin reporting.
+-- is_deleted   — soft delete for lifecycle management.
 -- =========================================================
 
 CREATE TABLE product_items (
@@ -468,7 +485,7 @@ CREATE TABLE product_items (
   barcode          VARCHAR(50),
 
   price            DECIMAL(10,2) NOT NULL CHECK (price >= 0),
-  cost_price       DECIMAL(10,2)          CHECK (cost_price >= 0),
+  cost_price       DECIMAL(10,2)           CHECK (cost_price >= 0),
 
   track_stock      BOOLEAN       NOT NULL DEFAULT TRUE,
   stock_qty        INTEGER       NOT NULL DEFAULT 0 CHECK (stock_qty >= 0),
@@ -482,7 +499,7 @@ CREATE TABLE product_items (
 );
 
 -- Unique constraint excludes deleted items.
--- This allows barcode recycling after deletion.
+-- Allows barcode recycling after deletion.
 CREATE UNIQUE INDEX idx_product_items_barcode
   ON product_items(barcode)
   WHERE barcode IS NOT NULL AND is_deleted = FALSE;
@@ -500,9 +517,6 @@ CREATE TRIGGER trg_product_items_updated_at
 -- =========================================================
 -- A named set of customisation options attached to a model.
 -- Examples: "Spice Level", "Add-ons", "Cooking Preference".
---
--- min_select / max_select — validated by CHECK; app layer
--- enforces them at order time.
 -- =========================================================
 
 CREATE TABLE modifier_groups (
@@ -524,14 +538,9 @@ CREATE TABLE modifier_groups (
 
 CREATE INDEX idx_modifier_groups_shop ON modifier_groups(shop_id);
 
+
 -- =========================================================
 -- PRODUCT-MODIFIER JOIN TABLE
--- =========================================================
--- Many-to-many relationship between product models and modifier groups.
--- A product model can have multiple modifier groups (e.g. "Burger"
--- has "Cooking Preference" and "Add-ons"). A modifier group can apply
--- to multiple product models (e.g. "Cooking Preference" applies to both
--- "Burger" and "Steak").
 -- =========================================================
 
 CREATE TABLE product_model_modifier_groups (
@@ -544,15 +553,6 @@ CREATE TABLE product_model_modifier_groups (
 
 -- =========================================================
 -- MODIFIER OPTIONS
--- =========================================================
--- Individual choices within a modifier group.
--- Example: group "Add-ons" → options "Extra Egg (+15)", "Cheese (+20)".
---
--- linked_product_item_id — optional: ties this option to a
---   real product item so its stock is decremented on sale
---   (e.g. "Add Fried Egg" deducts from the Egg SKU).
---
--- price_delta      — can be negative (discount modifiers).
 -- =========================================================
 
 CREATE TABLE modifier_options (
@@ -577,16 +577,12 @@ CREATE INDEX idx_modifier_options_group ON modifier_options(group_id);
 -- INVENTORY MOVEMENTS
 -- =========================================================
 -- Append-only ledger of every stock change.
--- The current stock_qty on product_items is the running
--- total; this table is the audit trail behind it.
 --
--- quantity         — positive = stock in, negative = stock out.
---                    CHECK (quantity <> 0) prevents no-ops.
--- reference_id     — FK-like pointer to the causative entity
---                    (e.g. order_items.id for a SALE).
---                    Not a hard FK so historical rows survive
---                    if the order is hard-deleted.
--- notes            — optional human reason for ADJUSTMENT.
+-- quantity     — positive = stock in, negative = stock out.
+--                CHECK (quantity <> 0) prevents no-ops.
+-- reference_id — FK-like pointer to the causative entity.
+--                Not a hard FK so historical rows survive
+--                if the order is hard-deleted.
 -- =========================================================
 
 CREATE TABLE inventory_movements (
@@ -611,19 +607,6 @@ CREATE INDEX idx_inventory_created_at ON inventory_movements(shop_id, created_at
 
 -- =========================================================
 -- ORDERS
--- =========================================================
--- A transaction between the shop and a customer.
---
--- order_no         — human-readable reference generated by
---                    the app (e.g. "ORD-20240318-0042").
---                    Unique per shop only.
--- cancelled_at /
--- completed_at     — explicit timestamps for fast reporting
---                    queries that filter by lifecycle stage.
--- notes            — internal cashier notes.
---
--- CONSTRAINT dinein_requires_table — DINE_IN orders must
---   always reference a table. Restored from v1.
 -- =========================================================
 
 CREATE TABLE orders (
@@ -683,55 +666,44 @@ CREATE TRIGGER trg_orders_updated_at
 -- =========================================================
 -- ORDER ITEMS
 -- =========================================================
--- Line items within an order. Snapshot fields capture the
--- state of the product at sale time so historical orders
--- remain accurate after repricing or renaming.
---
--- product_item_id  — SET NULL on delete; snapshot fields
---                    preserve legibility even if the item
---                    is later soft-deleted.
--- modifier_snapshot — JSONB array of the selected modifier
---                     names and price_deltas at sale time.
--- =========================================================
 
 CREATE TABLE order_items (
-  id                      UUID             PRIMARY KEY DEFAULT uuid_generate_v4(),
-  order_id                UUID             NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  product_item_id         UUID             REFERENCES product_items(id) ON DELETE SET NULL,
+  id                      UUID              PRIMARY KEY DEFAULT uuid_generate_v4(),
+  order_id                UUID              NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_item_id         UUID              REFERENCES product_items(id) ON DELETE SET NULL,
 
-  kitchen_status          kitchen_status   NOT NULL DEFAULT 'PENDING',
+  kitchen_status          kitchen_status    NOT NULL DEFAULT 'PENDING',
 
-  product_name_snapshot   VARCHAR(255)     NOT NULL,
-  item_name_snapshot      VARCHAR(255)     NOT NULL,
-  unit_price_snapshot     DECIMAL(12,2)    NOT NULL CHECK (unit_price_snapshot >= 0),
+  product_name_snapshot   VARCHAR(255)      NOT NULL,
+  item_name_snapshot      VARCHAR(255)      NOT NULL,
+  unit_price_snapshot     DECIMAL(12,2)     NOT NULL CHECK (unit_price_snapshot >= 0),
 
-  qty                     INTEGER          NOT NULL CHECK (qty > 0),
-  subtotal                DECIMAL(12,2)    NOT NULL CHECK (subtotal >= 0),
+  qty                     INTEGER           NOT NULL CHECK (qty > 0),
+  subtotal                DECIMAL(12,2)     NOT NULL CHECK (subtotal >= 0),
 
-  modifier_snapshot       JSONB            NOT NULL DEFAULT '[]',
-  
+  modifier_snapshot       JSONB             NOT NULL DEFAULT '[]',
+
   item_note               VARCHAR(255),
-  
+
   status                  order_item_status NOT NULL DEFAULT 'ACTIVE',
-  
+
   refunded_qty            INTEGER           NOT NULL DEFAULT 0 CHECK (refunded_qty >= 0),
 
-  created_at              TIMESTAMPTZ      NOT NULL DEFAULT now(),
+  created_at              TIMESTAMPTZ       NOT NULL DEFAULT now(),
 
   CONSTRAINT chk_refunded_qty_lte_qty CHECK (refunded_qty <= qty)
 );
 
-CREATE INDEX idx_order_items_order        ON order_items(order_id);
-CREATE INDEX idx_order_items_product_item ON order_items(product_item_id) WHERE product_item_id IS NOT NULL;
+CREATE INDEX idx_order_items_order          ON order_items(order_id);
+CREATE INDEX idx_order_items_product_item   ON order_items(product_item_id)
+  WHERE product_item_id IS NOT NULL;
 CREATE INDEX idx_order_items_kitchen_status ON order_items(order_id, kitchen_status);
-CREATE INDEX idx_order_items_kitchen_active ON order_items(kitchen_status) WHERE kitchen_status IN ('PENDING', 'PREPARING');
+CREATE INDEX idx_order_items_kitchen_active ON order_items(kitchen_status)
+  WHERE kitchen_status IN ('PENDING', 'PREPARING');
+
 
 -- =========================================================
--- Kitchen Stations 
--- =========================================================
--- Named prep zones: "Grill", "Cold Prep", "Bar", etc.
--- Shops without stations run in all-in-one mode.
--- Must be defined BEFORE kitchen_tickets references it.
+-- KITCHEN STATIONS
 -- =========================================================
 
 CREATE TABLE kitchen_stations (
@@ -740,7 +712,7 @@ CREATE TABLE kitchen_stations (
 
   name        VARCHAR(100) NOT NULL,
   description TEXT,
-  color       VARCHAR(7),  -- hex colour for the KDS UI e.g. #FF5733
+  color       VARCHAR(7),  -- hex colour e.g. #FF5733
 
   is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
   sort_order  SMALLINT     NOT NULL DEFAULT 0,
@@ -752,39 +724,38 @@ CREATE TABLE kitchen_stations (
 );
 
 CREATE INDEX idx_kitchen_stations_shop ON kitchen_stations(shop_id);
-CREATE TRIGGER trg_kitchen_stations_updated_at BEFORE UPDATE ON kitchen_stations FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_kitchen_stations_updated_at
+  BEFORE UPDATE ON kitchen_stations
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 
 -- =========================================================
--- Kitchen Tickets
+-- KITCHEN TICKETS
 -- =========================================================
--- One row per order that enters the kitchen.
--- Denormalised order_no/order_type/table_number means the
--- kitchen display never needs a JOIN back to orders.
--- =========================================================
-
 
 CREATE TABLE kitchen_tickets (
   id              UUID                  PRIMARY KEY DEFAULT uuid_generate_v4(),
   shop_id         UUID                  NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   order_id        UUID                  NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
 
-  -- Denormalised snapshot fields for fast display queries
+  -- Denormalised snapshot fields for fast display queries.
   order_no        VARCHAR(30)           NOT NULL,
   order_type      order_type            NOT NULL,
-  table_number    VARCHAR(20),          -- NULL for non-dine-in
-  customer_name   VARCHAR(150),         -- NULL if anonymous
-  notes           TEXT,                 -- cashier notes for kitchen
+  table_number    VARCHAR(20),
+  customer_name   VARCHAR(150),
+  notes           TEXT,
 
   ticket_status   kitchen_ticket_status NOT NULL DEFAULT 'QUEUED',
   priority        kitchen_priority      NOT NULL DEFAULT 'NORMAL',
 
   station_id      UUID                  REFERENCES kitchen_stations(id) ON DELETE SET NULL,
 
-  -- Performance timestamps for future kitchen analytics
+  -- Performance timestamps for kitchen analytics.
   queued_at       TIMESTAMPTZ           NOT NULL DEFAULT now(),
-  first_bump_at   TIMESTAMPTZ,          -- first item moved to PREPARING
-  all_ready_at    TIMESTAMPTZ,          -- all items READY
-  completed_at    TIMESTAMPTZ,          -- ticket marked DONE
+  first_bump_at   TIMESTAMPTZ,
+  all_ready_at    TIMESTAMPTZ,
+  completed_at    TIMESTAMPTZ,
 
   created_at      TIMESTAMPTZ           NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ           NOT NULL DEFAULT now(),
@@ -792,18 +763,23 @@ CREATE TABLE kitchen_tickets (
   UNIQUE (shop_id, order_id)
 );
 
-CREATE INDEX idx_kitchen_tickets_shop_status ON kitchen_tickets(shop_id, ticket_status);
--- Primary index for the live kitchen display query
-CREATE INDEX idx_kitchen_tickets_active ON kitchen_tickets(shop_id, ticket_status, priority DESC, queued_at ASC) WHERE ticket_status IN ('QUEUED', 'IN_PROGRESS', 'READY');
+CREATE INDEX idx_kitchen_tickets_shop_status
+  ON kitchen_tickets(shop_id, ticket_status);
+
+-- Primary index for the live kitchen display query.
+CREATE INDEX idx_kitchen_tickets_active
+  ON kitchen_tickets(shop_id, ticket_status, priority DESC, queued_at ASC)
+  WHERE ticket_status IN ('QUEUED', 'IN_PROGRESS', 'READY');
+
 CREATE INDEX idx_kitchen_tickets_order ON kitchen_tickets(order_id);
-CREATE TRIGGER trg_kitchen_tickets_updated_at BEFORE UPDATE ON kitchen_tickets FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_kitchen_tickets_updated_at
+  BEFORE UPDATE ON kitchen_tickets
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 
 -- =========================================================
--- Kitchen Station Categories 
--- =========================================================
--- Routes product models to a station.
--- e.g. "Burger" model → "Grill" station.
--- Product models with no mapping appear on ALL station displays.
+-- KITCHEN STATION CATEGORIES
 -- =========================================================
 
 CREATE TABLE kitchen_station_categories (
@@ -813,17 +789,12 @@ CREATE TABLE kitchen_station_categories (
   PRIMARY KEY (station_id, product_model_id)
 );
 
-CREATE INDEX idx_kitchen_station_categories_model ON kitchen_station_categories(product_model_id);
+CREATE INDEX idx_kitchen_station_categories_model
+  ON kitchen_station_categories(product_model_id);
+
 
 -- =========================================================
 -- PAYMENTS
--- =========================================================
--- Financial transactions that settle an order.
--- Supports split payments (multiple rows per order).
---
--- received_amount  — what the customer physically handed
---                    over (for CASH; enables change calc).
--- change_amount    — computed change returned to customer.
 -- =========================================================
 
 CREATE TABLE payments (
@@ -855,11 +826,6 @@ CREATE INDEX idx_payments_status ON payments(status);
 -- =========================================================
 -- REFUNDS
 -- =========================================================
--- Records full or partial refunds against a payment.
--- idempotency_key   — unique token from app layer to prevent
---                    double refunds on retries.
--- processed_by     — the staff member who actioned the refund.
--- =========================================================
 
 CREATE TABLE refunds (
   id           UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -874,18 +840,18 @@ CREATE TABLE refunds (
   created_at   TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_refunds_order   ON refunds(order_id);
-CREATE INDEX idx_refunds_payment ON refunds(payment_id) WHERE payment_id IS NOT NULL;
+CREATE INDEX idx_refunds_order        ON refunds(order_id);
+CREATE INDEX idx_refunds_payment      ON refunds(payment_id) WHERE payment_id IS NOT NULL;
 CREATE INDEX idx_refunds_order_amount ON refunds(order_id, amount);
 CREATE INDEX idx_refunds_order_created ON refunds(order_id, created_at DESC);
-CREATE INDEX idx_refunds_idempotency ON refunds(idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX idx_refunds_idempotency  ON refunds(idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+
+
 -- =========================================================
 -- AUDIT LOGS
 -- =========================================================
 -- Immutable event log. Rows are never updated or deleted.
--- ip_address       — request origin for security audits.
--- old_values /
--- new_values       — JSONB snapshots of changed columns.
 -- =========================================================
 
 CREATE TABLE audit_logs (
@@ -910,26 +876,45 @@ CREATE INDEX idx_audit_logs_shop   ON audit_logs(shop_id, created_at DESC);
 CREATE INDEX idx_audit_logs_entity ON audit_logs(entity, entity_id);
 CREATE INDEX idx_audit_logs_user   ON audit_logs(user_id, created_at DESC);
 
+
 -- =========================================================
--- FOREIGN KEY ADDITIONS FOR EMERGENCY CODES
+-- FOREIGN KEY: EMERGENCY CODES ↔ TERMINAL SESSIONS
 -- =========================================================
--- Added after initial table creation to avoid circular dependency issues.
--- The emergency_codes table references terminal_sessions, and terminal_sessions references emergency_codes.
--- This FK ensures referential integrity: if an emergency code is deleted, the terminal session's emergency_code_id is set to NULL.
+-- Added after both tables exist to avoid circular dependency.
 -- =========================================================
+
 ALTER TABLE terminal_sessions
   ADD CONSTRAINT fk_terminal_sessions_emergency_code
-  FOREIGN KEY (emergency_code_id) REFERENCES emergency_codes(id) ON DELETE SET NULL;
+  FOREIGN KEY (emergency_code_id)
+  REFERENCES emergency_codes(id)
+  ON DELETE SET NULL;
+
 
 -- =========================================================
 -- DESIGN NOTES
 -- =========================================================
 --
--- NIL UUID BUG (Important)
+-- HARDWARE PASSPORT (terminal_token)
+--   shop_devices.terminal_token is a permanent identity for
+--   a physical tablet. It is issued once during the first mode
+--   activation and stored in an HttpOnly cookie on the device.
+--   It survives staff logouts. It has zero permissions on its
+--   own — it is only read during PIN login to annotate the
+--   staff_mode_sessions row with a real device_id. This is
+--   what makes the Work Log traceable to physical hardware.
+--
+-- WORK LOG TRACEABILITY
+--   staff_mode_sessions.device_id is NULLABLE. It is resolved
+--   from the terminal_id HttpOnly cookie at PIN login time.
+--   If the cookie is absent, the shift is still recorded —
+--   just without a device reference. Login must never fail
+--   because of a missing hardware passport.
+--
+-- NIL UUID BUG
 --   If you see "Key (user_id)=(00000000-...) is not present",
---   your backend code is accidentally passing an empty/null
---   UUID (the 'nil' UUID). Check your Service layer: ensure
---   userId is a valid string before calling the Repository.
+--   your backend is passing an empty/null UUID. Check your
+--   service layer: ensure userId is valid before calling the
+--   repository.
 --
 -- TIMESTAMPS
 --   All timestamps use TIMESTAMPTZ (timezone-aware).
@@ -939,12 +924,9 @@ ALTER TABLE terminal_sessions
 --   is_deleted = TRUE  → record is logically removed.
 --   is_active  = FALSE → record is temporarily disabled.
 --   Queries should always filter: WHERE is_deleted = FALSE.
---   Partial indexes on (…) WHERE is_deleted = FALSE keep
---   those queries fast without scanning deleted rows.
 --
 -- STOCK CONCURRENCY
---   stock_qty on product_items is the live counter.
---   Decrement it inside a transaction with:
+--   Decrement stock inside a transaction with:
 --     SELECT id FROM product_items
 --       WHERE id = $1 AND track_stock = TRUE
 --       FOR UPDATE;
@@ -959,13 +941,9 @@ ALTER TABLE terminal_sessions
 --
 -- AUDIT LOGS
 --   Rows are append-only — never UPDATE or DELETE audit_logs.
---   old_values / new_values let you reconstruct the full
---   change history for any entity.
 --
 -- INDEXES
---   All (shop_id, created_at DESC) indexes support the
---   most common dashboard queries: "latest N orders for
---   shop X". The (shop_id, updated_at DESC) index on orders
---   supports real-time polling ("what changed since T?").
+--   All (shop_id, created_at DESC) indexes support the most
+--   common dashboard queries: "latest N orders for shop X".
 --
 -- =========================================================
