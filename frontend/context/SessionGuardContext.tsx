@@ -5,24 +5,61 @@
 // Checks the session type on mount and on tab focus, then
 // routes the user to the correct area of the app.
 //
-// ── The stuck loading bug (fixed here) ───────────────────
-// After ModeGate does window.location.href = "/pos/:shopId",
-// the browser performs a full page reload. On mount:
+// ── FIX: Back navigation after logout (bfcache) ──────────
 //
-//   1. State initialises to { sessionType: 'UNKNOWN', isChecking: true }
-//   2. AppShell shows a full-screen spinner (correct behaviour)
-//   3. checkSession() fires → /api/auth/session-type returns TERMINAL
-//   4. isOnTerminalPath = true → no router.replace() call
-//   5. setState({ isChecking: false }) → spinner disappears → page renders
+// PROBLEM:
+//   When you click logout, the cookie is cleared and the app
+//   navigates to /login. But pressing the browser back button
+//   restores the previous page from the bfcache (Back/Forward
+//   Cache) — a browser optimisation that snapshots the page
+//   in memory and replays it instantly without re-running any
+//   JavaScript. The result: the page renders with stale React
+//   state (user data, shop data), looks broken, then crashes
+//   when it tries to make authenticated API calls.
 //
-// This is correct. The bug was NOT here — it was in ModeGate
-// calling onSuccess() after window.location.href, which caused
-// the parent component to try updating state after navigation.
+// ROOT CAUSE:
+//   router.push('/login') only does a client-side navigation.
+//   It does not prevent the browser from caching the previous
+//   page. The bfcache restores the page snapshot exactly as
+//   it was — including all component state — but the httpOnly
+//   cookie is gone, so every API call returns 401.
 //
-// The one real improvement here: we skip setting isChecking: true
-// on re-checks (tab focus) so the spinner does not flash for
-// users who switch tabs. Only the very first check (mount) shows
-// the full-screen loader, which is correct UX.
+// FIX — Two layers:
+//
+//   Layer 1: `pageshow` event listener
+//     The browser fires `pageshow` with `event.persisted = true`
+//     when a page is restored from bfcache. We listen for this
+//     and immediately call checkSession(). If the cookie is gone,
+//     sessionType resolves to 'NONE' and the guard redirects to
+//     /login — this happens fast enough that the user sees the
+//     login page, not a crashed dashboard.
+//
+//   Layer 2: sessionType-based redirect guard
+//     checkSession() already redirects when session is NONE and
+//     the current path is not public. Together with the pageshow
+//     listener, this catches the bfcache case on every restore.
+//
+// WHY NOT window.location.href on logout?
+//   Using window.location.href would work but forces a full page
+//   reload on every logout — that clears the bfcache entry and
+//   prevents the problem. However it also resets all React state
+//   and re-runs the session check unnecessarily on the login page.
+//   The pageshow listener approach is cleaner: let the browser do
+//   its caching optimisation; we just re-validate on restore.
+//
+// ── The stuck loading bug (fixed previously) ─────────────
+//   After ModeGate does window.location.href = "/pos/:shopId",
+//   the browser performs a full page reload. On mount:
+//     1. State initialises to { sessionType: 'UNKNOWN', isChecking: true }
+//     2. AppShell shows a full-screen spinner (correct)
+//     3. checkSession() fires → /api/auth/session-type returns TERMINAL
+//     4. isOnTerminalPath = true → no router.replace() call
+//     5. setState({ isChecking: false }) → spinner disappears → page renders
+//
+// ── Tab focus re-check ────────────────────────────────────
+//   We skip showing the spinner on re-checks (tab focus / bfcache
+//   restore) so users who switch tabs don't see a flash. Only the
+//   very first mount check shows the full-screen loader.
 // =========================================================
 
 import React, {
@@ -59,7 +96,7 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   // Use refs so checkSession never needs to re-create itself
-  // when router or pathname change. This is what prevents the
+  // when router or pathname change. This prevents the
   // "rendered more hooks than during the previous render" error.
   const routerRef   = useRef(router);
   const pathnameRef = useRef(pathname);
@@ -75,11 +112,9 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
   });
 
   // ── checkSession ──────────────────────────────────────────
-  // Accepts a flag so tab-focus re-checks don't show the
-  // full-screen spinner (only the initial mount does).
+  // Accepts a flag so tab-focus / bfcache re-checks don't show
+  // the full-screen spinner. Only the initial mount does.
   const checkSession = useCallback(async (showSpinner = false) => {
-    // Only show the spinner on the very first load.
-    // Re-checks (tab focus) happen silently in the background.
     if (showSpinner) {
       setState(prev => ({ ...prev, isChecking: true }));
     }
@@ -91,12 +126,25 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
       );
 
       if (!res.ok) {
+        // Session is gone — redirect to /login if on a protected page.
+        const currentPathname = pathnameRef.current;
+        const isPublic = PUBLIC_PATHS.some(p => currentPathname.startsWith(p));
+
         setState({
           sessionType:    'NONE',
           isChecking:     false,
           terminalMode:   null,
           terminalShopId: null,
         });
+
+        // ── BUG FIX: Redirect guard ──────────────────────────
+        // If the session is gone but we are on a protected page
+        // (i.e. restored from bfcache after logout), redirect to
+        // /login immediately. Without this, the page renders with
+        // stale component state, makes 401 API calls, and crashes.
+        if (!isPublic) {
+          routerRef.current.replace('/login');
+        }
         return;
       }
 
@@ -113,10 +161,6 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
         });
 
         // Only redirect if we are NOT already on a terminal path.
-        // This is the key guard — if ModeGate already navigated us
-        // to /pos/:shopId, we are already on a terminal path and
-        // no further redirect is needed. Without this check,
-        // router.replace() would fire unnecessarily.
         const isOnTerminalPath = TERMINAL_PATHS.some(
           p => currentPathname.startsWith(p)
         );
@@ -132,27 +176,50 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
           terminalShopId: null,
         });
 
-        // A platform user somehow landed on a terminal path
-        // (e.g. bookmark). Redirect them to the dashboard.
+        // A platform user somehow landed on a terminal path (e.g. bookmark).
+        // Redirect them back to the dashboard — UNLESS they are on the
+        // device pending approval screen.
+        //
+        // WHY the exception:
+        //   When ModeGate sends an unregistered device, the backend returns
+        //   202 (AWAITING_APPROVAL) without setting a terminal_session cookie.
+        //   ModeGate then navigates to /pos/:shopId?device_pending=xxx via
+        //   window.location.href (full reload). On reload, checkSession() fires
+        //   and sees sessionType = 'PLATFORM' (the owner's cookie is still
+        //   active). Without this exception, the guard fires router.replace
+        //   ('/dashboard') immediately, sending the owner to the shop list
+        //   instead of showing the "Waiting for Approval" screen.
+        //
+        //   The ?device_pending param is the signal that this is intentional —
+        //   the owner just triggered device registration and is waiting for it
+        //   to be approved. We must not redirect in this case.
         const isOnTerminalPath = TERMINAL_PATHS.some(
           p => currentPathname.startsWith(p)
         );
-        if (isOnTerminalPath) {
+        const isDevicePending = typeof window !== 'undefined' &&
+          new URLSearchParams(window.location.search).has('device_pending');
+
+        if (isOnTerminalPath && !isDevicePending) {
           currentRouter.replace('/dashboard');
         }
 
       } else {
-        // NONE — no valid session of any kind.
+        // NONE — no valid session.
         setState({
           sessionType:    'NONE',
           isChecking:     false,
           terminalMode:   null,
           terminalShopId: null,
         });
+
+        // Same redirect guard as the !res.ok branch above.
+        const isPublic = PUBLIC_PATHS.some(p => currentPathname.startsWith(p));
+        if (!isPublic) {
+          currentRouter.replace('/login');
+        }
       }
     } catch {
-      // Network error — clear spinner and let the page render.
-      // Individual pages handle their own 401s via axios interceptors.
+      // Network error — clear spinner and let individual pages handle 401s.
       setState({
         sessionType:    'NONE',
         isChecking:     false,
@@ -164,18 +231,45 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
 
   // ── Initial mount: show spinner while checking ────────────
   useEffect(() => {
-    checkSession(true); // showSpinner = true on first load
+    checkSession(true);
   }, [checkSession]);
 
   // ── Tab focus: silent re-check, no spinner ────────────────
   useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === 'visible') {
-        checkSession(false); // showSpinner = false — silent
+        checkSession(false); // silent — no spinner flash
       }
     }
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [checkSession]);
+
+  // ── BUG FIX: bfcache restore guard ───────────────────────
+  // The `pageshow` event fires every time a page is shown,
+  // including when it is restored from the bfcache (back button).
+  // `event.persisted = true` means the page came from bfcache.
+  //
+  // When this fires after a logout:
+  //   - The httpOnly cookie is already gone
+  //   - checkSession() will hit the !res.ok branch
+  //   - That branch now calls router.replace('/login')
+  //   - The user sees /login instead of a crashed page
+  //
+  // This is a separate listener from visibilitychange because
+  // bfcache restores do NOT always trigger a visibilitychange
+  // event — the browser may restore the page without ever marking
+  // it as hidden first (e.g. cmd+[ in Safari).
+  useEffect(() => {
+    function handlePageShow(event: PageTransitionEvent) {
+      if (event.persisted) {
+        // Page was restored from bfcache — re-validate session silently.
+        // No spinner: the page is already visible and re-checking quickly.
+        checkSession(false);
+      }
+    }
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
   }, [checkSession]);
 
   // Public recheck (called by pages that need it)
