@@ -5,29 +5,46 @@
 // the pos_token HttpOnly cookie (set by the server after
 // a successful PIN login).
 //
-// ── What changed from the old version ────────────────────
-// The old version injected an x-device-key header from
-// localStorage on every request. This was the "device-bound"
-// security model that we are replacing with a pure server-
-// side session model (terminal_sessions table + HttpOnly
-// cookie). The x-device-key header is no longer needed here:
-//
-//   • Terminal session creation does not require a device_id.
-//   • device_id in terminal_sessions is nullable (optional).
-//   • The server trusts only the HttpOnly cookie, not any
-//     client-controlled header value.
-//
-// The device registration flow (shop_devices table) still
-// uses x-device-key in the attachDevice middleware, but that
-// is a separate concern for device management in the dashboard,
-// not for POS session auth.
-//
 // ── 401 handling ─────────────────────────────────────────
-// When pos_token is missing or expired, redirect to the PIN
-// login screen for this shop so the cashier can re-auth.
+// pos_token is missing or expired → redirect to PIN login.
+//
+// ── 403 handling (NEW) ───────────────────────────────────
+// Two distinct 403 cases need different treatment:
+//
+//   DEVICE_NOT_VERIFIED  — terminal_id cookie is missing or
+//     the geofence check failed. The device has never been
+//     activated (or was recently revoked/re-registered but
+//     not yet re-activated). We redirect to the POS login
+//     screen with ?error=DEVICE_NOT_VERIFIED so the page
+//     can show a persistent banner explaining what to do.
+//
+//   DEVICE_NOT_APPROVED — the device exists in shop_devices
+//     but its status is PENDING. Redirect with the specific
+//     code so the page shows "waiting for approval" instead
+//     of "not verified".
+//
+// WHY query param and not sessionStorage?
+//   Query params survive a full page reload (which the
+//   redirect causes). sessionStorage would be fine too, but
+//   URL params are simpler, framework-agnostic, and easy to
+//   test by pasting the URL.
+//
+// WHY redirect instead of letting the component handle it?
+//   The 403 can fire from ANY posApi call anywhere in the
+//   terminal flow — not just the PIN submit. Centralising
+//   the redirect here means every page is automatically
+//   protected without each one needing its own 403 handler.
 // =========================================================
 
 import axios from "axios";
+
+// Device-verification error codes returned by the backend
+// requireVerifiedDevice middleware.
+const DEVICE_ERRORS = new Set([
+  "DEVICE_NOT_VERIFIED",
+  "DEVICE_NOT_APPROVED",
+  "DEVICE_VERIFICATION_UNAVAILABLE",
+]);
 
 const posApi = axios.create({
   baseURL:         process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001",
@@ -38,23 +55,48 @@ const posApi = axios.create({
   },
 });
 
-// ── Response interceptor — 401 → POS login ───────────────
-// pos_token is missing or the server rejected it.
-// Navigate to PIN selection so the cashier can log back in.
+// ── Response interceptor ──────────────────────────────────
+
 posApi.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && typeof window !== "undefined") {
-      // Extract shopId from the current path: /pos/:shopId/terminal
-      const parts  = window.location.pathname.split("/");
-      const shopId = parts[2]; // ["", "pos", ":shopId", ...]
+    if (typeof window === "undefined") return Promise.reject(error);
 
-      if (shopId && !window.location.pathname.endsWith(`/pos/${shopId}`)) {
-        // Only redirect if not already on the PIN selection page,
-        // to prevent an infinite redirect loop.
-        window.location.href = `/pos/${shopId}`;
+    const status  = error.response?.status;
+    const code    = error.response?.data?.message as string | undefined;
+
+    // Extract shopId from the current URL: /pos/:shopId/...
+    const parts  = window.location.pathname.split("/");
+    const shopId = parts[2]; // ["", "pos", ":shopId", ...]
+
+    if (!shopId) return Promise.reject(error);
+
+    const loginBase = `/pos/${shopId}`;
+
+    // ── 403: device verification failure ─────────────────
+    // These codes come from requireVerifiedDevice middleware
+    // and mean the tablet itself is not trusted, regardless
+    // of which cashier is trying to log in.
+    if (status === 403 && code && DEVICE_ERRORS.has(code)) {
+      const alreadyOnLoginWithError = window.location.pathname === loginBase
+        && window.location.search.includes("error=");
+
+      if (!alreadyOnLoginWithError) {
+        window.location.href = `${loginBase}?error=${encodeURIComponent(code)}`;
       }
+      return Promise.reject(error);
     }
+
+    // ── 401: session expired ──────────────────────────────
+    // pos_token is missing or the server rejected it.
+    if (status === 401) {
+      const alreadyOnLogin = window.location.pathname === loginBase;
+      if (!alreadyOnLogin) {
+        window.location.href = loginBase;
+      }
+      return Promise.reject(error);
+    }
+
     return Promise.reject(error);
   }
 );
