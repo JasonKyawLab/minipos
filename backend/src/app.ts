@@ -46,6 +46,12 @@ import { getSocketStatus } from "./modules/socket/socket.js";
 
 const app = express();
 
+// Trust exactly one reverse proxy in front of this server.
+// Required for req.ip to return the real client IP when deployed
+// behind Oracle Cloud LB, Vercel, or Cloudflare.
+// Change to 2 if you have two proxy hops (e.g. CDN + load balancer).
+app.set('trust proxy', 1);
+
 // ── Core middleware ──────────────────────────────────────
 app.use(cookieParser());
 app.use(requestIdMiddleware);
