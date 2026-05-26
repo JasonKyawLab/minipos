@@ -89,30 +89,35 @@ export class PosAuthController {
 
   // POST /api/shops/:shopId/pos-auth/login
   // PIN login — issues pos_token cookie. CHEF blocked at service level.
-  static async login(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const { user_id, pin, device_id } = req.body;
+static async login(req: Request, res: Response) {
+  try {
+    const shopId   = getParamAsString(req.params.shopId, 'shopId');
+    const { user_id, pin } = req.body;
 
-      const result = await PosAuthService.loginWithPin({
-        shopId,
-        userId:   user_id,
-        pin,
-        deviceId: device_id,
-      });
+    // Read the hardware passport from the HttpOnly cookie.
+    // The frontend cannot access or forge this value.
+    const terminalId = req.cookies.terminal_id as string | undefined;
 
-      res.cookie("pos_token", result.token, {
-        httpOnly: true,
-        secure:   env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge:   8 * 60 * 60 * 1000,
-      });
+    const result = await PosAuthService.loginWithPin({
+      shopId,
+      userId:     user_id,
+      pin,
+      terminalId, // pass the cookie value, not a body value
+    });
 
-      res.clearCookie("access_token");
+    res.cookie('pos_token', result.token, {
+      httpOnly: true,
+      secure:   env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge:   8 * 60 * 60 * 1000,
+    });
 
-      return res.json({ role: result.role });
-    } catch (err) { return handleError(res, err); }
+    res.clearCookie('access_token');
+    return res.json({ role: result.role });
+  } catch (err) {
+    return handleError(res, err);
   }
+}
 
   // POST /api/shops/:shopId/pos-auth/logout
   static async logout(_req: Request, res: Response) {

@@ -235,7 +235,7 @@ export class PosAuthService {
     shopId:    string;
     userId:    string;
     pin:       string;
-    deviceId?: string;
+    terminalId?: string;
   }) {
     const membership = await PosAuthRepository.getMembershipWithTokenVersion(
       params.shopId,
@@ -303,20 +303,28 @@ export class PosAuthService {
 
     await PosAuthRepository.resetAttempts(params.shopId, params.userId);
 
-    if (params.deviceId) {
-      try {
-        await DeviceModeRepository.recordStaffLogin({
+    let deviceId: string | null = null;
+
+    if (params.terminalId) {
+      const { rows } = await pool.query(
+      `
+      SELECT id
+      FROM shop_devices
+      WHERE terminal_token = $1
+        AND shop_id        = $2
+        AND status         = 'APPROVED'
+      `,
+      [params.terminalId, params.shopId]
+    );
+      deviceId = rows[0]?.id ?? null;
+    }
+
+    await DeviceModeRepository.recordStaffLogin({
     shopId:   params.shopId,
-    deviceId: params.deviceId ?? null,
+    deviceId: deviceId,  // Now properly traced to hardware
     userId:   params.userId,
-    mode:     "POS",
-          });
-    } catch (shiftErr) {
-  // Non-fatal: PIN login succeeds even if shift recording fails.
-  // This prevents a DB issue from blocking the cashier from working.
-    console.error("POS shift recording failed (non-fatal):", shiftErr);
-    }
-    }
+    mode:     'POS',
+  });
 
     const tokenVersion: number = membership.pos_token_version ?? 0;
 
