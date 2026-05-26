@@ -12,71 +12,132 @@ import { PosAuthRepository }  from '../pos-auth/pos-auth.repository.js';
 import { AuditService }       from '../audit/audit.service.js';
 import { appError }           from '../../utils/appError.js';
 import { TerminalMode }       from './terminal.types.js';
+import { DeviceRepository } from '../device/device.repository.js';
 
 // Managers can re-authorize terminals but cannot generate emergency codes
 const DELEGATION_ROLES = ['OWNER', 'MANAGER'] as const;
 
 export class TerminalService {
 
-  // ── Activate Terminal (Standard Path) ────────────────────
-  // "Burn the Ships" Step 1: Owner enters password.
-  // Returns the session token — controller puts it in cookie
-  // and simultaneously destroys the access_token cookie.
-  static async activateTerminal(params: {
-    shopId:      string;
-    requesterId: string;  // The owner/manager activating the terminal
-    password:    string;
-    mode:        TerminalMode;
-    deviceId:    string | null;
-  }) {
-    // Verify requester is OWNER or MANAGER of this shop
-    const member = await ShopRepository.getUserShopMembership(
-      params.shopId, params.requesterId
-    );
-    if (!member || !member.is_active || !DELEGATION_ROLES.includes(member.role)) {
-      throw new appError('FORBIDDEN', 403);
-    }
-
-    // Verify their platform password
-    const user = await UserRepository.findById(params.requesterId);
-    if (!user) throw new appError('USER_NOT_FOUND', 404);
-
-    const isValid = await comparePassword(params.password, user.password_hash);
-    if (!isValid) {
-      await AuditService.log({
-        shopId: params.shopId,
-        userId: params.requesterId,
-        action: 'TERMINAL_ACTIVATION_PASSWORD_FAILED',
-        entity: 'TERMINAL_SESSION',
-        metadata: { mode: params.mode },
-      });
-      throw new appError('INVALID_PASSWORD', 401);
-    }
-
-    const sessionToken = generateSessionToken();
-
-    const session = await TerminalRepository.createSession({
-      shopId:          params.shopId,
-      deviceId:        params.deviceId,
-      sessionToken,
-      mode:            params.mode,
-      authorizedBy:    params.requesterId,
-      authMethod:      'OWNER_PASSWORD',
-      emergencyCodeId: null,
-      expiresAt:       null, // Standard sessions don't expire
-    });
-
-    await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   `TERMINAL_${params.mode}_ACTIVATED`,
-      entity:   'TERMINAL_SESSION',
-      entityId: session.id,
-      metadata: { authMethod: 'OWNER_PASSWORD', deviceId: params.deviceId },
-    });
-
-    return { sessionToken, sessionId: session.id };
+static async activateTerminal(params: {
+  shopId:      string;
+  requesterId: string;
+  password:    string;
+  mode:        TerminalMode;
+  deviceId:    string | null; // the device_key from localStorage (not a DB id)
+}) {
+  // Step 1: Verify requester is OWNER or MANAGER of this shop
+  const member = await ShopRepository.getUserShopMembership(
+    params.shopId, params.requesterId
+  );
+  if (!member || !member.is_active || !DELEGATION_ROLES.includes(member.role)) {
+    throw new appError('FORBIDDEN', 403);
   }
+
+  // Step 2: Verify platform password
+  const user = await UserRepository.findById(params.requesterId);
+  if (!user) throw new appError('USER_NOT_FOUND', 404);
+
+  const isValid = await comparePassword(params.password, user.password_hash);
+  if (!isValid) {
+    await AuditService.log({
+      shopId: params.shopId,
+      userId: params.requesterId,
+      action: 'TERMINAL_ACTIVATION_PASSWORD_FAILED',
+      entity: 'TERMINAL_SESSION',
+      metadata: { mode: params.mode },
+    });
+    throw new appError('INVALID_PASSWORD', 401);
+  }
+
+  // Step 3: Resolve device status BEFORE touching terminal_sessions
+  // device_id here is actually the device_key (the public localStorage UUID).
+  // We must look it up to get the real shop_devices.id for the FK.
+  let resolvedDeviceId: string | null = null;
+
+  if (params.deviceId) {
+    const device = await DeviceRepository.findByDeviceKey(
+      params.deviceId,
+      params.shopId
+    );
+
+    if (!device) {
+      // Device has never registered — auto-register it as PENDING.
+      // This is safe: the password was already verified above.
+      // The FK crash happens because we tried to reference a non-existent row.
+      // Auto-registration solves this at the root cause.
+      const { device: newDevice } = await DeviceRepository.registerDevice({
+        shopId:     params.shopId,
+        deviceKey:  params.deviceId,
+        deviceName: null,
+        userAgent:  null, // not available in service layer
+        ipAddress:  null,
+      });
+
+      await AuditService.log({
+        shopId:   params.shopId,
+        userId:   params.requesterId,
+        action:   'DEVICE_AUTO_REGISTERED_ON_ACTIVATION',
+        entity:   'SHOP_DEVICE',
+        entityId: newDevice.id,
+        metadata: { deviceKey: params.deviceId },
+      });
+
+      // Return AWAITING_APPROVAL — the owner must approve from the dashboard.
+      // We return a typed object rather than throwing so the controller can
+      // send a clean 202 response instead of a 500.
+      return {
+        status:   'AWAITING_APPROVAL' as const,
+        deviceId: params.deviceId,
+      };
+    }
+
+    if (device.status === 'PENDING') {
+      // Device exists but owner hasn't approved it yet.
+      return {
+        status:   'AWAITING_APPROVAL' as const,
+        deviceId: params.deviceId,
+      };
+    }
+
+    if (device.status === 'REVOKED') {
+      // Revoked devices are explicitly blocked from activating modes.
+      throw new appError('DEVICE_NOT_APPROVED', 403);
+    }
+
+    // Device is APPROVED — use its real PK as the FK value.
+    resolvedDeviceId = device.id;
+  }
+
+  // Step 4: Create the terminal session (device is APPROVED or absent)
+  const sessionToken = generateSessionToken();
+
+  const session = await TerminalRepository.createSession({
+    shopId:          params.shopId,
+    deviceId:        resolvedDeviceId, // real DB id (UUID) or null — never crashes
+    sessionToken,
+    mode:            params.mode,
+    authorizedBy:    params.requesterId,
+    authMethod:      'OWNER_PASSWORD',
+    emergencyCodeId: null,
+    expiresAt:       null,
+  });
+
+  await AuditService.log({
+    shopId:   params.shopId,
+    userId:   params.requesterId,
+    action:   `TERMINAL_${params.mode}_ACTIVATED`,
+    entity:   'TERMINAL_SESSION',
+    entityId: session.id,
+    metadata: { authMethod: 'OWNER_PASSWORD', deviceKey: params.deviceId },
+  });
+
+  return {
+    status:       'ACTIVATED' as const,
+    sessionToken,
+    sessionId:    session.id,
+  };
+}
 
   // ── Activate Terminal via Manager PIN (Level 1 Delegation) ─
   // Used when: session expired and owner is not present.
