@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { DeviceService }     from './device.service.js';
 import { getParamAsString }  from '../../utils/converter.js';
 import { handleError }       from '../../utils/handleError.js';
+import { DeviceRepository } from './device.repository.js';
 
 export class DeviceController {
 
@@ -98,4 +99,36 @@ export class DeviceController {
       return res.json(result);
     } catch (err) { return handleError(res, err); }
   }
+
+  // GET /api/shops/:shopId/devices/status?device_key=<uuid>
+//
+// Returns the approval status for a specific device_key.
+// Called by the frontend polling loop every 5 seconds.
+// No auth required — device_key is not secret (it's in localStorage).
+// The response is intentionally minimal to avoid leaking device metadata.
+
+  static async getStatus(req: Request, res: Response) {
+  try {
+    const shopId    = getParamAsString(req.params.shopId, 'shopId');
+    const deviceKey = req.query.device_key as string | undefined;
+
+    if (!deviceKey) {
+      return res.status(400).json({ message: 'device_key query param required' });
+    }
+
+    const device = await DeviceRepository.findByDeviceKey(deviceKey, shopId);
+
+    if (!device) {
+      // Device was deleted from the dashboard — tell the frontend to re-register
+      return res.json({ status: 'NOT_FOUND' });
+    }
+
+    return res.json({
+      status:      device.status,        // PENDING | APPROVED | REVOKED
+      deviceName:  device.device_name,
+    });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
 }
