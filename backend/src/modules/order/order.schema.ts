@@ -18,15 +18,14 @@ import { z } from "zod";
 
 export const createOrderSchema = z
   .object({
-    order_type: z.enum([
-      "RETAIL",
-      "DINE_IN",
-      "TAKEAWAY",
-      "ONLINE",
-      "DELIVERY",
-      "PICKUP",
-      "QR",
-    ]),
+order_type: z.enum([
+  "RETAIL",
+  "DINE_IN",
+  "TAKEAWAY",
+  "ONLINE",
+  "DELIVERY",
+  "PICKUP",
+]),
 
     table_id: z.string().uuid().optional(),
 

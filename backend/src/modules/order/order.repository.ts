@@ -11,6 +11,16 @@
 //   - Total recalculation happens in recalculateOrderTotals()
 //     which is called after every add/remove item operation.
 //   - We never hard-delete orders or order items.
+//
+// FIX (2026-06-07):
+//   recalculateOrderTotals was writing total_amount = null
+//   for all new orders. Root cause:
+//     total_amount = <subtotal> + <tax> - o.discount_amount
+//   In SQL, anything - null = null. The discount_amount column
+//   has DEFAULT 0 in the schema but existing rows created before
+//   the default was enforced have null in that column.
+//   Fix: wrap with COALESCE(o.discount_amount, 0) so null is
+//   treated as 0.
 // =========================================================
 
 import { pool } from "../../db/pool.js";
@@ -137,13 +147,38 @@ export class OrderRepository {
     orderId: string,
     shopId: string
   ): Promise<OrderWithItems | null> {
-    // Fetch order
     const orderResult = await pool.query<Order>(
       `
-      SELECT *
-      FROM orders
-      WHERE id      = $1
-        AND shop_id = $2
+      SELECT
+        o.id,
+        o.shop_id,
+        o.order_no,
+        o.order_type,
+        o.status,
+        o.table_id,
+        o.cashier_id,
+        o.subtotal::FLOAT        AS subtotal,
+        o.tax_amount::FLOAT      AS tax_amount,
+        o.discount_amount::FLOAT AS discount_amount,
+        o.total_amount::FLOAT    AS total_amount,
+        o.customer_name,
+        o.customer_phone,
+        o.delivery_address,
+        o.delivery_note,
+        o.notes,
+        o.cancelled_at,
+        o.completed_at,
+        o.created_at,
+        o.updated_at,
+        u.name                   AS cashier_name,
+        rt.table_number          AS table_number
+      FROM orders o
+      LEFT JOIN users u
+        ON u.id = o.cashier_id
+      LEFT JOIN restaurant_tables rt
+        ON rt.id = o.table_id
+      WHERE o.id      = $1
+        AND o.shop_id = $2
       `,
       [orderId, shopId]
     );
@@ -152,10 +187,21 @@ export class OrderRepository {
 
     const order = orderResult.rows[0];
 
-    // Fetch active items for this order
     const itemsResult = await pool.query<OrderItem>(
       `
-      SELECT *
+      SELECT
+        id,
+        order_id,
+        product_item_id,
+        product_name_snapshot,
+        item_name_snapshot,
+        unit_price_snapshot::FLOAT AS unit_price_snapshot,
+        qty,
+        subtotal::FLOAT            AS subtotal,
+        status,
+        modifier_snapshot,
+        item_note,
+        created_at
       FROM order_items
       WHERE order_id = $1
         AND status   = 'ACTIVE'
@@ -164,10 +210,7 @@ export class OrderRepository {
       [orderId]
     );
 
-    return {
-      ...order,
-      items: itemsResult.rows,
-    };
+    return { ...order, items: itemsResult.rows };
   }
 
   /**
@@ -176,27 +219,27 @@ export class OrderRepository {
    * Default: latest 50 orders.
    */
   static async findOrders(filter: ListOrdersFilter): Promise<Order[]> {
-    const conditions: string[] = ["shop_id = $1"];
+    const conditions: string[] = ["o.shop_id = $1"];
     const values: any[]        = [filter.shopId];
     let idx = 2;
 
     if (filter.status) {
-      conditions.push(`status = $${idx++}`);
+      conditions.push(`o.status = $${idx++}`);
       values.push(filter.status);
     }
 
     if (filter.orderType) {
-      conditions.push(`order_type = $${idx++}`);
+      conditions.push(`o.order_type = $${idx++}`);
       values.push(filter.orderType);
     }
 
     if (filter.from) {
-      conditions.push(`created_at >= $${idx++}`);
+      conditions.push(`o.created_at >= $${idx++}::timestamptz`);
       values.push(filter.from);
     }
 
     if (filter.to) {
-      conditions.push(`created_at <= $${idx++}`);
+      conditions.push(`o.created_at <= $${idx++}::timestamptz + INTERVAL '1 day'`);
       values.push(filter.to);
     }
 
@@ -205,10 +248,36 @@ export class OrderRepository {
 
     const result = await pool.query<Order>(
       `
-      SELECT *
-      FROM orders
+      SELECT
+        o.id,
+        o.shop_id,
+        o.order_no,
+        o.order_type,
+        o.status,
+        o.table_id,
+        o.cashier_id,
+        o.subtotal::FLOAT        AS subtotal,
+        o.tax_amount::FLOAT      AS tax_amount,
+        o.discount_amount::FLOAT AS discount_amount,
+        o.total_amount::FLOAT    AS total_amount,
+        o.customer_name,
+        o.customer_phone,
+        o.delivery_address,
+        o.delivery_note,
+        o.notes,
+        o.cancelled_at,
+        o.completed_at,
+        o.created_at,
+        o.updated_at,
+        u.name                   AS cashier_name,
+        rt.table_number          AS table_number
+      FROM orders o
+      LEFT JOIN users u
+        ON u.id = o.cashier_id
+      LEFT JOIN restaurant_tables rt
+        ON rt.id = o.table_id
       WHERE ${conditions.join(" AND ")}
-      ORDER BY created_at DESC
+      ORDER BY o.created_at DESC
       LIMIT $${idx++} OFFSET $${idx++}
       `,
       [...values, limit, offset]
@@ -223,27 +292,27 @@ export class OrderRepository {
    * based on the new status.
    */
   static async updateOrderStatus(
-  orderId: string,
-  shopId: string,
-  status: OrderStatus
-): Promise<Order | null> {
-  const result = await pool.query<Order>(
-    `
-    UPDATE orders
-    SET
-      status       = $3::order_status,
-      cancelled_at = CASE WHEN $3 = 'CANCELLED' THEN now() ELSE cancelled_at END,
-      completed_at = CASE WHEN $3 = 'PAID'      THEN now() ELSE completed_at END,
-      updated_at   = now()
-    WHERE id      = $1
-      AND shop_id = $2
-    RETURNING *
-    `,
-    [orderId, shopId, status]
-  );
+    orderId: string,
+    shopId: string,
+    status: OrderStatus
+  ): Promise<Order | null> {
+    const result = await pool.query<Order>(
+      `
+      UPDATE orders
+      SET
+        status       = $3::order_status,
+        cancelled_at = CASE WHEN $3 = 'CANCELLED' THEN now() ELSE cancelled_at END,
+        completed_at = CASE WHEN $3 = 'PAID'      THEN now() ELSE completed_at END,
+        updated_at   = now()
+      WHERE id      = $1
+        AND shop_id = $2
+      RETURNING *
+      `,
+      [orderId, shopId, status]
+    );
 
-  return result.rows[0] ?? null;
-}
+    return result.rows[0] ?? null;
+  }
 
   /**
    * Recalculate and update order totals after any item change.
@@ -258,6 +327,14 @@ export class OrderRepository {
    *   order subtotal = sum of all active item subtotals
    *   tax_amount     = order subtotal × tax_rate / 100
    *   total_amount   = subtotal + tax_amount - discount_amount
+   *
+   * WHY COALESCE(o.discount_amount, 0):
+   *   discount_amount has DEFAULT 0 in the schema, but rows
+   *   created before the default was enforced may have null.
+   *   In SQL: anything - null = null, which would silently
+   *   set total_amount to null for the entire order.
+   *   COALESCE treats null as 0, which is always the correct
+   *   semantic — no discount applied.
    */
   static async recalculateOrderTotals(
     orderId: string,
@@ -284,7 +361,6 @@ export class OrderRepository {
           2
         ),
 
-        -- Recompute total: subtotal + tax - discount
         total_amount = COALESCE((
           SELECT SUM(oi.subtotal)
           FROM order_items oi
@@ -300,7 +376,7 @@ export class OrderRepository {
           ), 0) * $2 / 100,
           2
         )
-        - o.discount_amount,
+        - COALESCE(o.discount_amount, 0),
 
         updated_at = now()
 
@@ -338,14 +414,13 @@ export class OrderRepository {
     itemNote?: string;
   }): Promise<OrderItem> {
     // Calculate modifier total from the snapshot array
-    const modifierTotal = params.modifierSnapshot.reduce(
-      (sum, m) => sum + m.price_delta,
-      0
-    );
+const modifierTotal = params.modifierSnapshot.reduce(
+  (sum, m) => sum + Number(m.price_delta),
+  0
+);
 
-    // item subtotal = (base price + modifiers) × qty
-    const itemSubtotal =
-      (params.unitPriceSnapshot + modifierTotal) * params.qty;
+const itemSubtotal =
+  (Number(params.unitPriceSnapshot) + modifierTotal) * Number(params.qty);
 
     const result = await pool.query<OrderItem>(
       `
@@ -403,32 +478,31 @@ export class OrderRepository {
   /**
    * Update order item quantity and recalculate its subtotal.
    */
-static async updateOrderItem(
-  itemId: string,
-  orderId: string,
-  qty: number
-): Promise<OrderItem | null> {
-
+  static async updateOrderItem(
+    itemId: string,
+    orderId: string,
+    qty: number
+  ): Promise<OrderItem | null> {
     if (qty <= 0) {
-    throw new appError("INVALID_QUANTITY", 400);
+      throw new appError("INVALID_QUANTITY", 400);
+    }
+
+    const result = await pool.query<OrderItem>(
+      `
+      UPDATE order_items
+      SET
+        qty      = $3::integer,
+        subtotal = (subtotal / qty) * $3::integer
+      WHERE id       = $1
+        AND order_id = $2
+        AND status   = 'ACTIVE'::order_item_status
+      RETURNING *
+      `,
+      [itemId, orderId, qty]
+    );
+
+    return result.rows[0] ?? null;
   }
-
-  const result = await pool.query<OrderItem>(
-    `
-    UPDATE order_items
-    SET
-      qty      = $3::integer,
-      subtotal = (subtotal / qty) * $3::integer
-    WHERE id       = $1
-      AND order_id = $2
-      AND status   = 'ACTIVE'::order_item_status
-    RETURNING *
-    `,
-    [itemId, orderId, qty]
-  );
-
-  return result.rows[0] ?? null;
-}
 
   /**
    * Cancel an order item (soft delete via status change).

@@ -14,6 +14,7 @@ import {
   UpdateOrderItemInput,
   ListOrdersFilter,
   OrderStatus,
+  ModifierSnapshot,
 } from "./order.types.js";
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
@@ -38,6 +39,18 @@ async function assertShopMember(
   return member;
 }
 
+async function getShopInfo(shopId: string): Promise<{ taxRate: number; shopType: string }> {
+  const result = await pool.query(
+    `SELECT tax_rate, shop_type FROM shops WHERE id = $1 AND is_deleted = false`,
+    [shopId]
+  );
+  if (result.rows.length === 0) throw new appError("SHOP_NOT_FOUND", 404);
+  return {
+    taxRate:  parseFloat(result.rows[0].tax_rate),
+    shopType: result.rows[0].shop_type,
+  };
+}
+
 async function getShopTaxRate(shopId: string): Promise<number> {
   const result = await pool.query(
     `SELECT tax_rate FROM shops WHERE id = $1 AND is_deleted = false`,
@@ -57,42 +70,74 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   REFUNDED: [],
 };
 
+const ALLOWED_ORDER_TYPES_BY_SHOP: Record<string, string[]> = {
+  RETAIL:      ["RETAIL"],
+  RESTAURANT:  ["DINE_IN", "TAKEAWAY"],
+  ONLINE_SHOP: ["ONLINE", "DELIVERY", "PICKUP"],
+};
+
 export class OrderService {
 
-  static async createOrder(params: CreateOrderInput & { requesterId: string }) {
-    await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
 
-    const taxRate = await getShopTaxRate(params.shopId);
+static async createOrder(params: CreateOrderInput & { requesterId: string }) {
+  await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
 
-    const order = await OrderRepository.createOrder(
-      {
-        shopId: params.shopId,
-        cashierId: params.requesterId,
-        orderType: params.orderType,
-        tableId: params.tableId,
-        customerName: params.customerName,
-        customerPhone: params.customerPhone,
-        deliveryAddress: params.deliveryAddress,
-        deliveryNote: params.deliveryNote,
-        notes: params.notes,
-      },
-      taxRate
-    );
+  const { taxRate, shopType } = await getShopInfo(params.shopId);
 
-    await AuditService.log({
-      shopId: params.shopId,
-      userId: params.requesterId,
-      action: "ORDER_CREATED",
-      entity: "ORDER",
-      entityId: order.id,
-      metadata: {
-        order_no: order.order_no,
-        order_type: order.order_type,
-      },
-    });
-
-    return order;
+  if (params.orderType !== "QR") {
+    const allowed = ALLOWED_ORDER_TYPES_BY_SHOP[shopType] ?? [];
+    if (!allowed.includes(params.orderType)) {
+      throw new appError(
+        `Order type '${params.orderType}' is not valid for a ${shopType} shop`,
+        400
+      );
+    }
   }
+
+  if (params.orderType === "DINE_IN" && params.tableId) {
+    const tableResult = await pool.query(
+      `SELECT id, is_active FROM restaurant_tables
+       WHERE id = $1 AND shop_id = $2`,
+      [params.tableId, params.shopId]
+    );
+    if (tableResult.rows.length === 0) {
+      throw new appError("TABLE_NOT_FOUND", 404);
+    }
+    if (!tableResult.rows[0].is_active) {
+      throw new appError("TABLE_NOT_ACTIVE", 400);
+    }
+  }
+
+  const order = await OrderRepository.createOrder(
+    {
+      shopId:          params.shopId,
+      cashierId:       params.requesterId,
+      orderType:       params.orderType,
+      tableId:         params.tableId,
+      customerName:    params.customerName,
+      customerPhone:   params.customerPhone,
+      deliveryAddress: params.deliveryAddress,
+      deliveryNote:    params.deliveryNote,
+      notes:           params.notes,
+    },
+    taxRate
+  );
+
+  await AuditService.log({
+    shopId:   params.shopId,
+    userId:   params.requesterId,
+    action:   "ORDER_CREATED",
+    entity:   "ORDER",
+    entityId: order.id,
+    metadata: {
+      order_no:   order.order_no,
+      order_type: order.order_type,
+    },
+  });
+
+  return order;
+}
+
 
   static async getOrders(filter: ListOrdersFilter, requesterId: string) {
     await assertShopMember(filter.shopId, requesterId, ALL_ROLES);
@@ -237,8 +282,21 @@ if (params.newStatus === 'CANCELLED') {
     if (!productModel) throw new appError("PRODUCT_MODEL_NOT_FOUND", 404);
 
     const taxRate = await getShopTaxRate(params.shopId);
-    const modifiers = params.modifiers ?? [];
-
+const rawModifiers = params.modifiers ?? [];
+const modifiers: ModifierSnapshot[] = await Promise.all(
+  rawModifiers.map(async (m) => {
+    const { rows } = await pool.query(
+      `SELECT name, price_delta FROM modifier_options WHERE id = $1`,
+      [m.modifier_option_id]
+    );
+    const opt = rows[0];
+    return {
+      modifier_option_id: m.modifier_option_id,
+      name:               opt?.name       ?? "",
+      price_delta:        Number(opt?.price_delta ?? 0),
+    };
+  })
+);
     const orderItem = await OrderRepository.addOrderItem({
       orderId: params.orderId,
       productItemId: params.productItemId,
