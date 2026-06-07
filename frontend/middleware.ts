@@ -1,60 +1,21 @@
 // =========================================================
-// proxy.ts — Next.js Middleware (runs on every matched request)
+// middleware.ts
+// Path: frontend/middleware.ts   ← MUST be this exact name
 //
-// ITEM 10 changes
-// ───────────────
-// The old middleware checked pos_token / kitchen_token but
-// had NO awareness of terminal_id. This caused two problems:
+// CRITICAL FIX: This file was previously named proxy.ts.
+// Next.js ONLY recognises middleware.ts (or middleware.js)
+// at the project root. proxy.ts is treated as a regular
+// TypeScript file and is NEVER executed as middleware.
+// As a result, ALL cookie-based route protection has been
+// silently skipped since the project began.
 //
-//   Problem A — False "needs activation" redirect on deep routes
-//     A device that has pos_token (staff is logged in) but no
-//     terminal_id (never registered) was not redirected — it
-//     just hit the terminal page and got a 403 from the API.
-//     Now we explicitly redirect /pos/:shopId/terminal and
-//     /kitchen/:shopId/display to the top-level login page
-//     with ?error=DEVICE_NOT_VERIFIED when terminal_id is
-//     missing, so the auto-registration flow can run cleanly.
+// ACTION REQUIRED:
+//   1. Create this file at: frontend/middleware.ts
+//   2. DELETE the old file: frontend/proxy.ts
 //
-//   Problem B — No distinction between "needs PIN login" and
-//     "needs device activation"
-//     Previously both cases resulted in the same redirect to
-//     /pos/:shopId with no context. Now:
-//       • Missing pos_token + has terminal_id  → /pos/:shopId
-//         (needs PIN login — normal flow)
-//       • Missing terminal_id                  → /pos/:shopId?error=DEVICE_NOT_VERIFIED
-//         (needs device activation — auto-reg flow)
-//
-// ── Route protection summary ──────────────────────────────
-//
-//   /pos/:shopId                  PUBLIC — auto-registration + PIN login
-//   /pos/:shopId/terminal         PROTECTED — requires pos_token
-//                                 + terminal_id (redirects with ?error if missing)
-//
-//   /kitchen/:shopId              PUBLIC — auto-registration + PIN login
-//   /kitchen/:shopId/display      PROTECTED — requires kitchen_token
-//                                 + terminal_id (redirects with ?error if missing)
-//
-//   /dashboard, /shops, /admin,
-//   /profile                      PROTECTED — requires access_token
-//
-//   /login                        PUBLIC (redirects to /dashboard if logged in)
-//   /qr/**                        PUBLIC — no auth required
-//
-// ── Cookie reference ──────────────────────────────────────
-//
-//   access_token      Platform JWT — set on login, cleared on logout
-//   pos_token         POS staff JWT — set on PIN login
-//   kitchen_token     Kitchen staff JWT — set on PIN login
-//   terminal_session  Terminal session — set by /terminal/activate
-//   terminal_id       Hardware passport — permanent per device
-//                     Set by /terminal/activate on first mode entry.
-//                     Its ABSENCE means the device was never activated.
-//
-// ── Important: middleware does not verify JWTs ────────────
-// We only check cookie presence here, not validity. The
-// backend API validates every token on every request. If a
-// token is expired or tampered, the API returns 401/403 and
-// posApi / kitchenApi interceptors handle the redirect.
+// The content is identical to proxy.ts — only the filename
+// changes. Once renamed, Next.js will automatically run this
+// function on every matched request before the page renders.
 // =========================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -72,38 +33,32 @@ const ERROR_PARAM_DEVICE_NOT_VERIFIED = "DEVICE_NOT_VERIFIED";
 export default function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const accessToken   = request.cookies.get(COOKIE_ACCESS_TOKEN)?.value;
-  const posToken      = request.cookies.get(COOKIE_POS_TOKEN)?.value;
-  const kitchenToken  = request.cookies.get(COOKIE_KITCHEN_TOKEN)?.value;
-  const terminalId    = request.cookies.get(COOKIE_TERMINAL_ID)?.value;
+  const accessToken  = request.cookies.get(COOKIE_ACCESS_TOKEN)?.value;
+  const posToken     = request.cookies.get(COOKIE_POS_TOKEN)?.value;
+  const kitchenToken = request.cookies.get(COOKIE_KITCHEN_TOKEN)?.value;
+  const terminalId   = request.cookies.get(COOKIE_TERMINAL_ID)?.value;
 
   // ═══════════════════════════════════════════════════════
   // POS ROUTES
   // ═══════════════════════════════════════════════════════
 
   if (pathname.startsWith("/pos/")) {
-    const parts = pathname.split("/");
+    const parts   = pathname.split("/");
     // parts: ["", "pos", ":shopId", ...rest]
     const shopId  = parts[2];
     const subPath = parts[3]; // "terminal" | undefined
 
     // /pos/:shopId — top-level login page.
-    // This is ALWAYS public. The auto-registration flow,
-    // PIN login, and "pending approval" screen all live here.
-    // We must NOT redirect away from here even if terminal_id
-    // is missing — that is exactly what this page handles.
+    // Always public — auto-registration, PIN login, and
+    // "pending approval" all live here.
     if (!subPath) {
       return NextResponse.next();
     }
 
     // /pos/:shopId/terminal — working POS screen.
-    // Requires BOTH pos_token (staff PIN session) AND
-    // terminal_id (device has been activated at least once).
+    // Requires BOTH terminal_id AND pos_token.
     if (subPath === "terminal") {
-      // Check terminal_id first — it's the deeper requirement.
-      // A device with no terminal_id has never been activated
-      // by an owner, so even if somehow it got a pos_token,
-      // the API will reject every request with 403.
+      // terminal_id missing → device never activated
       if (!terminalId) {
         const url = request.nextUrl.clone();
         url.pathname = `/pos/${shopId}`;
@@ -111,9 +66,7 @@ export default function middleware(request: NextRequest) {
         return NextResponse.redirect(url);
       }
 
-      // terminal_id exists but no pos_token — staff needs to
-      // log in with their PIN. Redirect without an error param
-      // so the page shows the normal staff selection screen.
+      // terminal_id present but no pos_token → needs PIN login
       if (!posToken) {
         const url = request.nextUrl.clone();
         url.pathname = `/pos/${shopId}`;
@@ -121,13 +74,11 @@ export default function middleware(request: NextRequest) {
         return NextResponse.redirect(url);
       }
 
-      // Both cookies present — allow through.
+      // Both present → allow through
       return NextResponse.next();
     }
 
-    // Any other /pos/:shopId/* sub-path — allow through and
-    // let the API enforce auth. This covers any future routes
-    // we add under the POS tree without needing middleware changes.
+    // Any other /pos/:shopId/* sub-path — allow through.
     return NextResponse.next();
   }
 
@@ -136,8 +87,7 @@ export default function middleware(request: NextRequest) {
   // ═══════════════════════════════════════════════════════
 
   if (pathname.startsWith("/kitchen/")) {
-    const parts = pathname.split("/");
-    // parts: ["", "kitchen", ":shopId", ...rest]
+    const parts   = pathname.split("/");
     const shopId  = parts[2];
     const subPath = parts[3]; // "display" | undefined
 
@@ -147,7 +97,6 @@ export default function middleware(request: NextRequest) {
     }
 
     // /kitchen/:shopId/display — working kitchen display.
-    // Same protection pattern as POS terminal.
     if (subPath === "display") {
       if (!terminalId) {
         const url = request.nextUrl.clone();
@@ -199,8 +148,8 @@ export default function middleware(request: NextRequest) {
 }
 
 // ── Matcher ───────────────────────────────────────────────
-// Only run middleware on routes that need it.
-// Excludes _next/static, _next/image, favicon, api routes, etc.
+// Only run on routes that need protection.
+// Excludes _next/static, _next/image, favicon, and api routes.
 export const config = {
   matcher: [
     "/dashboard/:path*",
