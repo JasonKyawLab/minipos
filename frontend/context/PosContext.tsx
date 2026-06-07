@@ -1,33 +1,31 @@
 "use client";
+// =========================================================
 // context/PosContext.tsx
-//
-// Holds the POS session state after a cashier logs in with their PIN.
-// Mounted in the POS layout — available to the main POS page only.
-//
-// Why separate from AuthContext?
-//   AuthContext holds the platform (owner/admin) JWT.
-//   PosContext holds the tablet session after PIN login.
-//   They can coexist: an owner can be logged in on the platform AND
-//   have a POS session active on the same browser tab.
+// Path: frontend/context/PosContext.tsx
+// =========================================================
 
 import React, {
-  createContext, useContext, useState, useCallback,
+  createContext,
+  useContext,
+  useState,
+  useCallback,
   type ReactNode,
 } from "react";
-import type { ShopRole } from "@/types";
+import type { ShopRole, ShopType } from "@/types";
 
 interface PosSessionData {
-  userId:    string;
-  userName:  string;
-  shopRole:  ShopRole;
-  shopId:    string;
-  shopName:  string;
+  userId:   string;
+  userName: string;
+  shopRole: ShopRole;
+  shopId:   string;
+  shopName: string;
+  shopType: ShopType;
 }
 
 interface PosContextValue {
-  session:    PosSessionData | null;
-  isLoggedIn: boolean;
-  setSession: (data: PosSessionData | null) => void;
+  session:      PosSessionData | null;
+  isLoggedIn:   boolean;
+  setSession:   (data: PosSessionData | null) => void;
   clearSession: () => void;
 }
 
