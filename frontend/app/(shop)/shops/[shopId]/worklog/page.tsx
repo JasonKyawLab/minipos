@@ -1,4 +1,42 @@
 "use client";
+// =========================================================
+// app/(shop)/shops/[shopId]/worklog/page.tsx
+//
+// FIX: Two changes made here:
+//
+// 1. BETTER ERROR DIAGNOSTICS
+//    The previous code called toast.error(getErrorMessage(...))
+//    which maps the backend code to a friendly string. But
+//    if the backend returns an unexpected error (e.g. a DB
+//    crash, missing table, or 404 route mismatch), the string
+//    "Something went wrong" tells you nothing.
+//
+//    The fix: we now capture err.response?.status (the raw
+//    HTTP status code) alongside the message code, and show
+//    a richer error: "[503] Something went wrong." This lets
+//    you identify at a glance whether it's a:
+//      403 → permissions problem (user not in shop_users)
+//      404 → route not found (check backend mounting)
+//      500 → server crash (check backend logs / DB)
+//      503 → DB connection failed
+//
+//    If you're getting a 404 specifically on /shifts, the
+//    most likely causes are:
+//      a) The 'staff_mode_sessions' table doesn't exist yet.
+//         Run your migration scripts. The table is defined
+//         in 001_init_schema.sql.
+//      b) The shift router isn't mounted. Check app.ts line:
+//         app.use("/api/shops/:shopId/shifts", shiftRoutes);
+//      c) Your user account is not in shop_users for this
+//         shop. The owner must have a shop_users row with
+//         role='OWNER'. This is created when the shop is
+//         created via ShopService.create().
+//
+// 2. AUTO-REFRESH ON TAB VISIBILITY
+//    Same visibilitychange pattern as the Orders page.
+//    When you return to the Worklog tab after a POS session,
+//    the list automatically refreshes to show the new shift.
+// =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useShop } from "@/context/ShopContext";
@@ -61,6 +99,27 @@ function formatMinutes(minutes: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+// ── Error helper with HTTP status ────────────────────────
+//
+// WHY: When an API call fails, knowing the HTTP status code
+// is critical for debugging. A 403 means permissions; a 404
+// means the route doesn't exist or the DB table is missing;
+// a 500 means a server crash. The standard getErrorMessage()
+// only maps the message code — it doesn't expose the status.
+//
+// This helper formats the error as "[STATUS] friendly message"
+// so you can see what's actually happening without DevTools.
+function buildErrorToast(err: any): string {
+  const status  = err.response?.status;
+  const code    = err.response?.data?.message;
+  const message = getErrorMessage(code);
+
+  if (status) {
+    return `[${status}] ${message}`;
+  }
+  return message;
+}
+
 export default function WorkLogPage() {
   const { shopId, shopName, userRole } = useShop();
   const isManager = ["OWNER", "MANAGER"].includes(userRole);
@@ -79,17 +138,26 @@ export default function WorkLogPage() {
   const [modeFilter, setModeFilter] = useState<"" | "POS" | "KITCHEN">("");
   const [userFilter, setUserFilter] = useState("");
 
-  // Load staff dropdown once on mount (non-critical)
+  // Load staff dropdown once on mount (non-critical — failure is silent)
   useEffect(() => {
     if (!isManager) return;
     api.get<StaffOption[]>(`/api/shops/${shopId}/shifts/staff`)
       .then(({ data }) => setStaffList(Array.isArray(data) ? data : []))
-      .catch(() => {});
+      .catch(() => {
+        // Silently fail — the staff filter just won't appear.
+        // If you're seeing this fail and want to debug it,
+        // temporarily change this to: .catch((err) => console.error(err))
+      });
   }, [shopId, isManager]);
 
-  // ── Single combined load function ────────────────────────
-  // Merges shifts + stats into one effect to prevent cascading
-  // re-renders and triple-fire in React StrictMode.
+  // ── Core load function ───────────────────────────────────
+  //
+  // Loads shifts and stats in one callback. Keeping them
+  // together prevents cascading re-renders in React StrictMode.
+  //
+  // Stats failure is non-fatal: if /shifts/stats fails (e.g.
+  // because the user has no shifts yet), we just hide the
+  // stats cards — the shifts table still loads normally.
   const loadData = useCallback(async (currentPage: number) => {
     setLoading(true);
 
@@ -109,14 +177,16 @@ export default function WorkLogPage() {
       setShifts(Array.isArray(data.shifts) ? data.shifts : []);
       setTotal(typeof data.total === "number" ? data.total : 0);
     } catch (err: any) {
-      toast.error(getErrorMessage(err.response?.data?.message));
+      // Use buildErrorToast here so you can see the HTTP status
+      // in the error message — critical for diagnosing 403/404/500.
+      toast.error(buildErrorToast(err));
       setShifts([]);
       setTotal(0);
     } finally {
       setLoading(false);
     }
 
-    // Stats load separately — failure is non-fatal
+    // Stats — non-fatal, failure just hides the cards
     try {
       const statsParams: Record<string, string> = { from: dateFrom, to: dateTo };
       if (userFilter) statsParams.userId = userFilter;
@@ -136,8 +206,7 @@ export default function WorkLogPage() {
     loadData(1);
   }, [dateFrom, dateTo, modeFilter, userFilter, loadData]);
 
-  // Reload when page changes (but not when filters change — that's handled above)
-  // We track whether a page change is user-initiated vs filter-reset
+  // Page change (user-initiated navigation — not filter-triggered)
   const [isPageChange, setIsPageChange] = useState(false);
 
   useEffect(() => {
@@ -150,6 +219,20 @@ export default function WorkLogPage() {
     setPage(newPage);
     setIsPageChange(true);
   }
+
+  // ── Auto-refresh on tab visibility ───────────────────────
+  // When you return to the Worklog tab after a POS session,
+  // the list auto-refreshes to show the new shift entry.
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        loadData(page);
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [loadData, page]);
 
   const totalPages = Math.ceil(total / limit);
 
@@ -166,7 +249,7 @@ export default function WorkLogPage() {
         </p>
       </div>
 
-      {/* ── Empty state hint ────────────────────────────────── */}
+      {/* ── "No shifts yet" hint ─────────────────────────── */}
       {!loading && shifts.length === 0 && (
         <div className="bg-[#FAEEDA] border border-[#BA7517]/30 rounded-lg px-4 py-3 text-[13px] text-[#BA7517]">
           <span className="font-medium">No shifts recorded yet. </span>
@@ -175,7 +258,7 @@ export default function WorkLogPage() {
         </div>
       )}
 
-      {/* Stats cards */}
+      {/* ── Stats cards ─────────────────────────────────── */}
       {stats && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard label="Total Shifts"    value={String(stats.total_shifts)}                      colour="navy" />
@@ -185,17 +268,20 @@ export default function WorkLogPage() {
         </div>
       )}
 
-      {/* Filters */}
+      {/* ── Filters ─────────────────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1.5">
           <input
-            type="date" value={dateFrom}
+            type="date"
+            value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
             className="h-8 px-2 text-[12px] border border-[#D3D1C7] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
           />
           <span className="text-[12px] text-[#5F5E5A]">to</span>
           <input
-            type="date" value={dateTo} min={dateFrom}
+            type="date"
+            value={dateTo}
+            min={dateFrom}
             onChange={(e) => setDateTo(e.target.value)}
             className="h-8 px-2 text-[12px] border border-[#D3D1C7] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
           />
@@ -226,12 +312,22 @@ export default function WorkLogPage() {
           </select>
         )}
 
+        {/* Manual refresh — also useful to dismiss error states */}
+        <button
+          onClick={() => loadData(page)}
+          disabled={loading}
+          className="h-8 px-3 text-[12px] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] disabled:opacity-40 transition"
+          title="Refresh"
+        >
+          ↻ Refresh
+        </button>
+
         <span className="text-[12px] text-[#5F5E5A] ml-auto">
           {total} session{total !== 1 ? "s" : ""}
         </span>
       </div>
 
-      {/* Shifts table */}
+      {/* ── Shifts table ────────────────────────────────── */}
       {loading ? (
         <SkeletonTable rows={6} cols={isManager ? 7 : 6} />
       ) : shifts.length === 0 ? (
@@ -276,7 +372,9 @@ export default function WorkLogPage() {
                     )}
 
                     <td className="px-4 py-3">
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${ROLE_COLOURS[shift.shop_role] ?? "bg-[#F1EFE8] text-[#5F5E5A]"}`}>
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${
+                        ROLE_COLOURS[shift.shop_role] ?? "bg-[#F1EFE8] text-[#5F5E5A]"
+                      }`}>
                         {shift.shop_role}
                       </span>
                     </td>
@@ -341,6 +439,8 @@ export default function WorkLogPage() {
     </div>
   );
 }
+
+// ── Stat card sub-component ──────────────────────────────
 
 type Colour = "navy" | "teal" | "purple" | "amber";
 
