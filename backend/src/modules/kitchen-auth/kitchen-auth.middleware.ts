@@ -1,3 +1,22 @@
+// =========================================================
+// kitchen-auth.middleware.ts
+// Path: backend/src/modules/kitchen-auth/kitchen-auth.middleware.ts
+//
+// BUG FIX: NULL tokenVersion comparison (same root cause as
+// pos-auth.middleware.ts — see that file for full explanation).
+//
+// PROBLEM:
+//   kitchen_token_version is NULL for new shop_users rows.
+//   KitchenAuthService signs the JWT with version: 0 when the
+//   DB column is NULL. On the next authenticated request:
+//     decoded.version !== rows[0].kitchen_token_version
+//     → 0 !== null  → true  → TOKEN_REVOKED → 401
+//
+// FIX:
+//   const dbVersion = rows[0].kitchen_token_version ?? 0;
+//   Now: 0 !== 0  → false  → token is valid  ✓
+// =========================================================
+
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../../config/validation.js";
@@ -36,11 +55,25 @@ export async function requireKitchenAuth(
 
     // Query current token version
     const { rows } = await pool.query(
-      `SELECT kitchen_token_version FROM shop_users WHERE shop_id = $1 AND user_id = $2 AND is_active = true`,
+      `SELECT kitchen_token_version
+       FROM shop_users
+       WHERE shop_id   = $1
+         AND user_id   = $2
+         AND is_active = true`,
       [decoded.shopId, decoded.userId]
     );
 
-    if (rows.length === 0 || decoded.version !== rows[0].kitchen_token_version) {
+    if (rows.length === 0) {
+      res.status(401).json({ message: "TOKEN_REVOKED" });
+      return;
+    }
+
+    // FIX: kitchen_token_version is NULL for rows that predate the
+    // column addition. Treat NULL as 0 — matching the default the
+    // service assigns when signing the JWT.
+    const dbVersion = rows[0].kitchen_token_version ?? 0;
+
+    if (decoded.version !== dbVersion) {
       res.status(401).json({ message: "TOKEN_REVOKED" });
       return;
     }
@@ -52,7 +85,7 @@ export async function requireKitchenAuth(
     };
 
     next();
-  } catch (error) {
+  } catch {
     res.status(401).json({ message: "INVALID_KITCHEN_TOKEN" });
   }
 }
@@ -73,4 +106,3 @@ export function requireKitchenRole(...roles: string[]) {
     next();
   };
 }
-

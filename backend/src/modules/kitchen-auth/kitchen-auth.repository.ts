@@ -1,8 +1,18 @@
+// =========================================================
+// kitchen-auth.repository.ts
+// Path: backend/src/modules/kitchen-auth/kitchen-auth.repository.ts
+//
+// BUG FIX: NULL + 1 = NULL in incrementKitchenTokenVersion
+// (Same root cause as pos-auth.repository.ts — see that file.)
+//
+// FIX:
+//   SET kitchen_token_version = COALESCE(kitchen_token_version, 0) + 1
+// =========================================================
+
 import { pool } from "../../db/pool.js";
 
-// Note: CHEF is not in the DB shop_role enum (which only has OWNER/MANAGER/CASHIER).
-// We map MANAGER → CHEF at the kitchen auth layer.
-// This means a MANAGER can use both the POS and the Kitchen Display.
+// Note: CHEF is not in the DB shop_role enum (which only has OWNER/MANAGER/CASHIER/CHEF).
+// MANAGER can use both the POS and the Kitchen Display.
 // CASHIER is explicitly excluded — they cannot log into the kitchen.
 const KITCHEN_ALLOWED_ROLES = ["OWNER", "MANAGER", "CHEF"] as const;
 
@@ -50,26 +60,30 @@ export class KitchenAuthRepository {
       `,
       [shopId, userId, KITCHEN_ALLOWED_ROLES]
     );
-    // Returns null if user is CASHIER — they are blocked at the query level
+    // Returns null if user is CASHIER — blocked at the query level
     return rows[0] ?? null;
   }
 
+  // ── Increment token version (force logout) ───────────────
+  //
+  // FIX: COALESCE(kitchen_token_version, 0) + 1
+  // Prevents NULL + 1 = NULL silently defeating force logout.
   static async incrementKitchenTokenVersion(
-  shopId: string,
-  userId: string
-): Promise<boolean> {
-  const result = await pool.query(
-    `
-    UPDATE shop_users
-    SET kitchen_token_version = kitchen_token_version + 1
-    WHERE shop_id = $1
-      AND user_id = $2
-      AND is_active = true
-    `,
-    [shopId, userId]
-  );
-  return (result.rowCount ?? 0) > 0;
-}
+    shopId: string,
+    userId: string
+  ): Promise<boolean> {
+    const result = await pool.query(
+      `
+      UPDATE shop_users
+      SET kitchen_token_version = COALESCE(kitchen_token_version, 0) + 1
+      WHERE shop_id   = $1
+        AND user_id   = $2
+        AND is_active = true
+      `,
+      [shopId, userId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
 
   static async setPin(shopId: string, userId: string, pinHash: string): Promise<boolean> {
     const result = await pool.query(
@@ -78,8 +92,8 @@ export class KitchenAuthRepository {
       SET kitchen_pin_hash         = $3,
           kitchen_pin_attempts     = 0,
           kitchen_pin_locked_until = NULL
-      WHERE shop_id  = $1
-        AND user_id  = $2
+      WHERE shop_id   = $1
+        AND user_id   = $2
         AND is_active = true
         AND role      = ANY($4::shop_role[])
       `,
@@ -95,8 +109,8 @@ export class KitchenAuthRepository {
       SET kitchen_pin_hash         = NULL,
           kitchen_pin_attempts     = 0,
           kitchen_pin_locked_until = NULL
-      WHERE shop_id  = $1
-        AND user_id  = $2
+      WHERE shop_id   = $1
+        AND user_id   = $2
         AND is_active = true
         AND role      = ANY($3::shop_role[])
       `,
@@ -141,7 +155,6 @@ export class KitchenAuthRepository {
       `SELECT pin_max_attempts FROM shops WHERE id = $1 AND is_deleted = false`,
       [shopId]
     );
-    // Reuse the same shop-level setting as POS
     return rows[0]?.pin_max_attempts ?? 5;
   }
 
@@ -151,8 +164,8 @@ export class KitchenAuthRepository {
       UPDATE shop_users
       SET kitchen_pin_attempts     = 0,
           kitchen_pin_locked_until = NULL
-      WHERE shop_id  = $1
-        AND user_id  = $2
+      WHERE shop_id   = $1
+        AND user_id   = $2
         AND is_active = true
       `,
       [shopId, targetUserId]
