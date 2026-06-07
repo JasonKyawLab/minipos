@@ -113,6 +113,34 @@ router.post(
   PosAuthController.addPosOrderItem,
 );
 
+// GET /api/shops/:shopId/pos-auth/orders/:orderId
+// Fetches a single order with server-calculated totals.
+// Called after placeOrder() to get the final total_amount.
+router.get(
+  "/orders/:orderId",
+  requireVerifiedDevice,
+  requirePosAuth,
+  PosAuthController.getPosOrder,
+);
+
+// PATCH /api/shops/:shopId/pos-auth/orders/:orderId/status
+// Confirms order → triggers KitchenService.createTicket().
+router.patch(
+  "/orders/:orderId/status",
+  requireVerifiedDevice,
+  requirePosAuth,
+  PosAuthController.updatePosOrderStatus,
+);
+
+// POST /api/shops/:shopId/pos-auth/orders/:orderId/payments
+// Processes payment for a POS order → marks order as PAID.
+router.post(
+  "/orders/:orderId/payments",
+  requireVerifiedDevice,
+  requirePosAuth,
+  PosAuthController.processPosPayment,
+);
+
 // ==========================================================
 // PLATFORM AUTH ROUTES — require platform access_token
 //
