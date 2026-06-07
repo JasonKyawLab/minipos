@@ -100,7 +100,7 @@ static async activate(req: Request, res: Response) {
         res.cookie('terminal_id', tokenResult.terminalToken, {
           httpOnly: true,
           secure:   env.NODE_ENV === 'production',
-          sameSite: 'strict',
+          sameSite: 'lax',
           maxAge:   365 * 24 * 60 * 60 * 1000,
         });
       }
@@ -130,7 +130,7 @@ static async activate(req: Request, res: Response) {
       res.cookie('terminal_session', sessionToken, {
         httpOnly: true,
         secure:   env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: 'lax',
         maxAge:   8 * 60 * 60 * 1000,
       });
 
