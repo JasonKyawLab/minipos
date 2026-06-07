@@ -12,8 +12,9 @@ import { pool }               from "../../db/pool.js";
 
 import { QrRepository }       from "../qr/qr.repository.js";
 import { OrderService }       from "../order/order.service.js";
+import { OrderRepository }     from "../order/order.repository.js";
 import { TableRepository }    from "../table/table.repository.js";
-
+import { PaymentService }    from "../payment/payment.service.js";
 
 export class PosAuthController {
 
@@ -313,5 +314,69 @@ export class PosAuthController {
       return handleError(res, err);
     }
   }
+
+  // GET /api/shops/:shopId/pos-auth/orders/:orderId
+static async getPosOrder(req: Request, res: Response) {
+  try {
+    const shopId  = req.posSession!.shopId;
+    const orderId = getParamAsString(req.params.orderId, "orderId");
+
+    const order = await OrderRepository.findOrderById(orderId, shopId);
+    if (!order) {
+      return res.status(404).json({ message: "ORDER_NOT_FOUND" });
+    }
+
+    return res.json(order);
+  } catch (err) { return handleError(res, err); }
+}
+
+// PATCH /api/shops/:shopId/pos-auth/orders/:orderId/status
+ static async updatePosOrderStatus(req: Request, res: Response) {
+    try {
+      const shopId      = getParamAsString(req.params.shopId,  "shopId");
+      const orderId     = getParamAsString(req.params.orderId, "orderId");
+      const cashierId   = req.posSession!.userId;
+      const { status }  = req.body;
+ 
+      // Only CONFIRMED and CANCELLED are valid from POS terminal
+      if (status !== "CONFIRMED" && status !== "CANCELLED") {
+        return res.status(400).json({ message: "INVALID_STATUS_TRANSITION" });
+      }
+ 
+      const updated = await OrderService.updateOrderStatusFromPOS({
+        orderId,
+        shopId,
+        requesterId: cashierId,
+        newStatus:   status,
+      });
+ 
+      return res.json(updated);
+    } catch (err) { return handleError(res, err); }
+  }
+// POST /api/shops/:shopId/pos-auth/orders/:orderId/payments
+static async processPosPayment(req: Request, res: Response) {
+  try {
+    const shopId    = req.posSession!.shopId;
+    const cashierId = req.posSession!.userId;
+    const orderId   = getParamAsString(req.params.orderId, "orderId");
+
+    const { method, amount, received_amount, note } = req.body;
+
+    const result = await PaymentService.processPayment({
+      orderId,
+      shopId,
+      requesterId:    cashierId,
+      cashierId,
+      method,
+      amount,
+      receivedAmount: received_amount,
+      note,
+    });
+
+    return res.status(201).json(result);
+  } catch (err) { return handleError(res, err); }
+}
+
+ 
 
 }
