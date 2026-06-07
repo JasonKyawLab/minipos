@@ -1,17 +1,31 @@
 // =========================================================
 // product.schema.ts
 // Path: backend/src/modules/product/product.schema.ts
-// =========================================================
-// Zod schemas for request body validation.
-// Used by validate() middleware in product.routes.ts.
 //
-// Why Zod?
-//   • Strips unknown fields automatically (.strip() default)
-//   • Returns structured field-level errors → frontend UX
-//   • Type-safe: schema.parse() returns typed output
+// CHANGES: Added category CRUD schemas.
+//          Added category_id to model create/update schemas.
 // =========================================================
 
 import { z } from "zod";
+
+// ── Product Category ──────────────────────────────────────
+
+export const createCategorySchema = z.object({
+  name:      z.string().min(1).max(100),
+  // Hex colour validation: optional, must be #RRGGBB format
+  color:     z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a hex colour like #FF5733").optional(),
+  image_url: z.string().url().optional(),
+});
+
+export const updateCategorySchema = z.object({
+  name:       z.string().min(1).max(100).optional(),
+  color:      z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a hex colour like #FF5733").optional(),
+  image_url:  z.string().url().optional(),
+  sort_order: z.number().int().min(0).optional(),
+}).refine(
+  (data) => Object.keys(data).length > 0,
+  { message: "At least one field is required" }
+);
 
 // ── Product Model ─────────────────────────────────────────
 
@@ -19,12 +33,15 @@ export const createModelSchema = z.object({
   name:        z.string().min(1).max(150),
   description: z.string().max(1000).optional(),
   image_url:   z.string().url().optional(),
+  category_id: z.string().uuid().optional(),   // NEW
 });
 
 export const updateModelSchema = z.object({
   name:        z.string().min(1).max(150).optional(),
   description: z.string().max(1000).optional(),
   image_url:   z.string().url().optional(),
+  // null explicitly removes the category (uncategorises the product)
+  category_id: z.string().uuid().nullable().optional(),  // NEW
 }).refine(
   (data) => Object.keys(data).length > 0,
   { message: "At least one field is required" }
@@ -36,14 +53,9 @@ export const createItemSchema = z.object({
   name:        z.string().min(1).max(100),
   sku:         z.string().max(100).optional(),
   barcode:     z.string().max(50).optional(),
-
-  // price must be non-negative (matches DB CHECK price >= 0)
   price:       z.number().min(0),
   cost_price:  z.number().min(0).optional(),
-
   track_stock: z.boolean().optional(),
-
-  // stock_qty must be non-negative (matches DB CHECK stock_qty >= 0)
   stock_qty:   z.number().int().min(0).optional(),
 });
 
@@ -60,19 +72,14 @@ export const updateItemSchema = z.object({
 );
 
 export const setItemActiveSchema = z.object({
-  // Explicit boolean — rejects "true" strings from form submissions
   is_active: z.boolean(),
 });
 
 // ── Inventory Movement ────────────────────────────────────
 
 export const recordInventorySchema = z.object({
-  type: z.enum(["SALE", "PURCHASE", "ADJUSTMENT", "REFUND"]),
-
-  // Caller passes a positive number.
-  // Service enforces the correct sign based on type.
+  type:         z.enum(["SALE", "PURCHASE", "ADJUSTMENT", "REFUND"]),
   quantity:     z.number().int().positive({ message: "quantity must be a positive integer" }),
-
   reference_id: z.string().uuid().optional(),
   notes:        z.string().max(500).optional(),
 });

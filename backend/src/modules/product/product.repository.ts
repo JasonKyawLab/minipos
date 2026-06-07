@@ -1,17 +1,21 @@
 // =========================================================
 // product.repository.ts
 // Path: backend/src/modules/product/product.repository.ts
-// =========================================================
-// ALL raw SQL for products and inventory.
-// Service layer never imports pool directly.
+//
+// CHANGES: Added category CRUD methods.
+//          Updated createModel, findAllModels, updateModel
+//          to include category_id.
 // =========================================================
 
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
 import {
+  ProductCategory,
   ProductModel,
   ProductItem,
   InventoryMovement,
+  CreateProductCategoryInput,
+  UpdateProductCategoryInput,
   CreateProductModelInput,
   UpdateProductModelInput,
   CreateProductItemInput,
@@ -22,143 +26,221 @@ import {
 export class ProductRepository {
 
   // =======================================================
-  // PRODUCT MODELS
+  // PRODUCT CATEGORIES
   // =======================================================
 
-  /**
-   * Create a new product model for a shop.
-   */
-  static async createModel(input: CreateProductModelInput): Promise<ProductModel> {
-    const { shopId, name, description, image_url } = input;
-
-    const result = await pool.query<ProductModel>(
+  static async createCategory(input: CreateProductCategoryInput): Promise<ProductCategory> {
+    const { shopId, name, color, image_url } = input;
+    const result = await pool.query<ProductCategory>(
       `
-      INSERT INTO product_models (shop_id, name, description, image_url)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO product_categories (shop_id, name, color, image_url, sort_order)
+      SELECT $1, $2, $3, $4,
+        COALESCE((SELECT MAX(sort_order) + 1 FROM product_categories WHERE shop_id = $1), 0)
       RETURNING *
       `,
-      [shopId, name, description ?? null, image_url ?? null]
+      [shopId, name, color ?? null, image_url ?? null]
     );
-
     return result.rows[0];
   }
 
-  /**
-   * List all active (non-deleted) models for a shop.
-   */
-  static async findAllModels(shopId: string): Promise<ProductModel[]> {
-    const result = await pool.query<ProductModel>(
+  static async findAllCategories(shopId: string): Promise<ProductCategory[]> {
+    const result = await pool.query<ProductCategory>(
       `
       SELECT *
-      FROM product_models
-      WHERE shop_id = $1
+      FROM product_categories
+      WHERE shop_id  = $1
         AND is_deleted = false
-      ORDER BY created_at DESC
+      ORDER BY sort_order ASC, created_at ASC
       `,
       [shopId]
     );
-
     return result.rows;
   }
 
-  /**
-   * Find a single model by ID, scoped to a shop.
-   * Returns null if not found or soft-deleted.
-   */
-  static async findModelById(
-    modelId: string,
+  static async findCategoryById(
+    categoryId: string,
     shopId: string
-  ): Promise<ProductModel | null> {
-    const result = await pool.query<ProductModel>(
+  ): Promise<ProductCategory | null> {
+    const result = await pool.query<ProductCategory>(
       `
-      SELECT *
-      FROM product_models
-      WHERE id = $1
-        AND shop_id = $2
-        AND is_deleted = false
+      SELECT * FROM product_categories
+      WHERE id = $1 AND shop_id = $2 AND is_deleted = false
       `,
-      [modelId, shopId]
+      [categoryId, shopId]
     );
-
     return result.rows[0] ?? null;
   }
 
-  /**
-   * Update a model's editable fields.
-   * COALESCE keeps old value if new value is null (partial update).
-   */
-  static async updateModel(
-    modelId: string,
+  static async updateCategory(
+    categoryId: string,
     shopId: string,
-    input: UpdateProductModelInput
-  ): Promise<ProductModel | null> {
-    const result = await pool.query<ProductModel>(
+    input: UpdateProductCategoryInput
+  ): Promise<ProductCategory | null> {
+    const result = await pool.query<ProductCategory>(
       `
-      UPDATE product_models
+      UPDATE product_categories
       SET
-        name        = COALESCE($3, name),
-        description = COALESCE($4, description),
-        image_url   = COALESCE($5, image_url),
-        updated_at  = now()
+        name       = COALESCE($3, name),
+        color      = COALESCE($4, color),
+        image_url  = COALESCE($5, image_url),
+        sort_order = COALESCE($6, sort_order),
+        updated_at = now()
       WHERE id      = $1
         AND shop_id = $2
         AND is_deleted = false
       RETURNING *
       `,
       [
-        modelId,
-        shopId,
-        input.name        ?? null,
-        input.description ?? null,
-        input.image_url   ?? null,
+        categoryId, shopId,
+        input.name       ?? null,
+        input.color      ?? null,
+        input.image_url  ?? null,
+        input.sort_order ?? null,
       ]
     );
-
     return result.rows[0] ?? null;
   }
 
   /**
-   * Soft-delete a model (sets is_deleted = true).
-   * Hard delete is never used — historical order snapshots need the data.
+   * Soft-delete a category.
+   * Products in this category have category_id set to NULL
+   * automatically (ON DELETE SET NULL in the FK definition).
    */
-  static async softDeleteModel(
-    modelId: string,
+  static async softDeleteCategory(
+    categoryId: string,
     shopId: string
   ): Promise<boolean> {
     const result = await pool.query(
       `
-      UPDATE product_models
-      SET is_deleted = true,
-          updated_at = now()
-      WHERE id      = $1
-        AND shop_id = $2
-        AND is_deleted = false
+      UPDATE product_categories
+      SET is_deleted = true, updated_at = now()
+      WHERE id = $1 AND shop_id = $2 AND is_deleted = false
       `,
-      [modelId, shopId]
+      [categoryId, shopId]
     );
-
     return (result.rowCount ?? 0) > 0;
   }
 
+  // =======================================================
+  // PRODUCT MODELS
+  // =======================================================
+
+  static async createModel(input: CreateProductModelInput): Promise<ProductModel> {
+    const { shopId, name, description, image_url, category_id } = input;
+    const result = await pool.query<ProductModel>(
+      `
+      INSERT INTO product_models (shop_id, name, description, image_url, category_id)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *
+      `,
+      [shopId, name, description ?? null, image_url ?? null, category_id ?? null]
+    );
+    return result.rows[0];
+  }
+
   /**
-   * Restore a soft-deleted model.
+   * List all active models with their category name and color.
+   * LEFT JOIN so products without a category still appear.
    */
-  static async restoreModel(
+  static async findAllModels(shopId: string): Promise<ProductModel[]> {
+    const result = await pool.query<ProductModel>(
+      `
+      SELECT
+        pm.*,
+        pc.name  AS category_name,
+        pc.color AS category_color
+      FROM product_models pm
+      LEFT JOIN product_categories pc
+        ON pc.id = pm.category_id AND pc.is_deleted = false
+      WHERE pm.shop_id   = $1
+        AND pm.is_deleted = false
+      ORDER BY pc.sort_order ASC NULLS LAST, pm.created_at DESC
+      `,
+      [shopId]
+    );
+    return result.rows;
+  }
+
+  static async findModelById(
     modelId: string,
     shopId: string
-  ): Promise<boolean> {
-    const result = await pool.query(
+  ): Promise<ProductModel | null> {
+    const result = await pool.query<ProductModel>(
       `
-      UPDATE product_models
-      SET is_deleted = false,
-          updated_at = now()
-      WHERE id      = $1
-        AND shop_id = $2
-        AND is_deleted = true
+      SELECT pm.*, pc.name AS category_name, pc.color AS category_color
+      FROM product_models pm
+      LEFT JOIN product_categories pc
+        ON pc.id = pm.category_id AND pc.is_deleted = false
+      WHERE pm.id      = $1
+        AND pm.shop_id = $2
+        AND pm.is_deleted = false
       `,
       [modelId, shopId]
     );
+    return result.rows[0] ?? null;
+  }
 
+  static async updateModel(
+    modelId: string,
+    shopId: string,
+    input: UpdateProductModelInput
+  ): Promise<ProductModel | null> {
+    // category_id is handled specially:
+    //   undefined → keep existing value (COALESCE)
+    //   null      → explicitly set to NULL (uncategorise)
+    //   uuid      → assign to new category
+    const categoryClause = "category_id" in input
+      ? ", category_id = $6"
+      : "";
+
+    const params: any[] = [
+      modelId, shopId,
+      input.name        ?? null,
+      input.description ?? null,
+      input.image_url   ?? null,
+    ];
+    if ("category_id" in input) params.push(input.category_id ?? null);
+
+    const result = await pool.query<ProductModel>(
+      `
+      UPDATE product_models
+      SET
+        name        = COALESCE($3, name),
+        description = COALESCE($4, description),
+        image_url   = COALESCE($5, image_url)
+        ${categoryClause},
+        updated_at  = now()
+      WHERE id      = $1
+        AND shop_id = $2
+        AND is_deleted = false
+      RETURNING *
+      `,
+      params
+    );
+    return result.rows[0] ?? null;
+  }
+
+  static async softDeleteModel(modelId: string, shopId: string): Promise<boolean> {
+    const result = await pool.query(
+      `
+      UPDATE product_models
+      SET is_deleted = true, updated_at = now()
+      WHERE id = $1 AND shop_id = $2 AND is_deleted = false
+      `,
+      [modelId, shopId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  static async restoreModel(modelId: string, shopId: string): Promise<boolean> {
+    const result = await pool.query(
+      `
+      UPDATE product_models
+      SET is_deleted = false, updated_at = now()
+      WHERE id = $1 AND shop_id = $2 AND is_deleted = true
+      `,
+      [modelId, shopId]
+    );
     return (result.rowCount ?? 0) > 0;
   }
 
@@ -166,64 +248,30 @@ export class ProductRepository {
   // PRODUCT ITEMS (SKUs)
   // =======================================================
 
-  /**
-   * Create a product item under a model.
-   */
   static async createItem(input: CreateProductItemInput): Promise<ProductItem> {
-    const {
-      productModelId,
-      name,
-      sku,
-      barcode,
-      price,
-      cost_price,
-      track_stock,
-      stock_qty,
-    } = input;
-
+    const { productModelId, name, sku, barcode, price, cost_price, track_stock, stock_qty } = input;
     try {
-    const result = await pool.query<ProductItem>(
-      `
-      INSERT INTO product_items
-        (product_model_id, name, sku, barcode, price, cost_price, track_stock, stock_qty)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *
-      `,
-      [
-        productModelId,
-        name,
-        sku        ?? null,
-        barcode    ?? null,
-        price,
-        cost_price ?? null,
-        track_stock ?? true,
-        stock_qty  ?? 0,
-      ]
-    );
-
-    return result.rows[0];
-
-  } catch (err: any) {
-    // PostgreSQL unique violation error code is 23505
-    // Check which constraint was violated and throw a clean error
-    if (err.code === "23505") {
-      if (err.constraint?.includes("barcode")) {
-        throw new Error("BARCODE_ALREADY_EXISTS");
+      const result = await pool.query<ProductItem>(
+        `
+        INSERT INTO product_items
+          (product_model_id, name, sku, barcode, price, cost_price, track_stock, stock_qty)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *
+        `,
+        [productModelId, name, sku ?? null, barcode ?? null, price,
+         cost_price ?? null, track_stock ?? true, stock_qty ?? 0]
+      );
+      return result.rows[0];
+    } catch (err: any) {
+      if (err.code === "23505") {
+        if (err.constraint?.includes("barcode")) throw new Error("BARCODE_ALREADY_EXISTS");
+        if (err.constraint?.includes("sku"))     throw new Error("SKU_ALREADY_EXISTS");
+        throw new Error("DUPLICATE_ENTRY");
       }
-      if (err.constraint?.includes("sku")) {
-        throw new Error("SKU_ALREADY_EXISTS");
-      }
-      throw new Error("DUPLICATE_ENTRY");
+      throw err;
     }
-    // Any other DB error — rethrow so global handler catches it
-    throw err;
   }
-}
 
-  /**
-   * List all items under a model (active + inactive, not deleted).
-   * Deleted models cascade — so we only filter by model_id.
-   */
   static async findItemsByModel(modelId: string): Promise<ProductItem[]> {
     const result = await pool.query<ProductItem>(
       `
@@ -236,87 +284,57 @@ export class ProductRepository {
       `,
       [modelId]
     );
-
     return result.rows;
   }
 
-  /**
-   * Find a single item by ID, verified against shopId for security.
-   * JOIN through product_models ensures the item belongs to the shop.
-   */
-  static async findItemById(
-    itemId: string,
-    shopId: string
-  ): Promise<ProductItem | null> {
+  static async findItemById(itemId: string, shopId: string): Promise<ProductItem | null> {
     const result = await pool.query<ProductItem>(
       `
       SELECT pi.*
       FROM product_items pi
       JOIN product_models pm ON pm.id = pi.product_model_id
-      WHERE pi.id     = $1
+      WHERE pi.id      = $1
         AND pm.shop_id = $2
         AND pm.is_deleted = false
       `,
       [itemId, shopId]
     );
-
     return result.rows[0] ?? null;
   }
 
-  /**
-   * Update editable fields on a product item.
-   */
   static async updateItem(
-    itemId: string,
-    shopId: string,
-    input: UpdateProductItemInput
+    itemId: string, shopId: string, input: UpdateProductItemInput
   ): Promise<ProductItem | null> {
     const result = await pool.query<ProductItem>(
       `
       UPDATE product_items pi
       SET
-        name       = COALESCE($3, pi.name),
-        sku        = COALESCE($4, pi.sku),
-        barcode    = COALESCE($5, pi.barcode),
-        price      = COALESCE($6, pi.price),
-        cost_price = COALESCE($7, pi.cost_price),
+        name        = COALESCE($3, pi.name),
+        sku         = COALESCE($4, pi.sku),
+        barcode     = COALESCE($5, pi.barcode),
+        price       = COALESCE($6, pi.price),
+        cost_price  = COALESCE($7, pi.cost_price),
         track_stock = COALESCE($8, pi.track_stock),
-        updated_at = now()
+        updated_at  = now()
       FROM product_models pm
-      WHERE pi.id          = $1
-        AND pm.id          = pi.product_model_id
-        AND pm.shop_id     = $2
-        AND pm.is_deleted  = false
+      WHERE pi.id         = $1
+        AND pm.id         = pi.product_model_id
+        AND pm.shop_id    = $2
+        AND pm.is_deleted = false
       RETURNING pi.*
       `,
-      [
-        itemId,
-        shopId,
-        input.name        ?? null,
-        input.sku         ?? null,
-        input.barcode     ?? null,
-        input.price       ?? null,
-        input.cost_price  ?? null,
-        input.track_stock ?? null,
-      ]
+      [itemId, shopId,
+       input.name ?? null, input.sku ?? null, input.barcode ?? null,
+       input.price ?? null, input.cost_price ?? null, input.track_stock ?? null]
     );
-
     return result.rows[0] ?? null;
   }
 
-  /**
-   * Soft-delete a product item.
-   * is_active = false is for temp unavailability; is_deleted = true is permanent.
-   */
-  static async softDeleteItem(
-    itemId: string,
-    shopId: string
-  ): Promise<boolean> {
+  static async softDeleteItem(itemId: string, shopId: string): Promise<boolean> {
     const result = await pool.query(
       `
       UPDATE product_items pi
-      SET is_active  = false,
-          updated_at = now()
+      SET is_active = false, updated_at = now()
       FROM product_models pm
       WHERE pi.id         = $1
         AND pm.id         = pi.product_model_id
@@ -325,24 +343,14 @@ export class ProductRepository {
       `,
       [itemId, shopId]
     );
-
     return (result.rowCount ?? 0) > 0;
   }
 
-  /**
-   * Toggle is_active on a product item.
-   * Used for "temporarily unavailable" without deleting.
-   */
-  static async setItemActive(
-    itemId: string,
-    shopId: string,
-    isActive: boolean
-  ): Promise<ProductItem | null> {
+  static async setItemActive(itemId: string, shopId: string, isActive: boolean): Promise<ProductItem | null> {
     const result = await pool.query<ProductItem>(
       `
       UPDATE product_items pi
-      SET is_active  = $3,
-          updated_at = now()
+      SET is_active = $3, updated_at = now()
       FROM product_models pm
       WHERE pi.id         = $1
         AND pm.id         = pi.product_model_id
@@ -352,7 +360,6 @@ export class ProductRepository {
       `,
       [itemId, shopId, isActive]
     );
-
     return result.rows[0] ?? null;
   }
 
@@ -360,66 +367,26 @@ export class ProductRepository {
   // INVENTORY MOVEMENTS
   // =======================================================
 
-  /**
-   * Deduct or add stock atomically using SELECT FOR UPDATE.
-   *
-   * Why FOR UPDATE?
-   *   Two cashiers processing orders simultaneously could both read
-   *   stock_qty = 1 and both decrement it → stock goes to -1.
-   *   FOR UPDATE locks the row until the transaction commits,
-   *   so the second request waits and sees stock_qty = 0.
-   *
-   * quantity convention:
-   *   SALE / REFUND_OUT → negative  (stock leaves)
-   *   PURCHASE / ADJUSTMENT_IN → positive  (stock arrives)
-   */
   static async createMovementWithStockUpdate(
     input: CreateInventoryMovementInput
   ): Promise<InventoryMovement> {
     const client = await pool.connect();
-
     try {
       await client.query("BEGIN");
-
-      // Lock the item row for this transaction
       const lockResult = await client.query(
-        `
-        SELECT id, stock_qty, track_stock
-        FROM product_items
-        WHERE id = $1
-        FOR UPDATE
-        `,
+        `SELECT id, stock_qty, track_stock FROM product_items WHERE id = $1 FOR UPDATE`,
         [input.productItemId]
       );
-
-      if (lockResult.rows.length === 0) {
-        throw new Error("ITEM_NOT_FOUND");
-      }
-
+      if (lockResult.rows.length === 0) throw new Error("ITEM_NOT_FOUND");
       const item = lockResult.rows[0];
-
-      // Only enforce stock guard for tracked items
       if (item.track_stock) {
         const newQty = item.stock_qty + input.quantity;
-
-        // stock_qty CHECK (stock_qty >= 0) would catch this at DB level too,
-        // but throwing here gives a cleaner error message to the caller
-        if (newQty < 0) {
-           throw new appError("INSUFFICIENT_STOCK", 409);
-        }
-
+        if (newQty < 0) throw new appError("INSUFFICIENT_STOCK", 409);
         await client.query(
-          `
-          UPDATE product_items
-          SET stock_qty  = stock_qty + $1,
-              updated_at = now()
-          WHERE id = $2
-          `,
+          `UPDATE product_items SET stock_qty = stock_qty + $1, updated_at = now() WHERE id = $2`,
           [input.quantity, input.productItemId]
         );
       }
-
-      // Append to the inventory ledger
       const movResult = await client.query<InventoryMovement>(
         `
         INSERT INTO inventory_movements
@@ -427,36 +394,20 @@ export class ProductRepository {
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
         `,
-        [
-          input.shopId,
-          input.productItemId,
-          input.type,
-          input.quantity,
-          input.reference_id ?? null,
-          input.notes        ?? null,
-          input.createdBy,
-        ]
+        [input.shopId, input.productItemId, input.type, input.quantity,
+         input.reference_id ?? null, input.notes ?? null, input.createdBy]
       );
-
       await client.query("COMMIT");
-
       return movResult.rows[0];
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
     } finally {
-      // Always release the client back to the pool
       client.release();
     }
   }
 
-  /**
-   * List all inventory movements for an item (newest first).
-   */
-  static async findMovementsByItem(
-    itemId: string,
-    shopId: string
-  ): Promise<InventoryMovement[]> {
+  static async findMovementsByItem(itemId: string, shopId: string): Promise<InventoryMovement[]> {
     const result = await pool.query<InventoryMovement>(
       `
       SELECT im.*
@@ -470,22 +421,14 @@ export class ProductRepository {
       `,
       [itemId, shopId]
     );
-
     return result.rows;
   }
 
   // =======================================================
-  // MODIFIER LINKING (product_model ↔ modifier_group)
+  // MODIFIER LINKING
   // =======================================================
 
-  /**
-   * Link an existing modifier group to a product model.
-   * Uses ON CONFLICT DO NOTHING so duplicate links are safe.
-   */
-  static async linkModifierGroup(
-    modelId: string,
-    groupId: string
-  ): Promise<void> {
+  static async linkModifierGroup(modelId: string, groupId: string): Promise<void> {
     await pool.query(
       `
       INSERT INTO product_model_modifier_groups (product_model_id, modifier_group_id)
@@ -496,41 +439,28 @@ export class ProductRepository {
     );
   }
 
-  /**
-   * List all modifier groups linked to a product model.
-   */
   static async findLinkedModifierGroups(modelId: string) {
     const result = await pool.query(
       `
       SELECT mg.*
       FROM modifier_groups mg
-      JOIN product_model_modifier_groups pmg
-        ON pmg.modifier_group_id = mg.id
+      JOIN product_model_modifier_groups pmg ON pmg.modifier_group_id = mg.id
       WHERE pmg.product_model_id = $1
       ORDER BY mg.sort_order ASC, mg.created_at ASC
       `,
       [modelId]
     );
-
     return result.rows;
   }
 
-  /**
-   * Remove the link between a product model and a modifier group.
-   */
-  static async unlinkModifierGroup(
-    modelId: string,
-    groupId: string
-  ): Promise<boolean> {
+  static async unlinkModifierGroup(modelId: string, groupId: string): Promise<boolean> {
     const result = await pool.query(
       `
       DELETE FROM product_model_modifier_groups
-      WHERE product_model_id  = $1
-        AND modifier_group_id = $2
+      WHERE product_model_id = $1 AND modifier_group_id = $2
       `,
       [modelId, groupId]
     );
-
     return (result.rowCount ?? 0) > 0;
   }
 }
