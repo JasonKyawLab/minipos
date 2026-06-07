@@ -401,8 +401,8 @@ export default function PosLoginPage() {
             type="password"
             readOnly
             value={pin}
-            placeholder="ENTER PIN"
-            className="w-full h-16 bg-white/5 border-2 border-white/10 rounded-2xl text-center text-2xl tracking-[0.5em] text-white placeholder:text-white/10 placeholder:text-[12px] focus:outline-none focus:border-[#0D7A5F] transition-all"
+            placeholder="ENTER POS PIN"
+            className="w-full h-16 bg-white/5 border-2 border-white/10 rounded-2xl text-center text-2xl tracking-[0.5em] text-white placeholder:text-white/10 placeholder:text-[12px] placeholder:tracking-normal focus:outline-none focus:border-[#D97706] transition-all"
           />
           {pinError && (
             <p className="text-[#FF6B6B] text-[12px] mt-3 text-center">{pinError}</p>
