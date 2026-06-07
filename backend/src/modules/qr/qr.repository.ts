@@ -25,9 +25,12 @@ export class QrRepository {
   // Returns all active, non-deleted products for a shop with
   // their items and modifier groups.
   // One round-trip using two queries (products + modifiers).
-  static async getPublicMenu(shopId: string): Promise<PublicMenuItem[]> {
 
-    // Query 1: all active product models + their items
+  static async getPublicMenu(shopId: string): Promise<PublicMenuItem[]> {
+ 
+    // Query 1: all active product models + their items + category data.
+    // LEFT JOIN product_categories so products without a category
+    // still appear (category fields will be null).
     const productsResult = await pool.query(
       `
       SELECT
@@ -35,51 +38,64 @@ export class QrRepository {
         pm.name            AS product_name,
         pm.description,
         pm.image_url,
+        pm.category_id,
+        pc.name            AS category_name,
+        pc.color           AS category_color,
+        pc.sort_order      AS category_sort_order,
         pi.id              AS item_id,
         pi.name            AS item_name,
         pi.price,
         pi.is_active       AS item_is_active,
         pi.is_sold_out
       FROM product_models pm
-      JOIN product_items pi ON pi.product_model_id = pm.id
+      JOIN product_items pi
+        ON pi.product_model_id = pm.id
+      LEFT JOIN product_categories pc
+        ON pc.id = pm.category_id AND pc.is_deleted = false
       WHERE pm.shop_id    = $1
         AND pm.is_deleted = false
         AND pm.is_active  = true
         AND pi.is_active  = true
-      ORDER BY pm.name ASC, pi.name ASC
+      ORDER BY
+        pc.sort_order ASC NULLS LAST,
+        pm.name ASC,
+        pi.name ASC
       `,
       [shopId]
     );
-
+ 
     if (productsResult.rows.length === 0) return [];
-
-    // Group flat rows into nested structure (in JS, not SQL)
+ 
     const menuMap = new Map<string, PublicMenuItem>();
-
+ 
     for (const row of productsResult.rows) {
       if (!menuMap.has(row.product_model_id)) {
         menuMap.set(row.product_model_id, {
-          product_model_id: row.product_model_id,
-          product_name:     row.product_name,
-          description:      row.description,
-          image_url:        row.image_url,
-          items:            [],
-          modifier_groups:  [],
+          product_model_id:      row.product_model_id,
+          product_name:          row.product_name,
+          description:           row.description,
+          image_url:             row.image_url,
+          category_id:           row.category_id   ?? null,
+          category_name:         row.category_name  ?? null,
+          category_color:        row.category_color ?? null,
+          category_sort_order:   row.category_sort_order ?? 999,
+          items:                 [],
+          modifier_groups:       [],
         });
       }
-
+ 
       menuMap.get(row.product_model_id)!.items.push({
-        id:         row.item_id,
-        name:       row.item_name,
-        price:      parseFloat(row.price),
-        is_active:  row.item_is_active,
+        id:          row.item_id,
+        name:        row.item_name,
+        price:       parseFloat(row.price),
+        is_active:   row.item_is_active,
         is_sold_out: row.is_sold_out,
       });
     }
-
-    // Query 2: modifier groups + options for all returned models
+ 
+    // Query 2: modifier groups + options (unchanged)
     const modelIds = Array.from(menuMap.keys());
-
+ 
     const modifiersResult = await pool.query(
       `
       SELECT
@@ -104,18 +120,15 @@ export class QrRepository {
       `,
       [modelIds]
     );
-
-    // Group modifier options into their groups, then attach to models
+ 
     type GroupAccumulator = Map<string, PublicModifierGroup>;
     const modGroupsByModel = new Map<string, GroupAccumulator>();
-
+ 
     for (const row of modifiersResult.rows) {
       if (!modGroupsByModel.has(row.product_model_id)) {
         modGroupsByModel.set(row.product_model_id, new Map());
       }
-
       const groups = modGroupsByModel.get(row.product_model_id)!;
-
       if (!groups.has(row.group_id)) {
         groups.set(row.group_id, {
           id:          row.group_id,
@@ -126,22 +139,21 @@ export class QrRepository {
           options:     [],
         });
       }
-
       groups.get(row.group_id)!.options.push({
         id:          row.option_id,
         name:        row.option_name,
         price_delta: parseFloat(row.price_delta),
       });
     }
-
-    // Merge modifier groups into menu items
+ 
     for (const [modelId, groups] of modGroupsByModel) {
       const menuItem = menuMap.get(modelId);
       if (menuItem) {
         menuItem.modifier_groups = Array.from(groups.values());
       }
     }
-
+ 
     return Array.from(menuMap.values());
   }
+ 
 }
