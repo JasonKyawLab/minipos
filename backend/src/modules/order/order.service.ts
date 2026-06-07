@@ -397,4 +397,94 @@ const modifiers: ModifierSnapshot[] = await Promise.all(
 
     return { success: true };
   }
+
+    static async updateOrderStatusFromPOS(params: {
+    orderId:     string;
+    shopId:      string;
+    requesterId: string;   // cashier's userId from pos_token
+    newStatus:   "CONFIRMED" | "CANCELLED";
+  }) {
+    // ALL_ROLES — cashiers are permitted to confirm/cancel
+    await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
+ 
+    const order = await OrderRepository.findOrderById(params.orderId, params.shopId);
+    if (!order) throw new appError("ORDER_NOT_FOUND", 404);
+ 
+    // Validate transition using the same rules as updateOrderStatus()
+    const allowed = ALLOWED_TRANSITIONS[order.status];
+    if (!allowed.includes(params.newStatus)) {
+      throw new appError("INVALID_STATUS_TRANSITION", 400);
+    }
+ 
+    const updated = await OrderRepository.updateOrderStatus(
+      params.orderId,
+      params.shopId,
+      params.newStatus
+    );
+ 
+    // Emit real-time event to platform dashboard
+    try {
+      emitToShop(params.shopId, SOCKET_EVENTS.ORDER_STATUS_CHANGED, {
+        orderId:   params.orderId,
+        orderNo:   order.order_no,
+        newStatus: params.newStatus,
+        oldStatus: order.status,
+        orderType: order.order_type,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (socketErr) {
+      console.error("Shop socket emit failed:", socketErr);
+    }
+ 
+    // CONFIRMED → create kitchen ticket
+    if (params.newStatus === "CONFIRMED") {
+      try {
+        let tableNumber: string | null = null;
+        if (order.order_type === "DINE_IN" && order.table_id) {
+          const tableResult = await pool.query(
+            `SELECT table_number FROM restaurant_tables WHERE id = $1`,
+            [order.table_id]
+          );
+          tableNumber = tableResult.rows[0]?.table_number ?? null;
+        }
+ 
+        await KitchenService.createTicket({
+          shopId:       params.shopId,
+          orderId:      params.orderId,
+          orderNo:      order.order_no,
+          orderType:    order.order_type,
+          tableNumber,
+          customerName: order.customer_name,
+          notes:        order.notes,
+        });
+      } catch (kitchenErr) {
+        // Non-fatal — order is already confirmed in DB
+        console.error("Kitchen ticket creation failed:", kitchenErr);
+      }
+    }
+ 
+    // CANCELLED → cancel any existing kitchen ticket
+    if (params.newStatus === "CANCELLED") {
+      try {
+        await KitchenService.cancelTicket({
+          shopId:  params.shopId,
+          orderId: params.orderId,
+          orderNo: order.order_no,
+        });
+      } catch (kitchenErr) {
+        console.error("Kitchen ticket cancellation failed:", kitchenErr);
+      }
+    }
+ 
+    await AuditService.log({
+      shopId:   params.shopId,
+      userId:   params.requesterId,
+      action:   `ORDER_STATUS_CHANGED_TO_${params.newStatus}`,
+      entity:   "ORDER",
+      entityId: params.orderId,
+      metadata: { from: order.status, to: params.newStatus },
+    });
+ 
+    return updated;
+  }
 }
