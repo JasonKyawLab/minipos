@@ -1,5 +1,31 @@
-import { ShopRepository } from '../shop/shop.repository.js';
-import { AuditService } from '../audit/audit.service.js';
+// =========================================================
+// kitchen.service.ts
+// Path: backend/src/modules/kitchen/kitchen.service.ts
+//
+// FIX: Added emitToKitchenTerminals() alongside every
+// emitToShop() call.
+//
+// WHY this was needed:
+//   The backend was emitting all kitchen events to room
+//   shop:<shopId> — which is the PLATFORM room. Only users
+//   with a valid access_token and joined via join_shop event
+//   receive events there.
+//
+//   Kitchen display terminals authenticate via terminal_session
+//   cookie, which auto-joins room terminal:<shopId>:KITCHEN
+//   on socket connect. They are NEVER in shop:<shopId>.
+//
+//   Result: kitchen:ticket_created fired but the kitchen
+//   display was in the wrong room — nothing arrived, chef
+//   had to refresh to see new orders.
+//
+//   Fix: emit to BOTH rooms on every kitchen event:
+//     - emitToShop()             → platform dashboard (owner sees it)
+//     - emitToKitchenTerminals() → kitchen display (chef sees it)
+// =========================================================
+
+import { ShopRepository }    from '../shop/shop.repository.js';
+import { AuditService }      from '../audit/audit.service.js';
 import { KitchenRepository } from './kitchen.repository.js';
 import {
   CreateKitchenStationInput,
@@ -8,26 +34,26 @@ import {
   KitchenTicketStatus,
   KitchenPriority,
 } from './kitchen.types.js';
-import { appError } from '../../utils/appError.js';
-import { emitToShop } from '../socket/socket.js';
-import { SOCKET_EVENTS } from '../socket/socket.events.js';
+import { appError }                               from '../../utils/appError.js';
+import { emitToShop, emitToKitchenTerminals }     from '../socket/socket.js';
+import { SOCKET_EVENTS }                          from '../socket/socket.events.js';
 
 // ── Role constants ─────────────────────────────────────────
 const WRITE_ROLES = ['OWNER', 'MANAGER'] as const;
 const ALL_ROLES   = ['OWNER', 'MANAGER', 'CASHIER'] as const;
 
-// Helper to define preparation workflow order
+// Status rank — prevents backwards transitions on item bumps
 const KITCHEN_STATUS_RANK: Record<KitchenStatus, number> = {
-  PENDING: 0,
+  PENDING:   0,
   PREPARING: 1,
-  READY: 2,
-  SERVED: 3,
+  READY:     2,
+  SERVED:    3,
   CANCELLED: 4,
 };
 
 async function assertShopMember(
-  shopId: string,
-  userId: string,
+  shopId:  string,
+  userId:  string,
   allowed: readonly string[]
 ) {
   const member = await ShopRepository.getUserShopMembership(shopId, userId);
@@ -40,13 +66,13 @@ async function assertShopMember(
 export class KitchenService {
 
   // =======================================================
-  // KITCHEN STATIONS (Hardware/Location Management)
+  // KITCHEN STATIONS
   // =======================================================
 
   static async createStation(params: {
-    shopId: string;
+    shopId:      string;
     requesterId: string;
-    input: CreateKitchenStationInput;
+    input:       CreateKitchenStationInput;
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
@@ -73,10 +99,10 @@ export class KitchenService {
   }
 
   static async updateStation(params: {
-    shopId: string;
-    stationId: string;
+    shopId:      string;
+    stationId:   string;
     requesterId: string;
-    input: UpdateKitchenStationInput;
+    input:       UpdateKitchenStationInput;
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
@@ -99,8 +125,8 @@ export class KitchenService {
   }
 
   static async deleteStation(params: {
-    shopId: string;
-    stationId: string;
+    shopId:      string;
+    stationId:   string;
     requesterId: string;
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
@@ -127,10 +153,10 @@ export class KitchenService {
   // =======================================================
 
   static async assignModel(params: {
-    shopId: string;
-    stationId: string;
+    shopId:         string;
+    stationId:      string;
     productModelId: string;
-    requesterId: string;
+    requesterId:    string;
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
@@ -155,10 +181,10 @@ export class KitchenService {
   }
 
   static async unassignModel(params: {
-    shopId: string;
-    stationId: string;
+    shopId:         string;
+    stationId:      string;
     productModelId: string;
-    requesterId: string;
+    requesterId:    string;
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
@@ -180,8 +206,8 @@ export class KitchenService {
   }
 
   static async getAssignedModels(params: {
-    shopId: string;
-    stationId: string;
+    shopId:      string;
+    stationId:   string;
     requesterId: string;
   }) {
     await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
@@ -196,30 +222,36 @@ export class KitchenService {
   }
 
   // =======================================================
-  // KITCHEN TICKETS Lifecycle
+  // KITCHEN TICKETS — Lifecycle
   // =======================================================
 
   static async createTicket(params: {
-    shopId: string;
-    orderId: string;
-    orderNo: string;
-    orderType: string;
-    tableNumber: string | null;
+    shopId:       string;
+    orderId:      string;
+    orderNo:      string;
+    orderType:    string;
+    tableNumber:  string | null;
     customerName: string | null;
-    notes: string | null;
+    notes:        string | null;
   }) {
     const ticket = await KitchenRepository.createTicket(params);
 
+    // Emit to BOTH rooms:
+    //   shop:<shopId>              → platform dashboard (owner/manager overview)
+    //   terminal:<shopId>:KITCHEN  → kitchen display (chef sees new ticket)
+    const payload = {
+      ticketId:     ticket?.id,
+      orderId:      params.orderId,
+      orderNo:      params.orderNo,
+      orderType:    params.orderType,
+      tableNumber:  params.tableNumber,
+      customerName: params.customerName,
+      timestamp:    new Date().toISOString(),
+    };
+
     try {
-      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_CREATED, {
-        ticketId:     ticket?.id,
-        orderId:      params.orderId,
-        orderNo:      params.orderNo,
-        orderType:    params.orderType,
-        tableNumber:  params.tableNumber,
-        customerName: params.customerName,
-        timestamp:    new Date().toISOString(),
-      });
+      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_CREATED, payload);
+      emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_CREATED, payload);
     } catch (socketErr) {
       console.error('Kitchen socket emit failed:', socketErr);
     }
@@ -228,32 +260,35 @@ export class KitchenService {
   }
 
   static async cancelTicket(params: {
-    shopId: string;
+    shopId:  string;
     orderId: string;
     orderNo: string;
   }) {
     await KitchenRepository.cancelTicket(params.orderId, params.shopId);
 
+    const payload = {
+      orderId:       params.orderId,
+      orderNo:       params.orderNo,
+      ticket_status: 'CANCELLED',
+      timestamp:     new Date().toISOString(),
+    };
+
     try {
-      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, {
-        orderId:      params.orderId,
-        orderNo:      params.orderNo,
-        ticket_status: 'CANCELLED',
-        timestamp:    new Date().toISOString(),
-      });
+      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
+      emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
     } catch (socketErr) {
       console.error('Kitchen socket emit failed:', socketErr);
     }
   }
 
   static async getActiveTickets(
-    shopId: string,
+    shopId:      string,
     requesterId: string,
     filter: {
       statusList?: KitchenTicketStatus[];
-      stationId?: string;
-      limit: number;
-      offset: number;
+      stationId?:  string;
+      limit:       number;
+      offset:      number;
     }
   ) {
     await assertShopMember(shopId, requesterId, ALL_ROLES);
@@ -261,26 +296,23 @@ export class KitchenService {
   }
 
   static async getTicketById(
-    ticketId: string,
-    shopId: string,
+    ticketId:    string,
+    shopId:      string,
     requesterId: string
   ) {
     await assertShopMember(shopId, requesterId, ALL_ROLES);
 
-    const ticket = await KitchenRepository.findTicketWithItems(
-      ticketId,
-      shopId
-    );
+    const ticket = await KitchenRepository.findTicketWithItems(ticketId, shopId);
     if (!ticket) throw new appError('TICKET_NOT_FOUND', 404);
 
     return ticket;
   }
 
   static async updateTicketStatus(params: {
-    ticketId: string;
-    shopId: string;
+    ticketId:    string;
+    shopId:      string;
     requesterId: string;
-    status: KitchenTicketStatus;
+    status:      KitchenTicketStatus;
   }) {
     await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
 
@@ -291,13 +323,16 @@ export class KitchenService {
     );
     if (!updated) throw new appError('TICKET_NOT_FOUND', 404);
 
+    const payload = {
+      ticketId:      params.ticketId,
+      orderNo:       updated.order_no,
+      ticket_status: params.status,
+      timestamp:     new Date().toISOString(),
+    };
+
     try {
-      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, {
-        ticketId:      params.ticketId,
-        orderNo:       updated.order_no,
-        ticket_status: params.status,
-        timestamp:     new Date().toISOString(),
-      });
+      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
+      emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
     } catch (socketErr) {
       console.error('Kitchen socket emit failed:', socketErr);
     }
@@ -314,10 +349,10 @@ export class KitchenService {
   }
 
   static async updateTicketPriority(params: {
-    ticketId: string;
-    shopId: string;
+    ticketId:    string;
+    shopId:      string;
     requesterId: string;
-    priority: KitchenPriority;
+    priority:    KitchenPriority;
   }) {
     await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
 
@@ -328,13 +363,16 @@ export class KitchenService {
     );
     if (!updated) throw new appError('TICKET_NOT_FOUND', 404);
 
+    const payload = {
+      ticketId:  params.ticketId,
+      orderNo:   updated.order_no,
+      priority:  params.priority,
+      timestamp: new Date().toISOString(),
+    };
+
     try {
-      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, {
-        ticketId:  params.ticketId,
-        orderNo:   updated.order_no,
-        priority:  params.priority,
-        timestamp: new Date().toISOString(),
-      });
+      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
+      emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
     } catch (socketErr) {
       console.error('Kitchen socket emit failed:', socketErr);
     }
@@ -347,11 +385,11 @@ export class KitchenService {
   // =======================================================
 
   static async updateItemKitchenStatus(params: {
-    ticketId: string;
-    itemId: string;
-    shopId: string;
+    ticketId:    string;
+    itemId:      string;
+    shopId:      string;
     requesterId: string;
-    newStatus: KitchenStatus;
+    newStatus:   KitchenStatus;
   }) {
     await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
 
@@ -365,20 +403,16 @@ export class KitchenService {
     const currentItem = ticket.items.find((i) => i.id === params.itemId);
     if (!currentItem) throw new appError('ORDER_ITEM_NOT_FOUND', 404);
 
-    // 2. Validate Status Transition (Cannot go backwards except to CANCELLED)
+    // 2. Validate forward-only transition (except CANCELLED)
     if (params.newStatus !== 'CANCELLED') {
-      const currentRank = KITCHEN_STATUS_RANK[currentItem.kitchen_status as KitchenStatus] || 0;
-      const newRank = KITCHEN_STATUS_RANK[params.newStatus];
-
+      const currentRank = KITCHEN_STATUS_RANK[currentItem.kitchen_status as KitchenStatus] ?? 0;
+      const newRank     = KITCHEN_STATUS_RANK[params.newStatus];
       if (newRank < currentRank) {
-        throw new appError(
-          'INVALID_STATUS_TRANSITION',
-          400
-        );
+        throw new appError('INVALID_STATUS_TRANSITION', 400);
       }
     }
 
-    // 3. Perform update
+    // 3. Perform update + ticket status recalculation (atomic in repository)
     const { item, ticket: updatedTicket } =
       await KitchenRepository.updateItemKitchenStatus({
         itemId:    params.itemId,
@@ -387,23 +421,29 @@ export class KitchenService {
         newStatus: params.newStatus,
       });
 
-    // 4. Real-time notifications
-    try {
-      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_ITEM_STATUS, {
-        ticketId:       params.ticketId,
-        itemId:         params.itemId,
-        kitchen_status: params.newStatus,
-        ticket_status:  updatedTicket.ticket_status,
-        timestamp:      new Date().toISOString(),
-      });
+    // 4. Real-time notifications — emit to BOTH rooms
+    const itemPayload = {
+      ticketId:       params.ticketId,
+      itemId:         params.itemId,
+      kitchen_status: params.newStatus,
+      ticket_status:  updatedTicket.ticket_status,
+      timestamp:      new Date().toISOString(),
+    };
 
+    try {
+      emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_ITEM_STATUS, itemPayload);
+      emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_ITEM_STATUS, itemPayload);
+
+      // If all items are READY, also fire the ticket_ready event
       if (updatedTicket.ticket_status === 'READY') {
-        emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_READY, {
+        const readyPayload = {
           ticketId:    params.ticketId,
           orderNo:     updatedTicket.order_no,
           tableNumber: updatedTicket.table_number,
           timestamp:   new Date().toISOString(),
-        });
+        };
+        emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_READY, readyPayload);
+        emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_READY, readyPayload);
       }
     } catch (socketErr) {
       console.error('Kitchen socket emit failed:', socketErr);
