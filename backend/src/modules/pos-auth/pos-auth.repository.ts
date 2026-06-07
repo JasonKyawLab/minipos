@@ -2,13 +2,19 @@
 // pos-auth.repository.ts
 // Path: backend/src/modules/pos-auth/pos-auth.repository.ts
 //
-// FIX: getStaffList() now filters out CHEF role.
-// Chefs are kitchen-only staff — they should never appear
-// on the POS login screen. The staff list is what the POS
-// PIN screen shows when a tablet is in POS mode.
+// BUG FIX: NULL + 1 = NULL in incrementTokenVersion
 //
-// POS-eligible roles: OWNER, MANAGER, CASHIER
-// Kitchen-only roles: CHEF
+// PROBLEM:
+//   In PostgreSQL, NULL + 1 = NULL. If pos_token_version is
+//   NULL (never explicitly set), the UPDATE silently sets the
+//   column to NULL instead of 1. Force logout appears to
+//   succeed (rowCount = 1) but the version never actually
+//   increments, so the revoked token keeps working.
+//
+// FIX:
+//   SET pos_token_version = COALESCE(pos_token_version, 0) + 1
+//   COALESCE converts NULL → 0 first, then adds 1.
+//   Result: NULL → 1, 0 → 1, 1 → 2, etc. ✓
 // =========================================================
 
 import { pool } from "../../db/pool.js";
@@ -99,8 +105,8 @@ export class PosAuthRepository {
       SET pos_pin_hash         = $3,
           pos_pin_attempts     = 0,
           pos_pin_locked_until = NULL
-      WHERE shop_id  = $1
-        AND user_id  = $2
+      WHERE shop_id   = $1
+        AND user_id   = $2
         AND is_active = true
         AND role      = ANY($4::shop_role[])
       `,
@@ -117,8 +123,8 @@ export class PosAuthRepository {
       SET pos_pin_hash         = NULL,
           pos_pin_attempts     = 0,
           pos_pin_locked_until = NULL
-      WHERE shop_id  = $1
-        AND user_id  = $2
+      WHERE shop_id   = $1
+        AND user_id   = $2
         AND is_active = true
         AND role      = ANY($3::shop_role[])
       `,
@@ -193,7 +199,7 @@ export class PosAuthRepository {
 
   // ── Owner resets a staff member's PIN lock ───────────────
   static async resetStaffLock(
-    shopId:      string,
+    shopId:       string,
     targetUserId: string
   ): Promise<boolean> {
     const result = await pool.query(
@@ -201,8 +207,8 @@ export class PosAuthRepository {
       UPDATE shop_users
       SET pos_pin_attempts     = 0,
           pos_pin_locked_until = NULL
-      WHERE shop_id = $1
-        AND user_id = $2
+      WHERE shop_id   = $1
+        AND user_id   = $2
         AND is_active = true
       `,
       [shopId, targetUserId]
@@ -211,6 +217,20 @@ export class PosAuthRepository {
   }
 
   // ── Increment token version (force logout) ───────────────
+  //
+  // FIX: Use COALESCE(pos_token_version, 0) + 1 instead of
+  // pos_token_version + 1.
+  //
+  // In PostgreSQL, NULL + 1 = NULL. If the column was never
+  // explicitly set (e.g. rows created before the column was
+  // added), the UPDATE silently writes NULL back instead of 1.
+  // Force logout appears to succeed (rowCount = 1) but the
+  // version never changes, so the revoked token keeps working.
+  //
+  // COALESCE treats NULL as 0 before adding 1:
+  //   NULL → COALESCE(NULL, 0) + 1 = 1  ✓
+  //   0    → COALESCE(0, 0)    + 1 = 1  ✓
+  //   1    → COALESCE(1, 0)    + 1 = 2  ✓
   static async incrementTokenVersion(
     shopId: string,
     userId: string
@@ -218,9 +238,9 @@ export class PosAuthRepository {
     const result = await pool.query(
       `
       UPDATE shop_users
-      SET pos_token_version = pos_token_version + 1
-      WHERE shop_id = $1
-        AND user_id = $2
+      SET pos_token_version = COALESCE(pos_token_version, 0) + 1
+      WHERE shop_id   = $1
+        AND user_id   = $2
         AND is_active = true
       `,
       [shopId, userId]

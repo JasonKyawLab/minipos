@@ -1,35 +1,29 @@
 // =========================================================
 // pos-auth.middleware.ts
 // Path: backend/src/modules/pos-auth/pos-auth.middleware.ts
-// =========================================================
-// Two responsibilities:
 //
-//   1. requirePosAuth — verifies the pos_token cookie,
-//      attaches req.posSession for downstream handlers.
+// BUG FIX: NULL tokenVersion comparison
 //
-//   2. requireShopRole — a route-level guard that checks
-//      the platform-authenticated user's SHOP role (OWNER,
-//      MANAGER, CASHIER) before the request reaches the
-//      service layer.
+// PROBLEM:
+//   pos_token_version in shop_users defaults to NULL for new
+//   rows (the column was added via ALTER TABLE without a
+//   DEFAULT). When a staff member logs in for the first time,
+//   PosAuthService assigns tokenVersion: 0 if the column is
+//   NULL. The JWT is signed with { tokenVersion: 0 }.
 //
-//      WHY we need this:
-//      requireRole() only checks the PLATFORM role (ADMIN |
-//      USER). It knows nothing about which shop the user
-//      belongs to or what role they hold there.
+//   On the very next authenticated request, requirePosAuth
+//   reads the raw DB value and checks:
+//     decoded.tokenVersion !== rows[0].pos_token_version
+//     → 0 !== null   → true  → TOKEN_REVOKED → 401
 //
-//      requireShopRole() queries shop_users so we can block
-//      a CASHIER from calling force-logout at the ROUTE level,
-//      before we even touch the service. This is defense in
-//      depth — the service layer also checks, but having two
-//      layers means a future refactor in one place won't
-//      accidentally open a privilege escalation hole.
+//   This fires on EVERY login for any staff member whose
+//   pos_token_version column has never been explicitly set,
+//   which is everyone until force-logout has been used once.
 //
-//      Usage in routes (always after requireAuth):
-//        router.post(
-//          "/force-logout/:userId",
-//          requireShopRole("OWNER", "MANAGER"),
-//          controller.forceLogout
-//        );
+// FIX:
+//   Normalise the DB value before comparing:
+//     const dbVersion = rows[0].pos_token_version ?? 0;
+//   Now: 0 !== 0  → false  → token is valid  ✓
 // =========================================================
 
 import { Request, Response, NextFunction } from "express";
@@ -61,6 +55,7 @@ export async function requirePosAuth(
   res: Response,
   next: NextFunction
 ): Promise<void> {
+
   const token = req.cookies.pos_token;
 
   if (!token) {
@@ -76,17 +71,28 @@ export async function requirePosAuth(
       return;
     }
 
-    // Check token version — this makes force-logout effective
+    // Check token version — this makes force-logout effective.
     const { rows } = await pool.query(
       `SELECT pos_token_version
        FROM shop_users
-       WHERE shop_id  = $1
-         AND user_id  = $2
+       WHERE shop_id   = $1
+         AND user_id   = $2
          AND is_active = true`,
       [decoded.shopId, decoded.userId]
     );
 
-    if (rows.length === 0 || decoded.tokenVersion !== rows[0].pos_token_version) {
+    if (rows.length === 0) {
+      res.status(401).json({ message: "TOKEN_REVOKED" });
+      return;
+    }
+
+    // FIX: pos_token_version is NULL for rows created before the
+    // column was added. Treat NULL as 0 — the same default the
+    // service assigns when signing the JWT. Without this, every
+    // first-time login produces: 0 !== null → true → 401.
+    const dbVersion = rows[0].pos_token_version ?? 0;
+
+    if (decoded.tokenVersion !== dbVersion) {
       res.status(401).json({ message: "TOKEN_REVOKED" });
       return;
     }
@@ -98,7 +104,8 @@ export async function requirePosAuth(
     };
 
     next();
-  } catch {
+  } catch(err) {
+    console.error('[requirePosAuth] jwt.verify failed:', err);
     res.status(401).json({ message: "INVALID_POS_TOKEN" });
   }
 }
@@ -164,8 +171,8 @@ export function requireShopRole(...allowedRoles: string[]) {
         SELECT su.role, su.is_active
         FROM shop_users su
         JOIN shops s ON s.id = su.shop_id
-        WHERE su.shop_id  = $1
-          AND su.user_id  = $2
+        WHERE su.shop_id   = $1
+          AND su.user_id   = $2
           AND s.is_deleted = false
         `,
         [shopId, req.user.id]
@@ -179,8 +186,6 @@ export function requireShopRole(...allowedRoles: string[]) {
       }
 
       if (!allowedRoles.includes(member.role)) {
-        // Return 403 with a clear message so the client can
-        // distinguish "not a member" from "wrong role".
         res.status(403).json({ message: "FORBIDDEN" });
         return;
       }
