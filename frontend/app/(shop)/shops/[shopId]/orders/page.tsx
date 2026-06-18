@@ -1,21 +1,11 @@
 "use client";
 // =========================================================
 // app/(shop)/shops/[shopId]/orders/page.tsx
-// =========================================================
 //
-// Fixes in this version:
-//   1. Import paths corrected:
-//      - formatDateTime  → "@/utils/formatDate"    (was formatDateTime)
-//      - EmptyState      → "@/components/states"   (was ui/EmptyState)
-//      - uuid removed    → crypto.randomUUID()     (no package needed)
-//
-//   2. Stale total / 0.00 fix:
-//      - usePathname() triggers a re-fetch every time you
-//        navigate TO this page, even when the component never
-//        unmounted (Next.js App Router keeps pages alive).
-//      - window "focus" listener added alongside visibilitychange
-//        to catch cases where the tab never actually changed
-//        but the window was backgrounded or DevTools closed.
+// FIX: Added CLOSING to:
+//   1. Local type OrderStatus union
+//   2. STATUS_LABELS map
+//   3. STATUS_STYLES map
 // =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -36,7 +26,7 @@ type OrderType =
   | "QR"     | "ONLINE"  | "DELIVERY" | "PICKUP";
 
 type OrderStatus =
-  | "OPEN" | "CONFIRMED" | "PAID" | "CANCELLED" | "REFUNDED";
+  | "OPEN" | "CONFIRMED" | "CLOSING" | "PAID" | "CANCELLED" | "REFUNDED";
 
 interface ModifierSnapshot {
   modifier_option_id: string;
@@ -81,9 +71,8 @@ interface Order {
   created_at:       string;
   updated_at:       string;
   items?:           OrderItem[];
-  // Joined from backend — see order.repository.ts findOrders
-  cashier_name:     string | null;  // LEFT JOIN users
-  table_number:     string | null;  // LEFT JOIN restaurant_tables
+  cashier_name:     string | null;
+  table_number:     string | null;
 }
 
 interface Payment {
@@ -106,8 +95,6 @@ interface OrderDetail extends Order {
 // ── Helpers ───────────────────────────────────────────────
 
 function getDefaultDateRange() {
-  // toLocaleDateString("en-CA") returns YYYY-MM-DD in local
-  // time — avoids the UTC-midnight bug of toISOString().
   const today = new Date().toLocaleDateString("en-CA");
   return { from: today, to: today };
 }
@@ -125,6 +112,7 @@ const TYPE_LABELS: Record<OrderType, string> = {
 const STATUS_LABELS: Record<OrderStatus, string> = {
   OPEN:      "Open",
   CONFIRMED: "Confirmed",
+  CLOSING:   "Closing",     // table session requested bill
   PAID:      "Paid",
   CANCELLED: "Cancelled",
   REFUNDED:  "Refunded",
@@ -133,6 +121,7 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
 const STATUS_STYLES: Record<OrderStatus, string> = {
   OPEN:      "bg-[#EAF0FB] text-[#2B5BA8]",
   CONFIRMED: "bg-[#FFF4E0] text-[#BA7517]",
+  CLOSING:   "bg-[#FFF4E0] text-[#BA7517]",  // same amber — table is almost done
   PAID:      "bg-[#E1F5EE] text-[#0D7A5F]",
   CANCELLED: "bg-[#FCEBEB] text-[#A32D2D]",
   REFUNDED:  "bg-[#F3F0FA] text-[#534AB7]",
@@ -146,7 +135,6 @@ export default function OrdersPage() {
 
   const canRefund = ["OWNER", "MANAGER"].includes(userRole);
 
-  // ── List state ────────────────────────────────────────
   const [orders,  setOrders]  = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [total,   setTotal]   = useState(0);
@@ -159,20 +147,13 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "">("");
   const [typeFilter,   setTypeFilter]   = useState<OrderType | "">("");
 
-  // ── Detail modal state ────────────────────────────────
   const [detail,        setDetail]        = useState<OrderDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // ── Refund state ──────────────────────────────────────
   const [refundAmount, setRefundAmount] = useState("");
   const [refundReason, setRefundReason] = useState("");
   const [refunding,    setRefunding]    = useState(false);
 
-  // ── Core data fetcher ─────────────────────────────────
-  //
-  // useCallback gives load() a stable reference so it can
-  // be safely passed to event listeners and useEffect deps
-  // without causing infinite re-render loops.
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -198,38 +179,11 @@ export default function OrdersPage() {
     }
   }, [shopId, dateFrom, dateTo, statusFilter, typeFilter, page]);
 
-  // Reset to page 1 when filters change.
   useEffect(() => { setPage(1); }, [dateFrom, dateTo, statusFilter, typeFilter]);
-
-  // Run load() whenever its deps change (filters, page, shopId).
   useEffect(() => { load(); }, [load]);
-
-  // ── Re-fetch on route navigation ──────────────────────
-  //
-  // WHY pathname dep:
-  //   Next.js App Router keeps mounted pages alive in memory
-  //   when navigating between routes in the same layout.
-  //   The component never unmounts, so the load() effect above
-  //   never re-fires when you come back from POS.
-  //
-  //   pathname changes on every URL change. When you click
-  //   "Orders" in the sidebar after using POS, pathname changes
-  //   to this page's path, this effect fires, and we get fresh
-  //   data — including the correct totals after items were added.
-  //
-  // WHY NOT include load in deps here:
-  //   load is in the effect above. Adding it here would cause
-  //   a double-fetch on every filter change (pathname stays the
-  //   same but load re-creates). Keep them separate.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [pathname]);
 
-  // ── Re-fetch on window focus ──────────────────────────
-  //
-  // Covers cases pathname doesn't catch:
-  //   - User switches to another browser tab then comes back
-  //   - User alt-tabs to another app then comes back
-  //   - DevTools opened/closed
   useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === "visible") load();
@@ -242,7 +196,6 @@ export default function OrdersPage() {
     };
   }, [load]);
 
-  // ── Detail modal ──────────────────────────────────────
   async function openDetail(orderId: string) {
     setDetail(null);
     setLoadingDetail(true);
@@ -252,8 +205,6 @@ export default function OrdersPage() {
       const { data: order } = await api.get<OrderDetail>(
         `/api/shops/${shopId}/orders/${orderId}`
       );
-      // Payments fetched separately — not embedded in the list
-      // query to keep list fetches fast (no per-row subquery).
       const { data: payments } = await api.get<Payment[]>(
         `/api/shops/${shopId}/orders/${orderId}/payments`
       );
@@ -265,12 +216,6 @@ export default function OrdersPage() {
     }
   }
 
-  // ── Refund ────────────────────────────────────────────
-  //
-  // crypto.randomUUID() is built into the browser and Node 18+.
-  // It produces a UUID v4 without any npm package.
-  // Used as an idempotency key — the backend rejects a second
-  // request carrying the same key, preventing double refunds.
   async function handleRefund() {
     if (!detail) return;
     const amount = parseFloat(refundAmount);
@@ -296,16 +241,8 @@ export default function OrdersPage() {
     }
   }
 
-  // ── Pagination ────────────────────────────────────────
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  // ── Context column helper ─────────────────────────────
-  //
-  // Shows the most useful piece of context per order type:
-  //   DINE_IN  → "Table 5"   (from restaurant_tables JOIN)
-  //   TAKEAWAY → customer name or "Takeaway"
-  //   QR       → customer name or "QR Order"
-  //   RETAIL   → cashier name (from users JOIN)
   function getOrderContext(o: Order): string {
     if (o.order_type === "DINE_IN")  return o.table_number  ? `Table ${o.table_number}` : "Dine-in";
     if (o.order_type === "TAKEAWAY") return o.customer_name ?? "Takeaway";
@@ -314,14 +251,9 @@ export default function OrdersPage() {
     return o.customer_name ?? "—";
   }
 
-  // ─────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────
-
   return (
     <div className="animate-fade-in">
 
-      {/* ── Page header ─────────────────────────────────── */}
       <div className="mb-6">
         <h1 className="text-[22px] font-medium text-[#0F2B4C]">Orders</h1>
         <p className="text-[13px] text-[#5F5E5A] mt-0.5">
@@ -329,9 +261,8 @@ export default function OrdersPage() {
         </p>
       </div>
 
-      {/* ── Filter bar ──────────────────────────────────── */}
+      {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-
         <div className="flex items-center gap-2">
           <input
             type="date"
@@ -377,7 +308,7 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {/* ── Orders table ────────────────────────────────── */}
+      {/* Orders table */}
       {loading ? (
         <SkeletonTable rows={8} cols={7} />
       ) : orders.length === 0 ? (
@@ -430,13 +361,6 @@ export default function OrdersPage() {
                         {STATUS_LABELS[o.status]}
                       </span>
                     </td>
-                    {/*
-                      Number() is a defensive cast.
-                      The definitive fix is ::FLOAT in order.repository.ts
-                      so Postgres sends numbers not strings. Number() here
-                      is a safety net that also prevents NaN if a row
-                      somehow still arrives as a string.
-                    */}
                     <td className="px-4 py-3 text-right font-medium text-[#0F2B4C]">
                       {formatCurrency(Number(o.total_amount), currency)}
                     </td>
@@ -449,7 +373,6 @@ export default function OrdersPage() {
             </table>
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 mt-4">
               <button
@@ -474,7 +397,7 @@ export default function OrdersPage() {
         </>
       )}
 
-      {/* ── Detail modal ────────────────────────────────── */}
+      {/* Detail modal */}
       {(loadingDetail || detail) && (
         <div
           className="fixed inset-0 bg-black/40 z-50 flex items-center justify-end"
@@ -484,7 +407,6 @@ export default function OrdersPage() {
         >
           <div className="h-full w-full max-w-md bg-white shadow-2xl flex flex-col overflow-hidden">
 
-            {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#D3D1C7] shrink-0">
               <div>
                 {loadingDetail ? (
@@ -508,7 +430,6 @@ export default function OrdersPage() {
               </button>
             </div>
 
-            {/* Body */}
             {loadingDetail ? (
               <div className="flex-1 p-5 space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
@@ -522,7 +443,6 @@ export default function OrdersPage() {
             ) : detail ? (
               <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
-                {/* Order info */}
                 <div className="space-y-2 text-[13px]">
                   <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wide mb-2">
                     Order Info
@@ -585,7 +505,6 @@ export default function OrdersPage() {
                   )}
                 </div>
 
-                {/* Items */}
                 {detail.items && detail.items.length > 0 && (
                   <div>
                     <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wide mb-2">
@@ -621,7 +540,6 @@ export default function OrdersPage() {
                   </div>
                 )}
 
-                {/* Totals */}
                 <div className="border-t border-[#F1EFE8] pt-3 space-y-1.5 text-[13px]">
                   <div className="flex justify-between text-[#5F5E5A]">
                     <span>Subtotal</span>
@@ -645,7 +563,6 @@ export default function OrdersPage() {
                   </div>
                 </div>
 
-                {/* Payment */}
                 {detail.payments && detail.payments.length > 0 && (
                   <div>
                     <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wide mb-2">
@@ -684,7 +601,6 @@ export default function OrdersPage() {
                   </div>
                 )}
 
-                {/* Refund — OWNER / MANAGER only, PAID orders only */}
                 {canRefund && detail.status === "PAID" && (
                   <div className="border-t border-[#F1EFE8] pt-4">
                     <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wide mb-3">
