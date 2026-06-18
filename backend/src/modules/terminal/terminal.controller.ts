@@ -49,7 +49,7 @@ const ACCESS_COOKIE   = 'access_token';
 const terminalCookieOptions = {
   httpOnly: true,
   secure:   env.NODE_ENV === 'production',
-  sameSite: 'strict' as const,
+  sameSite: 'lax' as const,
   maxAge:   8 * 60 * 60 * 1000,
 };
 
