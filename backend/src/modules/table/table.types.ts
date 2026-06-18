@@ -16,6 +16,6 @@ export interface CreateTableInput {
 
 export interface UpdateTableInput {
   tableNumber?: string;
-  capacity?: number;
+  capacity?: number | null;
   isActive?: boolean;
 }

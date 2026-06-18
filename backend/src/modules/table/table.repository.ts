@@ -70,31 +70,44 @@ export class TableRepository {
     return result.rows[0] ?? null;
   }
 
-  static async updateTable(
-    tableId: string,
-    shopId: string,
-    input: UpdateTableInput
-  ): Promise<RestaurantTable | null> {
-    const result = await pool.query<RestaurantTable>(
-      `
-      UPDATE restaurant_tables
-      SET
-        table_number = COALESCE($3, table_number),
-        capacity     = COALESCE($4, capacity),
-        is_active    = COALESCE($5, is_active)
-      WHERE id = $1 AND shop_id = $2
-      RETURNING *
-      `,
-      [
-        tableId,
-        shopId,
-        input.tableNumber ?? null,
-        input.capacity    ?? null,
-        input.isActive    ?? null,
-      ]
-    );
-    return result.rows[0] ?? null;
+static async updateTable(
+  tableId: string,
+  shopId: string,
+  input: UpdateTableInput
+): Promise<RestaurantTable | null> {
+  // WHY: COALESCE($n, column) cannot distinguish between
+  // "caller wants NULL" vs "caller didn't send this field".
+  // For table_number and is_active, NULL always means "no change" —
+  // that's fine. For capacity, the user must be able to CLEAR it
+  // (set to NULL). So we build the SET clause dynamically:
+  // only include capacity in the SET if the key was explicitly
+  // provided in the input object.
+  const setClauses: string[] = [
+    `table_number = COALESCE($3, table_number)`,
+    `is_active    = COALESCE($4, is_active)`,
+  ];
+  const values: unknown[] = [
+    tableId,
+    shopId,
+    input.tableNumber ?? null,
+    input.isActive    ?? null,
+  ];
+
+  if ("capacity" in input) {
+    // Caller explicitly provided capacity (even if null = clear it)
+    values.push(input.capacity ?? null);
+    setClauses.push(`capacity = $${values.length}`);
   }
+
+  const result = await pool.query<RestaurantTable>(
+    `UPDATE restaurant_tables
+     SET ${setClauses.join(", ")}
+     WHERE id = $1 AND shop_id = $2
+     RETURNING *`,
+    values
+  );
+  return result.rows[0] ?? null;
+}
 
   // Rotate QR token — called when a table's QR code is compromised
   // or on a regular rotation schedule. Generates a fresh UUID.
