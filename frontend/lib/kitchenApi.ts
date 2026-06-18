@@ -31,7 +31,7 @@ const DEVICE_ERRORS = new Set([
 ]);
 
 const kitchenApi = axios.create({
-  baseURL:         process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001",
+  baseURL:         "",
   withCredentials: true, // Always send the kitchen_token HttpOnly cookie
   timeout:         10_000,
   headers: {

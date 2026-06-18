@@ -6,7 +6,7 @@
 import axios from 'axios';
 
 const terminalApi = axios.create({
-  baseURL:         process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001',
+  baseURL:         process.env.NEXT_PUBLIC_API_URL || '',
   withCredentials: true, // Sends the terminal_session cookie
   timeout:         10_000,
   headers: { 'Content-Type': 'application/json' },

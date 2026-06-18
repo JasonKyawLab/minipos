@@ -47,7 +47,7 @@ const DEVICE_ERRORS = new Set([
 ]);
 
 const posApi = axios.create({
-  baseURL:         process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001",
+  baseURL:         process.env.NEXT_PUBLIC_API_URL ?? "",
   withCredentials: true, // Always send the pos_token HttpOnly cookie
   timeout:         10_000,
   headers: {

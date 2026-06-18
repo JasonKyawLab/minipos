@@ -3,7 +3,7 @@ import { getErrorMessage } from "@/utils/errorMessages";
 
 const api = axios.create({
   // FIX: was pointing to 4000 (wrong), backend runs on 3001
-  baseURL: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001",
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "",
   withCredentials: true,
   timeout: 10_000,
   headers: {
