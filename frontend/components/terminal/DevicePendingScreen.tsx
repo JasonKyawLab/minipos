@@ -42,7 +42,7 @@ interface DevicePendingScreenProps {
 }
 
 const POLL_INTERVAL_MS = 5_000;
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export function DevicePendingScreen({
   shopId,
