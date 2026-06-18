@@ -1,17 +1,14 @@
 // =========================================================
 // socket.events.ts
-// Path: backend/src/socket/socket.events.ts
-// =========================================================
-// Central registry of all Socket.IO event names.
+// Path: backend/src/modules/socket/socket.events.ts
 //
-// Why a constants file?
-//   Typos in event name strings are silent bugs.
-//   Using constants means TypeScript catches mismatches at
-//   compile time instead of at runtime.
-//
-// Usage in services:
-//   import { SOCKET_EVENTS } from "../../socket/socket.events.js";
-//   getIO().to(`shop:${shopId}`).emit(SOCKET_EVENTS.ORDER_CREATED, data);
+// ADDITIONS for Flow D:
+//   QR_BILL_REQUESTED  — customer tapped "Request bill"
+//                        → POS shows notification banner
+//   QR_TABLE_LOCKED    — order moved to CLOSING
+//                        → customer's menu page goes read-only
+//   QR_TABLE_REOPENED  — cashier tapped "Reopen"
+//                        → customer can order again
 // =========================================================
 
 export const SOCKET_EVENTS = {
@@ -40,17 +37,23 @@ export const SOCKET_EVENTS = {
   // Inventory
   STOCK_UPDATED:        "stock:updated",
 
-  // QR code 
+  // QR — order flow
   QR_ORDER_PLACED:      "qr:order_placed",
   QR_ORDER_STATUS:      "qr:order_status",
 
-   // Add to the SOCKET_EVENTS object:
+  // QR — Flow D (table session management)
+  QR_BILL_REQUESTED:    "qr:bill_requested",    // customer → POS notification
+  QR_TABLE_LOCKED:      "qr:table_locked",      // → customer menu goes read-only
+  QR_TABLE_REOPENED:    "qr:table_reopened",    // cashier reopens → customer unlocks
+
+  // Kitchen
   KITCHEN_TICKET_CREATED: "kitchen:ticket_created",
   KITCHEN_TICKET_UPDATED: "kitchen:ticket_updated",
   KITCHEN_TICKET_READY:   "kitchen:ticket_ready",
   KITCHEN_ITEM_STATUS:    "kitchen:item_status",
 
-  POS_FORCE_LOGOUT: "pos:force_logout",
+  // Force logout
+  POS_FORCE_LOGOUT:     "pos:force_logout",
   KITCHEN_FORCE_LOGOUT: "kitchen:force_logout",
 } as const;
 

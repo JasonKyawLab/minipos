@@ -3,25 +3,9 @@
 // Path: backend/src/modules/socket/socket.ts
 //
 // CHANGES:
-//   1. Terminal socket auth: terminals authenticate via the
-//      terminal_session cookie (not access_token).
-//      On connect, if terminal_session is valid, we
-//      auto-join room: terminal:<shopId>:<mode>
-//      This room is what force-logout events target.
-//
-//   2. New emitters:
-//      emitToTerminalRoom(shopId, mode, event, data)
-//      emitToPosTerminals(shopId, event, data)  -- convenience
-//      emitToKitchenTerminals(shopId, event, data) -- convenience
-//
-//   3. join_qr_session and join_shop remain unchanged.
-//
-// WHY terminal:<shopId>:<mode> as the room name?
-//   - Namespaced: prevents cross-shop or cross-mode leakage
-//   - POS force-logout only targets terminal:<shopId>:POS
-//   - Kitchen force-logout only targets terminal:<shopId>:KITCHEN
-//   - Even if a room name leaked, it only receives the event
-//     it is subscribed to — no sensitive data is exposed
+//   - Added "join_terminal_session" event for explicit room join.
+//   - Debug logging for emitToTerminalRoom.
+//   - Exported validateTerminalSession.
 // =========================================================
 
 import { Server, Socket } from "socket.io";
@@ -43,8 +27,6 @@ const connectedClients = new Map<string, {
 }>();
 
 // ── Cookie parser helper ──────────────────────────────────
-// Socket.IO gives us the raw Cookie header — we parse it
-// manually here instead of adding another dependency.
 function parseCookies(cookieHeader: string): Record<string, string> {
   const cookies: Record<string, string> = {};
   if (!cookieHeader) return cookies;
@@ -56,9 +38,7 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 }
 
 // ── Validate terminal_session cookie against DB ───────────
-// Returns the session row if valid, null otherwise.
-// This mirrors what attachTerminalSession HTTP middleware does.
-async function validateTerminalSession(sessionToken: string) {
+export async function validateTerminalSession(sessionToken: string) {
   const { rows } = await pool.query(
     `
     SELECT
@@ -94,13 +74,6 @@ export function initSocket(httpServer: HttpServer): Server {
   });
 
   // ── Handshake authentication middleware ──────────────────
-  // Three connection types:
-  //   1. TERMINAL — has terminal_session cookie (no access_token needed)
-  //   2. PLATFORM — has access_token cookie
-  //   3. GUEST    — has neither (QR customer)
-  //
-  // We resolve the type here once and store on socket.data
-  // so individual event handlers don't repeat the DB lookup.
   io.use(async (socket: Socket, next) => {
     const requestId = randomUUID();
     socket.data.requestId = requestId;
@@ -123,8 +96,6 @@ export function initSocket(httpServer: HttpServer): Server {
       } catch (err) {
         console.error("[Socket] Terminal session validation error:", err);
       }
-      // Terminal cookie present but invalid — still allow as guest
-      // so the page can render; the terminal will get 401 on next API call
     }
 
     // ── Priority 2: Platform JWT ──────────────────────────
@@ -162,19 +133,11 @@ export function initSocket(httpServer: HttpServer): Server {
     const connectionType = socket.data.connectionType as "TERMINAL" | "PLATFORM" | "GUEST";
 
     // ── Auto-join terminal room ───────────────────────────
-    // If this is a terminal connection, immediately join the
-    // terminal-specific room. The frontend does NOT need to
-    // emit join_terminal_session manually — it happens here.
-    //
-    // Room name: terminal:<shopId>:<mode>
-    // Examples:
-    //   terminal:abc-123:POS
-    //   terminal:abc-123:KITCHEN
     if (connectionType === "TERMINAL") {
       const { terminalShopId, terminalMode } = socket.data;
       const roomName = `terminal:${terminalShopId}:${terminalMode}`;
       socket.join(roomName);
-      console.log(`[Socket][${requestId}] Terminal joined ${roomName}`);
+      console.log(`[Socket][${requestId}] Terminal auto-joined ${roomName}`);
       socket.emit("terminal_room_joined", { room: roomName, mode: terminalMode });
     }
 
@@ -203,7 +166,6 @@ export function initSocket(httpServer: HttpServer): Server {
 
     // =======================================================
     // EVENT: join_qr_session (unauthenticated QR customers)
-    // Payload: { orderId: string }
     // =======================================================
     socket.on("join_qr_session", (orderId: string) => {
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -215,6 +177,46 @@ export function initSocket(httpServer: HttpServer): Server {
       socket.data.qrSessionOrderId = orderId;
       console.log(`[Socket][${requestId}] Guest joined qr_session:${orderId}`);
       socket.emit("joined_qr_session", { orderId });
+    });
+
+    // =======================================================
+    // NEW: EVENT: join_terminal_session (explicit terminal join)
+    // =======================================================
+    socket.on("join_terminal_session", async ({ shopId, mode }: { shopId: string; mode: "POS" | "KITCHEN" }) => {
+      // Only allow terminal connections
+      if (connectionType !== "TERMINAL") {
+        socket.emit("error", { message: "TERMINAL_AUTH_REQUIRED" });
+        return;
+      }
+
+      // Re-validate the session from the cookie to be safe
+      const cookieHeader = socket.handshake.headers.cookie ?? "";
+      const cookies = parseCookies(cookieHeader);
+      const sessionToken = cookies["terminal_session"];
+      if (!sessionToken) {
+        socket.emit("error", { message: "MISSING_TERMINAL_SESSION" });
+        return;
+      }
+
+      try {
+        const session = await validateTerminalSession(sessionToken);
+        if (!session) {
+          socket.emit("error", { message: "INVALID_SESSION" });
+          return;
+        }
+        if (session.shopId !== shopId || session.mode !== mode) {
+          socket.emit("error", { message: "SESSION_MISMATCH" });
+          return;
+        }
+
+        const roomName = `terminal:${shopId}:${mode}`;
+        socket.join(roomName);
+        console.log(`[Socket][${requestId}] Manual join_terminal_session: ${roomName}`);
+        socket.emit("terminal_room_joined", { room: roomName, mode });
+      } catch (err) {
+        console.error(`[Socket][${requestId}] join_terminal_session error:`, err);
+        socket.emit("error", { message: "JOIN_FAILED" });
+      }
     });
 
     // =======================================================
@@ -325,7 +327,6 @@ export function getIO(): Server {
   return io;
 }
 
-/** Emit to all platform users in a shop room (dashboard). */
 export function emitToShop(shopId: string, event: string, data: any): void {
   try {
     if (!io) return;
@@ -335,16 +336,6 @@ export function emitToShop(shopId: string, event: string, data: any): void {
   }
 }
 
-/**
- * Emit to all terminals of a specific mode for a shop.
- * Room name: terminal:<shopId>:<mode>
- *
- * WHY this is the correct target for force-logout:
- *   - Only terminals in this exact shop+mode receive the event
- *   - No platform user or QR customer is in this room
- *   - The terminal joined this room automatically on connect
- *     by presenting a valid terminal_session cookie
- */
 export function emitToTerminalRoom(
   shopId: string,
   mode:   "POS" | "KITCHEN",
@@ -353,23 +344,22 @@ export function emitToTerminalRoom(
 ): void {
   try {
     if (!io) return;
-    io.to(`terminal:${shopId}:${mode}`).emit(event, data);
+    const room = `terminal:${shopId}:${mode}`;
+    console.log(`[Socket] Emitting ${event} to room ${room}`);
+    io.to(room).emit(event, data);
   } catch (err) {
     console.error(`Failed to emit to terminal:${shopId}:${mode}:`, err);
   }
 }
 
-/** Convenience: emit to all POS terminals for a shop. */
 export function emitToPosTerminals(shopId: string, event: string, data: any): void {
   emitToTerminalRoom(shopId, "POS", event, data);
 }
 
-/** Convenience: emit to all Kitchen terminals for a shop. */
 export function emitToKitchenTerminals(shopId: string, event: string, data: any): void {
   emitToTerminalRoom(shopId, "KITCHEN", event, data);
 }
 
-/** Emit to a QR customer's order status room. */
 export function emitToQrSession(orderId: string, event: string, data: any): void {
   try {
     if (!io) return;
@@ -379,7 +369,6 @@ export function emitToQrSession(orderId: string, event: string, data: any): void
   }
 }
 
-/** Emit to a single user's socket by userId. */
 export function emitToUser(userId: string, event: string, data: any): void {
   try {
     if (!io) return;
