@@ -2,25 +2,33 @@
 // =========================================================
 // app/(qr)/qr/[token]/orders/[orderId]/status/page.tsx
 //
-// Customer order status page.
-// Polls every 10s and updates status live.
+// FIX: Added CLOSING to STATUS_INFO so the Record<OrderStatus>
+// is exhaustive after CLOSING was added to the OrderStatus type.
+//
+// Also added:
+// - Socket listener for qr:table_locked and qr:order_status
+//   so the UI updates instantly without waiting for the poll
+// - Polling extended to also run while status is "CLOSING"
 // =========================================================
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/utils/formatCurrency";
+import { getSocket }      from "@/lib/socket";
 import type { Order, OrderStatus, Currency, OrderItem } from "@/types";
 
 const STATUS_INFO: Record<OrderStatus, { label: string; desc: string; colour: string; icon: string }> = {
-  OPEN:      { label: "Order received",  desc: "Your order is waiting to be confirmed.",  colour: "#5F5E5A", icon: "⏳" },
-  CONFIRMED: { label: "Being prepared",  desc: "The kitchen is preparing your order.",    colour: "#BA7517", icon: "👨‍🍳" },
-  PAID:      { label: "Ready / Complete", desc: "Your order is ready. Enjoy!",             colour: "#0D7A5F", icon: "✅" },
-  CANCELLED: { label: "Cancelled",        desc: "This order has been cancelled.",          colour: "#A32D2D", icon: "❌" },
-  REFUNDED:  { label: "Refunded",         desc: "A refund has been issued.",               colour: "#534AB7", icon: "↩️" },
+  OPEN:      { label: "Order received",   desc: "Your order has been received.",            colour: "#5F5E5A", icon: "⏳" },
+  CONFIRMED: { label: "Being prepared",   desc: "The kitchen is preparing your order.",     colour: "#BA7517", icon: "👨‍🍳" },
+  // CLOSING = customer has requested the bill, cashier is coming
+  CLOSING:   { label: "Cashier coming",   desc: "A cashier will come to your table shortly.", colour: "#BA7517", icon: "🧾" },
+  PAID:      { label: "All done!",         desc: "Payment confirmed. Thank you!",            colour: "#0D7A5F", icon: "✅" },
+  CANCELLED: { label: "Cancelled",         desc: "This order has been cancelled.",           colour: "#A32D2D", icon: "❌" },
+  REFUNDED:  { label: "Refunded",          desc: "A refund has been issued.",                colour: "#534AB7", icon: "↩️" },
 };
 
 interface OrderStatusData extends Order {
-  items: OrderItem[];
+  items:    OrderItem[];
   currency: Currency;
 }
 
@@ -30,6 +38,8 @@ export default function OrderStatusPage() {
   const [order, setOrder]     = useState<OrderStatusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState("");
+
+  const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -44,18 +54,59 @@ export default function OrderStatusPage() {
     } finally { setLoading(false); }
   }, [token, orderId]);
 
+  // ── Initial load + polling ─────────────────────────────
+  // Poll while OPEN, CONFIRMED, or CLOSING (any non-terminal state)
   useEffect(() => {
     load();
-    // Poll every 10 seconds while order is open/confirmed
     const interval = setInterval(() => {
-      if (order?.status === "OPEN" || order?.status === "CONFIRMED") {
+      if (
+        order?.status === "OPEN"      ||
+        order?.status === "CONFIRMED" ||
+        order?.status === "CLOSING"
+      ) {
         load();
       }
     }, 10_000);
     return () => clearInterval(interval);
   }, [load, order?.status]);
 
-  const currency = order?.currency ?? "THB";
+  // ── Socket: instant updates without waiting for poll ──
+  useEffect(() => {
+    const socket = getSocket();
+    socketRef.current = socket;
+
+    // Join the QR session room for this order
+    socket.emit("join_qr_session", orderId);
+
+    // qr:order_status — status changed (CONFIRMED, PAID, etc.)
+    socket.on("qr:order_status", (payload: { newStatus: string }) => {
+      setOrder((prev) =>
+        prev ? { ...prev, status: payload.newStatus as OrderStatus } : prev
+      );
+    });
+
+    // qr:table_locked — customer requested bill → CLOSING
+    socket.on("qr:table_locked", () => {
+      setOrder((prev) =>
+        prev ? { ...prev, status: "CLOSING" as OrderStatus } : prev
+      );
+    });
+
+    // qr:table_reopened — cashier unlocked → back to OPEN
+    socket.on("qr:table_reopened", () => {
+      setOrder((prev) =>
+        prev ? { ...prev, status: "OPEN" as OrderStatus } : prev
+      );
+    });
+
+    return () => {
+      socket.off("qr:order_status");
+      socket.off("qr:table_locked");
+      socket.off("qr:table_reopened");
+    };
+  }, [orderId]);
+
+  const currency   = order?.currency ?? "THB";
   const statusInfo = order ? STATUS_INFO[order.status] : null;
 
   if (loading) {
@@ -97,8 +148,8 @@ export default function OrderStatusPage() {
           </p>
           <p className="text-[13px] text-[#5F5E5A]">{statusInfo?.desc}</p>
 
-          {/* Pulse indicator for active states */}
-          {(order.status === "OPEN" || order.status === "CONFIRMED") && (
+          {/* Pulse indicator for active (non-terminal) states */}
+          {(order.status === "OPEN" || order.status === "CONFIRMED" || order.status === "CLOSING") && (
             <div className="flex items-center justify-center gap-2 mt-4">
               <div
                 className="w-2 h-2 rounded-full"
@@ -152,13 +203,15 @@ export default function OrderStatusPage() {
           </div>
         </div>
 
-        {/* Back to menu */}
-        <a
-          href={`/qr/${token}`}
-          className="block w-full text-center py-3 text-[13px] text-[#0D7A5F] font-medium"
-        >
-          ← Back to menu
-        </a>
+        {/* Back to menu — only when not CLOSING or PAID */}
+        {order.status !== "CLOSING" && order.status !== "PAID" && (
+          <a
+            href={`/qr/${token}`}
+            className="block w-full text-center py-3 text-[13px] text-[#0D7A5F] font-medium"
+          >
+            ← Back to menu
+          </a>
+        )}
       </div>
     </div>
   );
