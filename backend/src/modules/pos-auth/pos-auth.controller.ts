@@ -1,6 +1,27 @@
 // =========================================================
 // pos-auth.controller.ts
 // Path: backend/src/modules/pos-auth/pos-auth.controller.ts
+//
+// CHANGES IN THIS VERSION:
+//   1. Added notifyKitchenAddon() method.
+//
+//   WHY:
+//     When a cashier adds a second round of items to an
+//     already-CONFIRMED DINE_IN table order, the order
+//     status is already CONFIRMED. Patching it to CONFIRMED
+//     again is rejected by ALLOWED_TRANSITIONS — the state
+//     machine does not allow CONFIRMED → CONFIRMED.
+//
+//     Without this endpoint, add-on items were saved to the
+//     DB but the kitchen never received a ticket for them.
+//     The chef had no idea new items were ordered.
+//
+//     This endpoint creates a new kitchen ticket for the
+//     add-on round without touching the order status at all.
+//     The frontend calls it after adding items to an
+//     existing (targetOrderId != null) CONFIRMED order.
+//
+//   2. Added KitchenService + KitchenRepository imports.
 // =========================================================
 
 import { Request, Response }  from "express";
@@ -10,11 +31,13 @@ import { handleError }        from "../../utils/handleError.js";
 import { env }                from "../../config/validation.js";
 import { pool }               from "../../db/pool.js";
 
-import { QrRepository }       from "../qr/qr.repository.js";
-import { OrderService }       from "../order/order.service.js";
-import { OrderRepository }     from "../order/order.repository.js";
-import { TableRepository }    from "../table/table.repository.js";
+import { QrRepository }      from "../qr/qr.repository.js";
+import { OrderService }      from "../order/order.service.js";
+import { OrderRepository }   from "../order/order.repository.js";
+import { TableRepository }   from "../table/table.repository.js";
 import { PaymentService }    from "../payment/payment.service.js";
+import { KitchenService }    from "../kitchen/kitchen.service.js";
+import { KitchenRepository } from "../kitchen/kitchen.repository.js";
 
 export class PosAuthController {
 
@@ -244,16 +267,99 @@ export class PosAuthController {
     } catch (err) { return handleError(res, err); }
   }
 
+  // ── POST /api/shops/:shopId/pos-auth/orders/:orderId/kitchen-ticket
+  //
+  // Creates an add-on kitchen ticket for a DINE_IN order that is
+  // already CONFIRMED (second round of ordering at the same table).
+  //
+  // WHY this exists:
+  //   When a cashier adds more items to an occupied table, the
+  //   order is already CONFIRMED. A PATCH /status CONFIRMED would
+  //   be rejected — CONFIRMED → CONFIRMED is not a valid transition
+  //   in ALLOWED_TRANSITIONS.
+  //
+  //   Without this endpoint, add-on items were saved to the DB
+  //   but the kitchen never received a ticket for them.
+  //
+  //   This endpoint creates a new kitchen ticket for the new round
+  //   without touching the order status. The frontend calls it
+  //   after adding items when targetOrderId already exists (i.e.
+  //   the cashier is adding to a table that already has an order).
+  static async notifyKitchenAddon(req: Request, res: Response) {
+    try {
+      const shopId  = req.posSession!.shopId;
+      const orderId = getParamAsString(req.params.orderId, "orderId");
+
+      const order = await OrderRepository.findOrderById(orderId, shopId);
+      if (!order) return res.status(404).json({ message: "ORDER_NOT_FOUND" });
+
+      if (order.status !== "CONFIRMED") {
+        return res.status(400).json({ message: "ORDER_NOT_CONFIRMED" });
+      }
+
+      // Resolve table number for the kitchen ticket header
+      let tableNumber: string | null = null;
+      if (order.table_id) {
+        const tableResult = await pool.query(
+          `SELECT table_number FROM restaurant_tables WHERE id = $1`,
+          [order.table_id]
+        );
+        tableNumber = tableResult.rows[0]?.table_number ?? null;
+      }
+
+      const existingRounds = await KitchenRepository.getTicketRoundCount(orderId);
+      const round          = existingRounds + 1;
+
+      const ticket = await KitchenService.createTicket({
+        shopId,
+        orderId,
+        orderNo:      order.order_no,
+        orderType:    order.order_type,
+        tableNumber,
+        customerName: order.customer_name ?? null,
+        notes:        order.notes         ?? null,
+        round,
+        is_addon:     true,
+      });
+
+      return res.status(201).json({ ticketId: ticket?.id, round });
+    } catch (err) { return handleError(res, err); }
+  }
+
   // ── GET /api/shops/:shopId/pos-auth/tables ────────────────
   //
   // Returns all active tables for this shop.
   // Used by the POS terminal table picker modal.
-  // Bypasses platform auth — uses pos_token + terminal_id only.
   static async getPosTableList(req: Request, res: Response) {
     try {
       const shopId = req.posSession!.shopId;
       const tables = await TableRepository.findAllTables(shopId);
       return res.json(tables);
+    } catch (err) { return handleError(res, err); }
+  }
+
+  // ── GET /api/shops/:shopId/pos-auth/tables/status ─────────
+  //
+  // Returns all active tables joined with their current live
+  // order status. Used by the POS Table Status panel so the
+  // cashier can see at a glance which tables are occupied,
+  // ordering, or have requested the bill.
+  //
+  // WHY a separate endpoint from /tables:
+  //   /tables returns the table list for the picker modal —
+  //   simple rows with no order context.
+  //   /tables/status joins orders and is only needed by the
+  //   floor-view panel. Keeping them separate means the picker
+  //   modal doesn't pay the JOIN cost on every open.
+  //
+  // "Active" order = any status except PAID / CANCELLED / REFUNDED.
+  // A table can only have one active order at a time (enforced
+  // at order creation in OrderService).
+  static async getTableStatus(req: Request, res: Response) {
+    try {
+      const shopId = req.posSession!.shopId;
+      const result = await PosAuthService.getTableStatus(shopId);
+      return res.json(result);
     } catch (err) { return handleError(res, err); }
   }
 
@@ -269,15 +375,6 @@ export class PosAuthController {
   //   page calls this endpoint on mount. The backend reads the
   //   pos_token HttpOnly cookie, validates the JWT, queries the
   //   DB, and returns the session payload.
-  //
-  //   This means:
-  //   - Session data never transits through client storage
-  //   - XSS cannot steal session payload — it was never stored
-  //   - Revoked tokens are caught immediately on next page load
-  //   - Backend is always the single source of truth
-  //
-  // Identity comes entirely from req.posSession (validated by
-  // requirePosAuth middleware) — the URL :shopId is not trusted.
   static async getMe(req: Request, res: Response) {
     try {
       const session = req.posSession!;
@@ -297,15 +394,13 @@ export class PosAuthController {
       );
 
       if (rows.length === 0) {
-        // pos_token is valid but the membership no longer exists —
-        // the staff member was removed from the shop mid-shift.
         return res.status(401).json({ message: "SESSION_INVALID" });
       }
 
       return res.json({
         userId:   session.userId,
         userName: rows[0].user_name,
-        shopRole: session.shopRole,    // from pos_token JWT — not the URL
+        shopRole: session.shopRole,
         shopId:   session.shopId,
         shopName: rows[0].shop_name,
         shopType: rows[0].shop_type,
@@ -315,68 +410,71 @@ export class PosAuthController {
     }
   }
 
-  // GET /api/shops/:shopId/pos-auth/orders/:orderId
-static async getPosOrder(req: Request, res: Response) {
-  try {
-    const shopId  = req.posSession!.shopId;
-    const orderId = getParamAsString(req.params.orderId, "orderId");
+  // ── GET /api/shops/:shopId/pos-auth/orders/:orderId ───────
+  //
+  // Returns a single order WITH its active line items.
+  // Used both to confirm total_amount after placeOrder(), and
+  // to hydrate the two-zone cart when a cashier opens an
+  // occupied table (already-ordered section).
+  static async getPosOrder(req: Request, res: Response) {
+    try {
+      const shopId  = req.posSession!.shopId;
+      const orderId = getParamAsString(req.params.orderId, "orderId");
 
-    const order = await OrderRepository.findOrderById(orderId, shopId);
-    if (!order) {
-      return res.status(404).json({ message: "ORDER_NOT_FOUND" });
-    }
+      const order = await OrderRepository.findOrderWithItems(orderId, shopId);
+      if (!order) {
+        return res.status(404).json({ message: "ORDER_NOT_FOUND" });
+      }
 
-    return res.json(order);
-  } catch (err) { return handleError(res, err); }
-}
+      return res.json(order);
+    } catch (err) { return handleError(res, err); }
+  }
 
-// PATCH /api/shops/:shopId/pos-auth/orders/:orderId/status
- static async updatePosOrderStatus(req: Request, res: Response) {
+  // ── PATCH /api/shops/:shopId/pos-auth/orders/:orderId/status
+  static async updatePosOrderStatus(req: Request, res: Response) {
     try {
       const shopId      = getParamAsString(req.params.shopId,  "shopId");
       const orderId     = getParamAsString(req.params.orderId, "orderId");
       const cashierId   = req.posSession!.userId;
       const { status }  = req.body;
- 
-      // Only CONFIRMED and CANCELLED are valid from POS terminal
+
       if (status !== "CONFIRMED" && status !== "CANCELLED") {
         return res.status(400).json({ message: "INVALID_STATUS_TRANSITION" });
       }
- 
+
       const updated = await OrderService.updateOrderStatusFromPOS({
         orderId,
         shopId,
         requesterId: cashierId,
         newStatus:   status,
       });
- 
+
       return res.json(updated);
     } catch (err) { return handleError(res, err); }
   }
-// POST /api/shops/:shopId/pos-auth/orders/:orderId/payments
-static async processPosPayment(req: Request, res: Response) {
-  try {
-    const shopId    = req.posSession!.shopId;
-    const cashierId = req.posSession!.userId;
-    const orderId   = getParamAsString(req.params.orderId, "orderId");
 
-    const { method, amount, received_amount, note } = req.body;
+  // ── POST /api/shops/:shopId/pos-auth/orders/:orderId/payments
+  static async processPosPayment(req: Request, res: Response) {
+    try {
+      const shopId    = req.posSession!.shopId;
+      const cashierId = req.posSession!.userId;
+      const orderId   = getParamAsString(req.params.orderId, "orderId");
 
-    const result = await PaymentService.processPayment({
-      orderId,
-      shopId,
-      requesterId:    cashierId,
-      cashierId,
-      method,
-      amount,
-      receivedAmount: received_amount,
-      note,
-    });
+      const { method, amount, received_amount, note } = req.body;
 
-    return res.status(201).json(result);
-  } catch (err) { return handleError(res, err); }
-}
+      const result = await PaymentService.processPayment({
+        orderId,
+        shopId,
+        requesterId:    cashierId,
+        cashierId,
+        method,
+        amount,
+        receivedAmount: received_amount,
+        note,
+      });
 
- 
+      return res.status(201).json(result);
+    } catch (err) { return handleError(res, err); }
+  }
 
 }

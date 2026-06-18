@@ -1,6 +1,9 @@
 // =========================================================
 // pos-auth.routes.ts
 // Path: backend/src/modules/pos-auth/pos-auth.routes.ts
+//
+// CHANGE: Added /orders/:orderId/kitchen-ticket route.
+// See pos-auth.controller.ts notifyKitchenAddon() for why.
 // =========================================================
 
 import { Router }             from "express";
@@ -83,15 +86,28 @@ router.get(
 
 // GET /api/shops/:shopId/pos-auth/tables
 //
-// Returns active tables for the table picker modal.
-// MUST be before router.use(requireAuth) — cashiers have no
-// platform access_token. Previously placed after requireAuth
-// which caused every table fetch to return 401.
+// Returns active tables for the table picker modal (simple list,
+// no order context). MUST be before router.use(requireAuth).
 router.get(
   "/tables",
   requireVerifiedDevice,
   requirePosAuth,
   PosAuthController.getPosTableList,
+);
+
+// GET /api/shops/:shopId/pos-auth/tables/status
+//
+// Returns all active tables joined with their live order status.
+// Used by the POS Table Status panel (floor view).
+//
+// IMPORTANT: This route MUST be declared before /orders/:orderId
+// and any other parameterised routes, and before requireAuth,
+// because the cashier has no platform access_token.
+router.get(
+  "/tables/status",
+  requireVerifiedDevice,
+  requirePosAuth,
+  PosAuthController.getTableStatus,
 );
 
 // POST /api/shops/:shopId/pos-auth/orders
@@ -111,6 +127,23 @@ router.post(
   requireVerifiedDevice,
   requirePosAuth,
   PosAuthController.addPosOrderItem,
+);
+
+// POST /api/shops/:shopId/pos-auth/orders/:orderId/kitchen-ticket
+//
+// Creates an add-on kitchen ticket for an already-CONFIRMED
+// DINE_IN order (second round of ordering at the same table).
+//
+// WHY this is separate from PATCH /status:
+//   A PATCH CONFIRMED on an already-CONFIRMED order is rejected
+//   by ALLOWED_TRANSITIONS. This endpoint creates the kitchen
+//   ticket directly, bypassing the status state machine.
+//   Called by the frontend when targetOrderId already exists.
+router.post(
+  "/orders/:orderId/kitchen-ticket",
+  requireVerifiedDevice,
+  requirePosAuth,
+  PosAuthController.notifyKitchenAddon,
 );
 
 // GET /api/shops/:shopId/pos-auth/orders/:orderId
@@ -134,6 +167,8 @@ router.patch(
 
 // POST /api/shops/:shopId/pos-auth/orders/:orderId/payments
 // Processes payment for a POS order → marks order as PAID.
+// payment.service.ts now creates the kitchen ticket internally
+// for TAKEAWAY/RETAIL orders — no second PATCH /status needed.
 router.post(
   "/orders/:orderId/payments",
   requireVerifiedDevice,

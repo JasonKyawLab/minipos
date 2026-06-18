@@ -7,6 +7,9 @@
 // the controller can return them to the POS terminal.
 // The terminal stores them in PosContext to drive the
 // order-type selector (RETAIL / DINE_IN / TAKEAWAY).
+//
+// ADDITION: getTableStatus() — returns all active tables
+// joined with their live order status for the POS floor view.
 // =========================================================
 
 import jwt             from "jsonwebtoken";
@@ -220,29 +223,28 @@ export class PosAuthService {
     // lockout, token_version), shop fields (shop_type, name),
     // and user name. Joining them here avoids 2 extra round trips.
     const { rows: memberRows } = await pool.query(
-  `
-  SELECT
-    su.role,
-    su.is_active,
-    su.pos_pin_hash,
-    su.pos_pin_attempts,
-    su.pos_pin_locked_until,
-    su.pos_token_version,
-    s.name       AS shop_name,
-    s.shop_type,
-    u.name       AS user_name
-  FROM shop_users su
-  JOIN shops s ON s.id = su.shop_id
-  JOIN users u ON u.id = su.user_id
-  WHERE su.shop_id    = $1
-    AND su.user_id    = $2
-    AND s.is_deleted  = false
-    AND u.is_deleted  = false
-  `,
-  [params.shopId, params.userId]
-);
-const membership = memberRows[0] ?? null;
-
+      `
+      SELECT
+        su.role,
+        su.is_active,
+        su.pos_pin_hash,
+        su.pos_pin_attempts,
+        su.pos_pin_locked_until,
+        su.pos_token_version,
+        s.name       AS shop_name,
+        s.shop_type,
+        u.name       AS user_name
+      FROM shop_users su
+      JOIN shops s ON s.id = su.shop_id
+      JOIN users u ON u.id = su.user_id
+      WHERE su.shop_id    = $1
+        AND su.user_id    = $2
+        AND s.is_deleted  = false
+        AND u.is_deleted  = false
+      `,
+      [params.shopId, params.userId]
+    );
+    const membership = memberRows[0] ?? null;
 
     if (!membership || !membership.is_active) {
       throw new appError("INVALID_CREDENTIALS", 401);
@@ -354,13 +356,13 @@ const membership = memberRows[0] ?? null;
     // shopType, shopName, userName are new.
     // The controller passes them to res.json() so the frontend
     // can populate PosContext without a second API call.
-return {
-  token,
-  role:     membership.role      as string,
-  shopType: membership.shop_type as string,
-  shopName: membership.shop_name as string,
-  userName: membership.user_name as string,
-};
+    return {
+      token,
+      role:     membership.role      as string,
+      shopType: membership.shop_type as string,
+      shopName: membership.shop_name as string,
+      userName: membership.user_name as string,
+    };
   }
 
   // ── Force logout a staff member ──────────────────────────
@@ -474,5 +476,55 @@ return {
     });
 
     return { success: true };
+  }
+
+  // ── Get live table status for POS floor view ─────────────
+  //
+  // Returns every active table for this shop joined with its
+  // current "active" order, if one exists.
+  //
+  // "Active" means any order status that is not a terminal
+  // state: PAID, CANCELLED, REFUNDED. An order in OPEN,
+  // CONFIRMED, or CLOSING is still in progress.
+  //
+  // A restaurant table can only have one active order at a
+  // time (enforced at order creation in OrderService), so
+  // the LEFT JOIN will return at most one order row per table.
+  //
+  // WHY LEFT JOIN and not INNER JOIN:
+  //   INNER JOIN would exclude tables with no active order,
+  //   making them invisible in the floor view. The cashier
+  //   needs to see all tables — even empty ones — to know
+  //   which ones are available for new walk-in customers.
+  //
+  // The result is ordered by table_number so the floor view
+  // renders in a consistent, predictable grid order.
+  static async getTableStatus(shopId: string) {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        t.id                                AS table_id,
+        t.table_number,
+        t.capacity,
+        o.id                                AS order_id,
+        o.order_no,
+        o.status                            AS order_status,
+        o.total_amount,
+        o.bill_requested,
+        o.bill_requested_at,
+        o.created_at                        AS order_started_at
+      FROM restaurant_tables t
+      LEFT JOIN orders o
+        ON  o.table_id = t.id
+        AND o.shop_id  = $1
+        AND o.status NOT IN ('PAID', 'CANCELLED', 'REFUNDED')
+      WHERE t.shop_id   = $1
+        AND t.is_active = TRUE
+      ORDER BY t.table_number ASC
+      `,
+      [shopId]
+    );
+
+    return rows;
   }
 }
