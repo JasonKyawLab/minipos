@@ -157,7 +157,7 @@ export type OrderType =
   | "DELIVERY" | "PICKUP" | "QR";
 
 export type OrderStatus =
-  | "OPEN" | "CONFIRMED" | "PAID" | "CANCELLED" | "REFUNDED";
+  | "OPEN" | "CONFIRMED" | "CLOSING" | "PAID" | "CANCELLED" | "REFUNDED";
 
 export type OrderItemStatus = "ACTIVE" | "CANCELLED" | "REFUNDED";
 
