@@ -2,13 +2,32 @@
 // product.service.ts
 // Path: backend/src/modules/product/product.service.ts
 //
-// CHANGES: Added category CRUD service methods.
-//          Updated createModel to accept category_id.
+// CHANGES:
+//   - Added `emitToShop(shopId, "menu:updated", {})` to every
+//     write method (create/update/delete/restore/setActive).
+//
+// WHY:
+//   POS terminals and QR menu pages load the product list
+//   once on mount and cache it in React state for the entire
+//   session. Without a push notification, a product added
+//   from the dashboard is invisible to any open terminal
+//   until the page is manually reloaded.
+//
+//   Every write that can change what appears on a menu now
+//   broadcasts "menu:updated" to the shop's Socket.IO room.
+//   The POS terminal and QR page listen for this event and
+//   call their existing loadMenu() functions — no new state
+//   or data structures needed on the frontend.
+//
+//   Inventory movements are intentionally excluded: changing
+//   stock quantities does not add or remove items from the
+//   menu (is_sold_out is a separate, explicit field).
 // =========================================================
 
 import { ShopRepository }     from "../shop/shop.repository.js";
 import { AuditService }       from "../audit/audit.service.js";
 import { ProductRepository }  from "./product.repository.js";
+import { emitToShop }         from "../socket/socket.js";
 import {
   CreateProductCategoryInput,
   UpdateProductCategoryInput,
@@ -77,6 +96,9 @@ export class ProductService {
       metadata: { name: category.name },
     });
 
+    // Category changes affect how the menu is organised on POS/QR.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return category;
   }
 
@@ -110,6 +132,9 @@ export class ProductService {
       metadata: { updatedFields: Object.keys(params.input) },
     });
 
+    // Category name/colour changes must reflect immediately on terminals.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return updated;
   }
 
@@ -134,6 +159,10 @@ export class ProductService {
       entity:   "PRODUCT_CATEGORY",
       entityId: params.categoryId,
     });
+
+    // Deleted category means affected products fall into "Uncategorised".
+    // Terminals must re-render their category tabs.
+    emitToShop(params.shopId, "menu:updated", {});
 
     return { success: true };
   }
@@ -168,6 +197,9 @@ export class ProductService {
       entityId: model.id,
       metadata: { name: model.name },
     });
+
+    // New product must appear on POS and QR immediately.
+    emitToShop(params.shopId, "menu:updated", {});
 
     return model;
   }
@@ -207,6 +239,9 @@ export class ProductService {
       metadata: { updatedFields: Object.keys(params.input) },
     });
 
+    // Name, description, category, or image changed — terminals must reflect it.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return updated;
   }
 
@@ -218,6 +253,10 @@ export class ProductService {
       shopId: params.shopId, userId: params.requesterId,
       action: "PRODUCT_MODEL_DELETED", entity: "PRODUCT_MODEL", entityId: params.modelId,
     });
+
+    // Deleted product must disappear from POS and QR immediately.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return { success: true };
   }
 
@@ -229,6 +268,10 @@ export class ProductService {
       shopId: params.shopId, userId: params.requesterId,
       action: "PRODUCT_MODEL_RESTORED", entity: "PRODUCT_MODEL", entityId: params.modelId,
     });
+
+    // Restored product must reappear on terminals.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return { success: true };
   }
 
@@ -249,6 +292,10 @@ export class ProductService {
       action: "PRODUCT_ITEM_CREATED", entity: "PRODUCT_ITEM", entityId: item.id,
       metadata: { name: item.name, price: item.price },
     });
+
+    // New variant (item) must appear on POS and QR immediately.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return item;
   }
 
@@ -277,6 +324,10 @@ export class ProductService {
       action: "PRODUCT_ITEM_UPDATED", entity: "PRODUCT_ITEM", entityId: params.itemId,
       metadata: { updatedFields: Object.keys(params.input) },
     });
+
+    // Price or name change must reflect on open terminals.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return updated;
   }
 
@@ -288,6 +339,10 @@ export class ProductService {
       shopId: params.shopId, userId: params.requesterId,
       action: "PRODUCT_ITEM_DELETED", entity: "PRODUCT_ITEM", entityId: params.itemId,
     });
+
+    // Deleted variant must vanish from POS and QR immediately.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return { success: true };
   }
 
@@ -302,11 +357,22 @@ export class ProductService {
       action: params.isActive ? "PRODUCT_ITEM_ACTIVATED" : "PRODUCT_ITEM_DEACTIVATED",
       entity: "PRODUCT_ITEM", entityId: params.itemId,
     });
+
+    // Enabling/disabling a variant changes what the cashier can sell.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return updated;
   }
 
   // =======================================================
   // INVENTORY MOVEMENTS
+  // =======================================================
+  //
+  // NOTE: No menu:updated emit here.
+  // Inventory movements only change stock_qty and is_sold_out
+  // is a separate explicit field. Stock quantity changes do
+  // not alter what appears on the menu — only is_sold_out
+  // (set via setItemActive or a dedicated endpoint) does.
   // =======================================================
 
   static async recordInventoryMovement(params: {
@@ -354,6 +420,10 @@ export class ProductService {
       action: "MODIFIER_GROUP_LINKED", entity: "PRODUCT_MODEL", entityId: params.modelId,
       metadata: { groupId: params.groupId },
     });
+
+    // Modifier added — customisation sheet on POS/QR must show it.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return { success: true };
   }
 
@@ -377,6 +447,10 @@ export class ProductService {
       action: "MODIFIER_GROUP_UNLINKED", entity: "PRODUCT_MODEL", entityId: params.modelId,
       metadata: { groupId: params.groupId },
     });
+
+    // Modifier removed — customisation sheet on POS/QR must hide it.
+    emitToShop(params.shopId, "menu:updated", {});
+
     return { success: true };
   }
 }
