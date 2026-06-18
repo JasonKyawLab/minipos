@@ -1,12 +1,16 @@
 // =========================================================
 // app/(shop)/shops/[shopId]/products/page.tsx
 //
-// CHANGES: Added "Categories" as a third tab alongside
-//          Products and Modifier Groups.
-//          ProductsTab updated: category dropdown in create
-//            and edit modals; category badge on each row.
-//          New CategoriesTab: full CRUD for product categories
-//            with colour picker and sort-order drag hint.
+// CHANGES:
+//   - Added track_stock toggle to Create Item modal.
+//     When OFF, "Initial stock" field is hidden (irrelevant).
+//   - Added track_stock toggle to Edit Item modal.
+//     openEditItem now reads item.track_stock from DB so the
+//     toggle is pre-filled correctly on open.
+//   - handleCreateItem sends track_stock + stock_qty only
+//     when tracking is enabled.
+//   - handleEditItem sends track_stock on every save.
+//   - Reset itemTrackStock to true when create modal closes.
 // =========================================================
 
 "use client";
@@ -123,10 +127,10 @@ function CategoriesTab({ shopId, canWrite }: { shopId: string; canWrite: boolean
   const [creating, setCreating]     = useState(false);
 
   // Edit
-  const [editCat, setEditCat]         = useState<ProductCategory | null>(null);
-  const [editName, setEditName]       = useState("");
-  const [editColor, setEditColor]     = useState("");
-  const [editSaving, setEditSaving]   = useState(false);
+  const [editCat, setEditCat]       = useState<ProductCategory | null>(null);
+  const [editName, setEditName]     = useState("");
+  const [editColor, setEditColor]   = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   const loadCategories = useCallback(async () => {
     setLoading(true);
@@ -335,42 +339,49 @@ function CategoriesTab({ shopId, canWrite }: { shopId: string; canWrite: boolean
 function ProductsTab({ shopId, currency, canWrite }: {
   shopId: string; currency: string; canWrite: boolean;
 }) {
-  const [models, setModels]           = useState<ProductModel[]>([]);
+  const [models, setModels]               = useState<ProductModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
-  const [selected, setSelected]       = useState<ProductModel | null>(null);
-  const [items, setItems]             = useState<ProductItem[]>([]);
-  const [itemsLoading, setItemsLoading] = useState(false);
-  const [search, setSearch]           = useState("");
-  const [categories, setCategories]   = useState<ProductCategory[]>([]);
+  const [selected, setSelected]           = useState<ProductModel | null>(null);
+  const [items, setItems]                 = useState<ProductItem[]>([]);
+  const [itemsLoading, setItemsLoading]   = useState(false);
+  const [search, setSearch]               = useState("");
+  const [categories, setCategories]       = useState<ProductCategory[]>([]);
 
-  // Create product
+  // ── Create product ────────────────────────────────────
   const [showCreateModel, setShowCreateModel] = useState(false);
-  const [modelName, setModelName]   = useState("");
-  const [modelDesc, setModelDesc]   = useState("");
-  const [modelCatId, setModelCatId] = useState("");
-  const [modelSaving, setModelSaving] = useState(false);
+  const [modelName, setModelName]             = useState("");
+  const [modelDesc, setModelDesc]             = useState("");
+  const [modelCatId, setModelCatId]           = useState("");
+  const [modelSaving, setModelSaving]         = useState(false);
 
-  // Edit product
-  const [editModel, setEditModel]           = useState<ProductModel | null>(null);
-  const [editModelName, setEditModelName]   = useState("");
-  const [editModelDesc, setEditModelDesc]   = useState("");
-  const [editModelCatId, setEditModelCatId] = useState("");
+  // ── Edit product ──────────────────────────────────────
+  const [editModel, setEditModel]             = useState<ProductModel | null>(null);
+  const [editModelName, setEditModelName]     = useState("");
+  const [editModelDesc, setEditModelDesc]     = useState("");
+  const [editModelCatId, setEditModelCatId]   = useState("");
   const [editModelSaving, setEditModelSaving] = useState(false);
 
-  // Create item
-  const [showCreateItem, setShowCreateItem] = useState(false);
-  const [itemName, setItemName]   = useState("");
-  const [itemPrice, setItemPrice] = useState("");
-  const [itemSku, setItemSku]     = useState("");
-  const [itemStock, setItemStock] = useState("0");
-  const [itemSaving, setItemSaving] = useState(false);
+  // ── Create item ───────────────────────────────────────
+  // itemTrackStock defaults true — most shops start with
+  // stock tracking on. Restaurant users toggle it off for
+  // made-to-order items like rice, curry, etc.
+  const [showCreateItem, setShowCreateItem]   = useState(false);
+  const [itemName, setItemName]               = useState("");
+  const [itemPrice, setItemPrice]             = useState("");
+  const [itemSku, setItemSku]                 = useState("");
+  const [itemStock, setItemStock]             = useState("0");
+  const [itemTrackStock, setItemTrackStock]   = useState(true);
+  const [itemSaving, setItemSaving]           = useState(false);
 
-  // Edit item
-  const [editItem, setEditItem]             = useState<ProductItem | null>(null);
-  const [editItemName, setEditItemName]     = useState("");
-  const [editItemPrice, setEditItemPrice]   = useState("");
-  const [editItemSku, setEditItemSku]       = useState("");
-  const [editItemSaving, setEditItemSaving] = useState(false);
+  // ── Edit item ─────────────────────────────────────────
+  const [editItem, setEditItem]                     = useState<ProductItem | null>(null);
+  const [editItemName, setEditItemName]             = useState("");
+  const [editItemPrice, setEditItemPrice]           = useState("");
+  const [editItemSku, setEditItemSku]               = useState("");
+  const [editItemTrackStock, setEditItemTrackStock] = useState(true);
+  const [editItemSaving, setEditItemSaving]         = useState(false);
+
+  // ── Data loaders ──────────────────────────────────────
 
   const loadCategories = useCallback(async () => {
     try {
@@ -405,13 +416,15 @@ function ProductsTab({ shopId, currency, canWrite }: {
 
   function selectModel(model: ProductModel) { setSelected(model); loadItems(model); }
 
+  // ── Product model handlers ────────────────────────────
+
   async function handleCreateModel(e: React.FormEvent) {
     e.preventDefault();
     if (!modelName.trim()) { toast.error("Name is required."); return; }
     setModelSaving(true);
     try {
       const { data } = await api.post<ProductModel>(`/api/shops/${shopId}/products/models`, {
-        name: modelName.trim(),
+        name:        modelName.trim(),
         description: modelDesc.trim() || undefined,
         category_id: modelCatId || undefined,
       });
@@ -442,9 +455,9 @@ function ProductsTab({ shopId, currency, canWrite }: {
       const { data } = await api.patch<ProductModel>(
         `/api/shops/${shopId}/products/models/${editModel.id}`,
         {
-          name: editModelName.trim(),
+          name:        editModelName.trim(),
           description: editModelDesc.trim() || undefined,
-          // null explicitly removes the category
+          // null explicitly removes the category (uncategorises the product)
           category_id: editModelCatId || null,
         }
       );
@@ -470,6 +483,8 @@ function ProductsTab({ shopId, currency, canWrite }: {
     }
   }
 
+  // ── Product item handlers ─────────────────────────────
+
   async function handleCreateItem(e: React.FormEvent) {
     e.preventDefault();
     if (!selected) return;
@@ -478,22 +493,33 @@ function ProductsTab({ shopId, currency, canWrite }: {
     setItemSaving(true);
     try {
       await api.post(`/api/shops/${shopId}/products/models/${selected.id}/items`, {
-        name: itemName.trim(), price: Number(itemPrice),
-        sku: itemSku.trim() || undefined, stock_qty: Number(itemStock),
+        name:        itemName.trim(),
+        price:       Number(itemPrice),
+        sku:         itemSku.trim() || undefined,
+        track_stock: itemTrackStock,
+        // Only send stock_qty when tracking is on.
+        // When tracking is off (rice, curry, made-to-order items),
+        // the stock_qty column in the DB stays at 0 and is ignored
+        // by the payment deduction logic.
+        ...(itemTrackStock && { stock_qty: Number(itemStock) }),
       });
       toast.success("Item added.");
-      setItemName(""); setItemPrice(""); setItemSku(""); setItemStock("0");
-      setShowCreateItem(false); loadItems(selected);
+      setItemName(""); setItemPrice(""); setItemSku(""); setItemStock("0"); setItemTrackStock(true);
+      setShowCreateItem(false);
+      loadItems(selected);
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
     } finally { setItemSaving(false); }
   }
 
+  // Pre-fill ALL fields from the existing item so the edit
+  // modal reflects exactly what is in the database.
   function openEditItem(item: ProductItem) {
     setEditItem(item);
     setEditItemName(item.name);
     setEditItemPrice(String(item.price));
     setEditItemSku(item.sku ?? "");
+    setEditItemTrackStock(item.track_stock); // ← was missing before this fix
   }
 
   async function handleEditItem(e: React.FormEvent) {
@@ -503,10 +529,17 @@ function ProductsTab({ shopId, currency, canWrite }: {
     setEditItemSaving(true);
     try {
       await api.patch(`/api/shops/${shopId}/products/items/${editItem.id}`, {
-        name: editItemName.trim(), price: Number(editItemPrice),
-        sku: editItemSku.trim() || undefined,
+        name:        editItemName.trim(),
+        price:       Number(editItemPrice),
+        sku:         editItemSku.trim() || undefined,
+        track_stock: editItemTrackStock,
+        // Note: editing stock_qty directly is handled via the
+        // inventory adjustment flow, not the item edit form.
+        // This keeps the audit trail intact.
       });
-      toast.success("Item updated."); setEditItem(null); loadItems(selected);
+      toast.success("Item updated.");
+      setEditItem(null);
+      loadItems(selected);
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
     } finally { setEditItemSaving(false); }
@@ -515,14 +548,20 @@ function ProductsTab({ shopId, currency, canWrite }: {
   async function handleToggleItemActive(item: ProductItem) {
     if (!selected) return;
     try {
-      await api.patch(`/api/shops/${shopId}/products/items/${item.id}/active`, { is_active: !item.is_active });
+      await api.patch(`/api/shops/${shopId}/products/items/${item.id}/active`, {
+        is_active: !item.is_active,
+      });
       loadItems(selected);
-    } catch (err: any) { toast.error(getErrorMessage(err.response?.data?.message)); }
+    } catch (err: any) {
+      toast.error(getErrorMessage(err.response?.data?.message));
+    }
   }
 
   const filteredModels = models.filter((m) =>
     m.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  // ── Render ────────────────────────────────────────────
 
   return (
     <div className="flex gap-4 h-[calc(100vh-180px)]">
@@ -604,7 +643,7 @@ function ProductsTab({ shopId, currency, canWrite }: {
         )}
       </div>
 
-      {/* Right: items */}
+      {/* Right: items panel */}
       <div className="flex-1 bg-white border border-[#D3D1C7] rounded-lg flex flex-col overflow-hidden">
         {!selected ? (
           <div className="flex-1 flex items-center justify-center">
@@ -634,6 +673,7 @@ function ProductsTab({ shopId, currency, canWrite }: {
                 </button>
               )}
             </div>
+
             <div className="flex-1 overflow-y-auto">
               {itemsLoading ? <SkeletonTable rows={4} cols={4} /> :
                items.length === 0 ? <EmptyState title="No items yet" description="Add at least one variant." /> : (
@@ -653,8 +693,13 @@ function ProductsTab({ shopId, currency, canWrite }: {
                       <tr key={item.id} className="hover:bg-[#F1EFE8]/30 transition-colors">
                         <td className="px-5 py-3 font-medium text-[#0F2B4C]">{item.name}</td>
                         <td className="px-4 py-3 font-mono text-[12px] text-[#5F5E5A]">{item.sku ?? "—"}</td>
-                        <td className="px-4 py-3 text-right font-medium">{formatCurrency(Number(item.price), currency as any)}</td>
-                        <td className="px-4 py-3 text-right text-[#5F5E5A]">{item.track_stock ? item.stock_qty : "—"}</td>
+                        <td className="px-4 py-3 text-right font-medium">
+                          {formatCurrency(Number(item.price), currency as any)}
+                        </td>
+                        {/* Stock column: show qty when tracking, "—" when not tracked */}
+                        <td className="px-4 py-3 text-right text-[#5F5E5A]">
+                          {item.track_stock ? item.stock_qty : "—"}
+                        </td>
                         <td className="px-4 py-3"><ActiveBadge active={item.is_active} /></td>
                         {canWrite && (
                           <td className="px-5 py-3 text-right">
@@ -680,7 +725,7 @@ function ProductsTab({ shopId, currency, canWrite }: {
         )}
       </div>
 
-      {/* Create product modal */}
+      {/* ── Create product modal ──────────────────────── */}
       <Modal open={showCreateModel} onClose={() => setShowCreateModel(false)} title="New Product">
         <form onSubmit={handleCreateModel} className="space-y-4">
           <div className="space-y-1">
@@ -695,7 +740,6 @@ function ProductsTab({ shopId, currency, canWrite }: {
               className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
               placeholder="Optional" />
           </div>
-          {/* Category dropdown */}
           <div className="space-y-1">
             <label className="block text-[13px] font-medium text-[#1A1A1A]">Category</label>
             <select value={modelCatId} onChange={(e) => setModelCatId(e.target.value)}
@@ -713,7 +757,7 @@ function ProductsTab({ shopId, currency, canWrite }: {
         </form>
       </Modal>
 
-      {/* Edit product modal */}
+      {/* ── Edit product modal ────────────────────────── */}
       <Modal open={!!editModel} onClose={() => setEditModel(null)} title="Edit Product">
         <form onSubmit={handleEditModel} className="space-y-4">
           <div className="space-y-1">
@@ -745,34 +789,78 @@ function ProductsTab({ shopId, currency, canWrite }: {
         </form>
       </Modal>
 
-      {/* Create item modal */}
+      {/* ── Create item modal ─────────────────────────── */}
       <Modal open={showCreateItem} onClose={() => setShowCreateItem(false)} title={`Add item to ${selected?.name}`}>
         <form onSubmit={handleCreateItem} className="space-y-4">
+
           <div className="space-y-1">
             <label className="block text-[13px] font-medium text-[#1A1A1A]">Item name *</label>
             <input value={itemName} onChange={(e) => setItemName(e.target.value)}
               className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
               placeholder="e.g. Regular" autoFocus />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="block text-[13px] font-medium text-[#1A1A1A]">Price *</label>
-              <input type="number" min="0" step="0.01" value={itemPrice} onChange={(e) => setItemPrice(e.target.value)}
-                className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
-                placeholder="0.00" />
+
+          <div className="space-y-1">
+            <label className="block text-[13px] font-medium text-[#1A1A1A]">Price *</label>
+            <input type="number" min="0" step="0.01" value={itemPrice} onChange={(e) => setItemPrice(e.target.value)}
+              className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+              placeholder="0.00" />
+          </div>
+
+          {/*
+            Track stock toggle
+            ──────────────────
+            ON  → retail items (bottles, cans, packaged goods)
+                  stock_qty is decremented on every sale.
+            OFF → restaurant / made-to-order items (rice, curry, noodles)
+                  no quantity is tracked; the item never shows as "sold out"
+                  due to stock. The cook makes it on demand.
+
+            Why a toggle and not a checkbox?
+            Toggles are visually clearer for binary states that have real
+            downstream consequences (stock deduction logic in payment.service).
+          */}
+          <div className="flex items-center justify-between py-2.5 px-3 bg-[#F8F7F3] rounded-lg border border-[#D3D1C7]">
+            <div>
+              <p className="text-[13px] font-medium text-[#1A1A1A]">Track stock quantity</p>
+              <p className="text-[11px] text-[#5F5E5A] mt-0.5">
+                {itemTrackStock
+                  ? "Stock will be deducted on each sale."
+                  : "No limit — made to order or unlimited supply."}
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setItemTrackStock((v) => !v)}
+              aria-label="Toggle stock tracking"
+              className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+                itemTrackStock ? "bg-[#0D7A5F]" : "bg-[#D3D1C7]"
+              }`}
+            >
+              <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                itemTrackStock ? "translate-x-5" : "translate-x-0.5"
+              }`} />
+            </button>
+          </div>
+
+          {/* Only show initial stock when tracking is enabled.
+              Hiding it when OFF avoids confusing users — the value
+              would be stored in the DB but never used. */}
+          {itemTrackStock && (
             <div className="space-y-1">
               <label className="block text-[13px] font-medium text-[#1A1A1A]">Initial stock</label>
               <input type="number" min="0" value={itemStock} onChange={(e) => setItemStock(e.target.value)}
                 className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]" />
             </div>
-          </div>
+          )}
+
           <div className="space-y-1">
             <label className="block text-[13px] font-medium text-[#1A1A1A]">SKU (optional)</label>
             <input value={itemSku} onChange={(e) => setItemSku(e.target.value)}
               className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
               placeholder="e.g. SODA-REG" />
           </div>
+
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="secondary" type="button" onClick={() => setShowCreateItem(false)} disabled={itemSaving}>Cancel</Button>
             <Button type="submit" loading={itemSaving}>Add item</Button>
@@ -780,28 +868,61 @@ function ProductsTab({ shopId, currency, canWrite }: {
         </form>
       </Modal>
 
-      {/* Edit item modal */}
+      {/* ── Edit item modal ───────────────────────────── */}
       <Modal open={!!editItem} onClose={() => setEditItem(null)} title="Edit Item">
         <form onSubmit={handleEditItem} className="space-y-4">
+
           <div className="space-y-1">
             <label className="block text-[13px] font-medium text-[#1A1A1A]">Item name *</label>
             <input value={editItemName} onChange={(e) => setEditItemName(e.target.value)}
               className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
               autoFocus />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="block text-[13px] font-medium text-[#1A1A1A]">Price *</label>
-              <input type="number" min="0" step="0.01" value={editItemPrice} onChange={(e) => setEditItemPrice(e.target.value)}
-                className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-[13px] font-medium text-[#1A1A1A]">SKU</label>
-              <input value={editItemSku} onChange={(e) => setEditItemSku(e.target.value)}
-                className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
-                placeholder="Optional" />
-            </div>
+
+          <div className="space-y-1">
+            <label className="block text-[13px] font-medium text-[#1A1A1A]">Price *</label>
+            <input type="number" min="0" step="0.01" value={editItemPrice} onChange={(e) => setEditItemPrice(e.target.value)}
+              className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]" />
           </div>
+
+          {/*
+            Track stock toggle (edit)
+            ─────────────────────────
+            Pre-filled from item.track_stock via openEditItem().
+            Changing this updates the DB flag on save, which
+            immediately changes the payment deduction behaviour
+            for all future orders of this item.
+          */}
+          <div className="flex items-center justify-between py-2.5 px-3 bg-[#F8F7F3] rounded-lg border border-[#D3D1C7]">
+            <div>
+              <p className="text-[13px] font-medium text-[#1A1A1A]">Track stock quantity</p>
+              <p className="text-[11px] text-[#5F5E5A] mt-0.5">
+                {editItemTrackStock
+                  ? "Stock will be deducted on each sale."
+                  : "No limit — made to order or unlimited supply."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditItemTrackStock((v) => !v)}
+              aria-label="Toggle stock tracking"
+              className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+                editItemTrackStock ? "bg-[#0D7A5F]" : "bg-[#D3D1C7]"
+              }`}
+            >
+              <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                editItemTrackStock ? "translate-x-5" : "translate-x-0.5"
+              }`} />
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[13px] font-medium text-[#1A1A1A]">SKU</label>
+            <input value={editItemSku} onChange={(e) => setEditItemSku(e.target.value)}
+              className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+              placeholder="Optional" />
+          </div>
+
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="secondary" type="button" onClick={() => setEditItem(null)} disabled={editItemSaving}>Cancel</Button>
             <Button type="submit" loading={editItemSaving}>Save changes</Button>
@@ -811,6 +932,12 @@ function ProductsTab({ shopId, currency, canWrite }: {
     </div>
   );
 }
+
+// =========================================================
+// MODIFIERS TAB
+// =========================================================
+// (unchanged — paste your existing ModifiersTab here)
+// =========================================================
 
 // =========================================================
 // MODIFIERS TAB
