@@ -48,6 +48,7 @@ import { getErrorMessage } from "@/utils/errorMessages";
 import { ModeGate }        from "@/components/mode/ModeGate";
 import type { PosStaffItem } from "@/types";
 import { DevicePendingScreen } from "@/components/terminal/DevicePendingScreen";
+import { getSocket, createFreshSocket } from "@/lib/socket";
 
 // ── No session imports ────────────────────────────────────
 // usePosSession is intentionally absent. This page does not
@@ -136,7 +137,8 @@ export default function PosLoginPage() {
             device_name: `POS — ${navigator.userAgent.slice(0, 40)}`,
           }),
         });
-        setScreen("PENDING_APPROVAL");
+        setPendingDeviceKey(deviceKey);
+        setScreen("DEVICE_PENDING");
       } catch {
         setDeviceError(getErrorMessage(triggerCode));
         setScreen("SELECT_STAFF");
@@ -171,6 +173,8 @@ export default function PosLoginPage() {
 
   // ── Mount effect ──────────────────────────────────────────
   useEffect(() => {
+
+    
     // Device was just registered and is waiting for approval.
     // URL contains ?device_pending=<deviceId> from ModeGate.
     const pendingKey = searchParams.get("device_pending");
