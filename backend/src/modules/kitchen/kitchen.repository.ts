@@ -1,28 +1,21 @@
 // =========================================================
-// ALL raw SQL for the kitchen module.
-// Service layer never imports pool directly.
-//
-// Key queries:
-//   getActiveTickets()  — the kitchen display's main endpoint.
-//                         Returns tickets with their items in
-//                         ONE round-trip using a JOIN.
-//   updateItemStatus()  — bumps a single item and recalculates
-//                         the parent ticket status atomically.
+// kitchen.repository.ts
+// Path: backend/src
+// /modules/kitchen/kitchen.repository.ts
 // =========================================================
 
-import { pool } from '../../db/pool.js';
+import { pool } from "../../db/pool.js";
 import {
-  KitchenStation,
+  
   KitchenTicket,
   KitchenTicketWithItems,
   KitchenTicketItem,
-  CreateKitchenStationInput,
-  UpdateKitchenStationInput,
-  ListTicketsFilter,
   KitchenStatus,
   KitchenTicketStatus,
   KitchenPriority,
-} from './kitchen.types.js';
+  CreateKitchenStationInput,
+  UpdateKitchenStationInput,
+} from "./kitchen.types.js";
 
 export class KitchenRepository {
 
@@ -30,61 +23,28 @@ export class KitchenRepository {
   // KITCHEN STATIONS
   // =======================================================
 
-  static async createStation(
-    shopId: string,
-    input: CreateKitchenStationInput
-  ): Promise<KitchenStation> {
-    const result = await pool.query<KitchenStation>(
+  static async createStation(shopId: string, input: CreateKitchenStationInput) {
+    const result = await pool.query(
       `
-      INSERT INTO kitchen_stations (shop_id, name, description, color, sort_order)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO kitchen_stations (shop_id, name, description, color, is_active, sort_order)
+      VALUES ($1, $2, $3, $4, TRUE, $5)
       RETURNING *
       `,
-      [
-        shopId,
-        input.name,
-        input.description ?? null,
-        input.color      ?? null,
-        input.sort_order ?? 0,
-      ]
+      [shopId, input.name, input.description ?? null, input.color ?? null, input.sort_order ?? 0]
     );
     return result.rows[0];
   }
 
-  static async findAllStations(shopId: string): Promise<KitchenStation[]> {
-    const result = await pool.query<KitchenStation>(
-      `
-      SELECT *
-      FROM kitchen_stations
-      WHERE shop_id = $1
-      ORDER BY sort_order ASC, name ASC
-      `,
+  static async findAllStations(shopId: string) {
+    const result = await pool.query(
+      `SELECT * FROM kitchen_stations WHERE shop_id = $1 ORDER BY sort_order ASC, name ASC`,
       [shopId]
     );
     return result.rows;
   }
 
-  static async findStationById(
-    stationId: string,
-    shopId: string
-  ): Promise<KitchenStation | null> {
-    const result = await pool.query<KitchenStation>(
-      `
-      SELECT *
-      FROM kitchen_stations
-      WHERE id = $1 AND shop_id = $2
-      `,
-      [stationId, shopId]
-    );
-    return result.rows[0] ?? null;
-  }
-
-  static async updateStation(
-    stationId: string,
-    shopId: string,
-    input: UpdateKitchenStationInput
-  ): Promise<KitchenStation | null> {
-    const result = await pool.query<KitchenStation>(
+  static async updateStation(stationId: string, shopId: string, input: UpdateKitchenStationInput) {
+    const result = await pool.query(
       `
       UPDATE kitchen_stations
       SET
@@ -92,27 +52,17 @@ export class KitchenRepository {
         description = COALESCE($4, description),
         color       = COALESCE($5, color),
         is_active   = COALESCE($6, is_active),
-        sort_order  = COALESCE($7, sort_order)
+        sort_order  = COALESCE($7, sort_order),
+        updated_at  = now()
       WHERE id = $1 AND shop_id = $2
       RETURNING *
       `,
-      [
-        stationId,
-        shopId,
-        input.name        ?? null,
-        input.description ?? null,
-        input.color       ?? null,
-        input.is_active   ?? null,
-        input.sort_order  ?? null,
-      ]
+      [stationId, shopId, input.name ?? null, input.description ?? null, input.color ?? null, input.is_active ?? null, input.sort_order ?? null]
     );
     return result.rows[0] ?? null;
   }
 
-  static async deleteStation(
-    stationId: string,
-    shopId: string
-  ): Promise<boolean> {
+  static async deleteStation(stationId: string, shopId: string): Promise<boolean> {
     const result = await pool.query(
       `DELETE FROM kitchen_stations WHERE id = $1 AND shop_id = $2`,
       [stationId, shopId]
@@ -120,33 +70,16 @@ export class KitchenRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
-  // =======================================================
-  // STATION ↔ PRODUCT MODEL MAPPING
-  // =======================================================
-
-  static async assignModel(
-    stationId: string,
-    productModelId: string
-  ): Promise<void> {
+  static async assignModel(stationId: string, productModelId: string): Promise<void> {
     await pool.query(
-      `
-      INSERT INTO kitchen_station_categories (station_id, product_model_id)
-      VALUES ($1, $2)
-      ON CONFLICT DO NOTHING
-      `,
+      `INSERT INTO kitchen_station_categories (station_id, product_model_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [stationId, productModelId]
     );
   }
 
-  static async unassignModel(
-    stationId: string,
-    productModelId: string
-  ): Promise<boolean> {
+  static async unassignModel(stationId: string, productModelId: string): Promise<boolean> {
     const result = await pool.query(
-      `
-      DELETE FROM kitchen_station_categories
-      WHERE station_id = $1 AND product_model_id = $2
-      `,
+      `DELETE FROM kitchen_station_categories WHERE station_id = $1 AND product_model_id = $2`,
       [stationId, productModelId]
     );
     return (result.rowCount ?? 0) > 0;
@@ -158,8 +91,7 @@ export class KitchenRepository {
       SELECT pm.id, pm.name, pm.image_url
       FROM kitchen_station_categories ksc
       JOIN product_models pm ON pm.id = ksc.product_model_id
-      WHERE ksc.station_id = $1
-        AND pm.is_deleted = false
+      WHERE ksc.station_id = $1 AND pm.is_deleted = false
       ORDER BY pm.name ASC
       `,
       [stationId]
@@ -171,68 +103,79 @@ export class KitchenRepository {
   // KITCHEN TICKETS
   // =======================================================
 
-  /**
-   * Create a kitchen ticket when an order is confirmed.
-   * Called by KitchenService.createTicket() which is triggered
-   * from order.service after status → CONFIRMED.
-   */
   static async createTicket(params: {
-    shopId: string;
-    orderId: string;
-    orderNo: string;
-    orderType: string;
-    tableNumber: string | null;
+    shopId:       string;
+    orderId:      string;
+    orderNo:      string;
+    orderType:    string;
+    tableNumber:  string | null;
     customerName: string | null;
-    notes: string | null;
+    notes:        string | null;
+    round:        number;
+    is_addon:     boolean;
   }): Promise<KitchenTicket> {
     const result = await pool.query<KitchenTicket>(
       `
       INSERT INTO kitchen_tickets (
         shop_id, order_id, order_no, order_type,
-        table_number, customer_name, notes
+        table_number, customer_name, notes,
+        round, is_addon
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (shop_id, order_id) DO NOTHING
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
       `,
       [
-        params.shopId,
-        params.orderId,
-        params.orderNo,
-        params.orderType,
-        params.tableNumber,
-        params.customerName,
-        params.notes,
+        params.shopId, params.orderId, params.orderNo, params.orderType,
+        params.tableNumber, params.customerName, params.notes,
+        params.round, params.is_addon,
       ]
     );
-    // ON CONFLICT DO NOTHING means a duplicate confirm is safe
     return result.rows[0];
   }
 
-  /**
-   * Get active tickets for the kitchen display.
-   * Returns QUEUED, IN_PROGRESS, READY tickets with their items.
-   *
-   * Why one query with aggregation?
-   *   The kitchen display renders as a grid of ticket cards.
-   *   Each card needs the ticket header + all its items.
-   *   Fetching tickets then N×item fetches would be O(N) queries.
-   *   We aggregate items as JSONB in SQL → always 1 round-trip.
-   */
+  // ── Stamp items with ticket_id after ticket creation ─────
+  //
+  // Called immediately after createTicket() by every service
+  // that creates a kitchen ticket. Stamps all ACTIVE, PENDING
+  // order_items that have no ticket_id yet with this ticket's id.
+  //
+  // WHY: items are inserted before the ticket exists (the ticket
+  // is the result of confirming the items). Stamping after creation
+  // is the only reliable way to scope items to a round.
+  //
+  // Only stamps items with ticket_id IS NULL to avoid re-stamping
+  // items from a previous round that are still ACTIVE.
+  static async stampItemsWithTicket(orderId: string, ticketId: string): Promise<void> {
+    await pool.query(
+      `
+      UPDATE order_items
+      SET ticket_id = $2
+      WHERE order_id  = $1
+        AND ticket_id IS NULL
+        AND status    = 'ACTIVE'
+      `,
+      [orderId, ticketId]
+    );
+  }
+
+  // ── Get active tickets for kitchen display ────────────────
+  //
+  // Each ticket only shows items stamped with its own ticket_id.
+  // Items without a ticket_id (legacy data before migration) fall
+  // back to showing on the most recent active ticket for the order.
   static async getActiveTickets(
     shopId: string,
     filter: {
       statusList?: KitchenTicketStatus[];
-      stationId?: string;
-      limit: number;
-      offset: number;
+      stationId?:  string;
+      limit:       number;
+      offset:      number;
     }
   ): Promise<KitchenTicketWithItems[]> {
     const conditions: string[] = ['kt.shop_id = $1'];
     const values: any[] = [shopId];
     let idx = 2;
 
-    // Default: show all active statuses
     const statusList = filter.statusList ?? ['QUEUED', 'IN_PROGRESS', 'READY'];
     conditions.push(`kt.ticket_status = ANY($${idx++}::kitchen_ticket_status[])`);
     values.push(statusList);
@@ -245,7 +188,7 @@ export class KitchenRepository {
     values.push(filter.limit);
     values.push(filter.offset);
 
-    const result = await pool.query(
+    const result = await pool.query<KitchenTicketWithItems>(
       `
       SELECT
         kt.id,
@@ -259,6 +202,8 @@ export class KitchenRepository {
         kt.ticket_status,
         kt.priority,
         kt.station_id,
+        kt.round,
+        kt.is_addon,
         kt.queued_at,
         kt.first_bump_at,
         kt.all_ready_at,
@@ -266,18 +211,17 @@ export class KitchenRepository {
         kt.created_at,
         kt.updated_at,
 
-        -- Aggregate items as a JSON array in one query
         COALESCE(
           json_agg(
             json_build_object(
-              'id',               oi.id,
-              'order_id',         oi.order_id,
-              'product_name',     oi.product_name_snapshot,
-              'item_name',        oi.item_name_snapshot,
-              'qty',              oi.qty,
-              'modifier_snapshot',oi.modifier_snapshot,
-              'item_note',        oi.item_note,
-              'kitchen_status',   oi.kitchen_status
+              'id',                oi.id,
+              'order_id',          oi.order_id,
+              'product_name',      oi.product_name_snapshot,
+              'item_name',         oi.item_name_snapshot,
+              'qty',               oi.qty,
+              'modifier_snapshot', oi.modifier_snapshot,
+              'item_note',         oi.item_note,
+              'kitchen_status',    oi.kitchen_status
             )
             ORDER BY oi.created_at ASC
           ) FILTER (WHERE oi.id IS NOT NULL AND oi.status = 'ACTIVE'),
@@ -285,7 +229,7 @@ export class KitchenRepository {
         ) AS items
 
       FROM kitchen_tickets kt
-      LEFT JOIN order_items oi ON oi.order_id = kt.order_id
+      LEFT JOIN order_items oi ON oi.ticket_id = kt.id
       WHERE ${conditions.join(' AND ')}
       GROUP BY kt.id
       ORDER BY kt.priority DESC, kt.queued_at ASC
@@ -297,23 +241,10 @@ export class KitchenRepository {
     return result.rows;
   }
 
-  static async findTicketByOrderId(
-    orderId: string,
-    shopId: string
-  ): Promise<KitchenTicket | null> {
-    const result = await pool.query<KitchenTicket>(
-      `
-      SELECT * FROM kitchen_tickets
-      WHERE order_id = $1 AND shop_id = $2
-      `,
-      [orderId, shopId]
-    );
-    return result.rows[0] ?? null;
-  }
-
+  // ── Get a single ticket with its items ───────────────────
   static async findTicketWithItems(
     ticketId: string,
-    shopId: string
+    shopId:   string
   ): Promise<KitchenTicketWithItems | null> {
     const ticketResult = await pool.query<KitchenTicket>(
       `SELECT * FROM kitchen_tickets WHERE id = $1 AND shop_id = $2`,
@@ -335,31 +266,48 @@ export class KitchenRepository {
         item_note,
         kitchen_status
       FROM order_items
-      WHERE order_id = $1
-        AND status   = 'ACTIVE'
+      WHERE ticket_id = $1
+        AND status    = 'ACTIVE'
       ORDER BY created_at ASC
       `,
-      [ticket.order_id]
+      [ticketId]
     );
 
     return { ...ticket, items: itemsResult.rows };
   }
 
-  /**
-   * Update ticket status and record performance timestamps.
-   * Called directly for DONE / CANCELLED transitions.
-   */
+  static async findTicketByOrderId(orderId: string, shopId: string): Promise<KitchenTicket | null> {
+    const result = await pool.query<KitchenTicket>(
+      `
+      SELECT * FROM kitchen_tickets
+      WHERE order_id = $1 AND shop_id = $2
+      ORDER BY round DESC
+      LIMIT 1
+      `,
+      [orderId, shopId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  static async getTicketRoundCount(orderId: string): Promise<number> {
+    const result = await pool.query(
+      `SELECT COUNT(*) AS count FROM kitchen_tickets WHERE order_id = $1`,
+      [orderId]
+    );
+    return parseInt(result.rows[0]?.count ?? '0', 10);
+  }
+
   static async updateTicketStatus(
     ticketId: string,
-    shopId: string,
-    status: KitchenTicketStatus
+    shopId:   string,
+    status:   KitchenTicketStatus
   ): Promise<KitchenTicket | null> {
     const result = await pool.query<KitchenTicket>(
       `
       UPDATE kitchen_tickets
       SET
         ticket_status = $3::kitchen_ticket_status,
-        completed_at  = CASE WHEN $3 = 'DONE'      THEN now() ELSE completed_at END,
+        completed_at  = CASE WHEN $3 = 'DONE' THEN now() ELSE completed_at END,
         updated_at    = now()
       WHERE id = $1 AND shop_id = $2
       RETURNING *
@@ -371,7 +319,7 @@ export class KitchenRepository {
 
   static async updateTicketPriority(
     ticketId: string,
-    shopId: string,
+    shopId:   string,
     priority: KitchenPriority
   ): Promise<KitchenTicket | null> {
     const result = await pool.query<KitchenTicket>(
@@ -386,152 +334,129 @@ export class KitchenRepository {
     return result.rows[0] ?? null;
   }
 
-  /**
-   * Cancel the ticket and all its PENDING/PREPARING items.
-   * Called when an order is cancelled after a ticket exists.
-   */
-  static async cancelTicket(
-    orderId: string,
-    shopId: string
-  ): Promise<void> {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
+  static async cancelTicket(orderId: string, shopId: string): Promise<void> {
+    await pool.query(
+      `
+      UPDATE kitchen_tickets
+      SET ticket_status = 'CANCELLED', updated_at = now()
+      WHERE order_id = $1 AND shop_id = $2
+        AND ticket_status NOT IN ('DONE', 'CANCELLED')
+      `,
+      [orderId, shopId]
+    );
 
-      await client.query(
-        `
-        UPDATE kitchen_tickets
-        SET ticket_status = 'CANCELLED', updated_at = now()
-        WHERE order_id = $1 AND shop_id = $2
-        `,
-        [orderId, shopId]
-      );
-
-      // Only cancel items that haven't been served yet
-      await client.query(
-        `
-        UPDATE order_items
-        SET kitchen_status = 'CANCELLED'
-        WHERE order_id = $1
-          AND kitchen_status IN ('PENDING', 'PREPARING')
-        `,
-        [orderId]
-      );
-
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    await pool.query(
+      `
+      UPDATE order_items
+      SET kitchen_status = 'CANCELLED'
+      WHERE order_id = $1
+        AND kitchen_status IN ('PENDING', 'PREPARING')
+      `,
+      [orderId]
+    );
   }
 
-  // =======================================================
-  // ITEM STATUS UPDATES (the core kitchen workflow)
-  // =======================================================
-
-  /**
-   * Update a single item's kitchen_status and recalculate
-   * the parent ticket status — all in one transaction.
-   *
-   * Why in the repository and not the service?
-   *   The ticket status recalculation reads the current state
-   *   of ALL items for this order. Doing that with FOR UPDATE
-   *   inside a transaction prevents two concurrent cooks from
-   *   both marking the last item as READY and both thinking
-   *   they should transition the ticket to READY.
-   */
   static async updateItemKitchenStatus(params: {
-    itemId: string;
-    orderId: string;
-    shopId: string;
+    itemId:    string;
+    orderId:   string;
+    shopId:    string;
     newStatus: KitchenStatus;
-  }): Promise<{ item: any; ticket: KitchenTicket }> {
+  }): Promise<{ item: KitchenTicketItem; ticket: KitchenTicket }> {
     const client = await pool.connect();
 
     try {
       await client.query('BEGIN');
 
-      // 1. Update the specific item
-      const itemResult = await client.query(
+      const itemResult = await client.query<KitchenTicketItem>(
         `
         UPDATE order_items
-        SET kitchen_status = $3::kitchen_status
-        WHERE id       = $1
-          AND order_id = $2
-          AND status   = 'ACTIVE'
-        RETURNING *
+        SET kitchen_status = $1::kitchen_status
+        WHERE id = $2 AND order_id = $3 AND status = 'ACTIVE'
+        RETURNING
+          id, order_id,
+          product_name_snapshot AS product_name,
+          item_name_snapshot    AS item_name,
+          qty, modifier_snapshot, item_note, kitchen_status
         `,
-        [params.itemId, params.orderId, params.newStatus]
+        [params.newStatus, params.itemId, params.orderId]
       );
 
-      if (itemResult.rows.length === 0) {
-        throw new Error('ORDER_ITEM_NOT_FOUND');
-      }
+      if (itemResult.rows.length === 0) throw new Error('ORDER_ITEM_NOT_FOUND');
 
       const item = itemResult.rows[0];
 
-      // 2. Re-read all ACTIVE items to determine ticket status
-      //    FOR UPDATE locks the ticket row so concurrent updates
-      //    don't race on the status recalculation
+      // Lock the ticket that owns this item (via ticket_id)
+      // Fall back to most recent non-done ticket if ticket_id not set (legacy)
       const ticketResult = await client.query<KitchenTicket>(
         `
         SELECT kt.* FROM kitchen_tickets kt
-        WHERE kt.order_id = $1 AND kt.shop_id = $2
-        FOR UPDATE
+        JOIN order_items oi ON oi.ticket_id = kt.id
+        WHERE oi.id = $1 AND kt.shop_id = $2
+          AND kt.ticket_status NOT IN ('DONE', 'CANCELLED')
+        LIMIT 1
+        FOR UPDATE OF kt
         `,
-        [params.orderId, params.shopId]
+        [params.itemId, params.shopId]
       );
 
-      if (ticketResult.rows.length === 0) {
-        throw new Error('KITCHEN_TICKET_NOT_FOUND');
-      }
+      // Fallback for legacy items without ticket_id
+      const resolvedTicketResult = ticketResult.rows.length > 0
+        ? ticketResult
+        : await client.query<KitchenTicket>(
+            `
+            SELECT kt.* FROM kitchen_tickets kt
+            WHERE kt.order_id = $1 AND kt.shop_id = $2
+              AND kt.ticket_status NOT IN ('DONE', 'CANCELLED')
+            ORDER BY kt.round DESC
+            LIMIT 1
+            FOR UPDATE
+            `,
+            [params.orderId, params.shopId]
+          );
 
-      const ticket = ticketResult.rows[0];
+      if (resolvedTicketResult.rows.length === 0) throw new Error('KITCHEN_TICKET_NOT_FOUND');
 
-      // 3. Read current status of all ACTIVE items
-      const itemsResult = await client.query(
+      const ticket = resolvedTicketResult.rows[0];
+
+      // Read all items for THIS ticket to derive status
+      const itemsResult = await client.query<{ kitchen_status: KitchenStatus }>(
         `
         SELECT kitchen_status
         FROM order_items
-        WHERE order_id = $1 AND status = 'ACTIVE'
+        WHERE ticket_id = $1 AND status = 'ACTIVE'
         `,
-        [params.orderId]
+        [ticket.id]
       );
 
-      const statuses = itemsResult.rows.map((r) => r.kitchen_status as KitchenStatus);
+      // Fallback for legacy: read all order items
+      const statusRows = itemsResult.rows.length > 0
+        ? itemsResult.rows
+        : (await client.query<{ kitchen_status: KitchenStatus }>(
+            `SELECT kitchen_status FROM order_items WHERE order_id = $1 AND status = 'ACTIVE'`,
+            [params.orderId]
+          )).rows;
 
-      // 4. Determine new ticket status from item statuses
+      const statuses = statusRows.map(r => r.kitchen_status);
       const newTicketStatus = deriveTicketStatus(statuses, ticket.ticket_status);
 
-      // 5. Build timestamp updates
-      const now = new Date().toISOString();
-      const isFirstBump =
-        params.newStatus === 'PREPARING' && !ticket.first_bump_at;
-      const isAllReady =
-        newTicketStatus === 'READY' && !ticket.all_ready_at;
+      const now         = new Date().toISOString();
+      const isFirstBump = params.newStatus === 'PREPARING' && !ticket.first_bump_at;
+      const isAllReady  = newTicketStatus === 'READY' && !ticket.all_ready_at;
 
-      // 6. Update ticket
       const updatedTicketResult = await client.query<KitchenTicket>(
-  `
-  UPDATE kitchen_tickets
-  SET
-    ticket_status = $2::kitchen_ticket_status,
-    first_bump_at = CASE WHEN $3 THEN $4::timestamptz ELSE first_bump_at END,
-    all_ready_at  = CASE WHEN $5 THEN $4::timestamptz ELSE all_ready_at  END,
-    updated_at    = now()
-  WHERE id = $1
-  RETURNING *
-  `,
-  [
-    ticket.id,       // $1 → WHERE id = $1
-    newTicketStatus, // $2 → ticket_status
-    isFirstBump,     // $3 → CASE WHEN $3
-    now,             // $4 → timestamptz value (shared by both CASE)
-    isAllReady,      // $5 → CASE WHEN $5
-  ]
-);
+        `
+        UPDATE kitchen_tickets
+        SET
+          ticket_status = $2::kitchen_ticket_status,
+          first_bump_at = CASE WHEN $3 THEN $4::timestamptz ELSE first_bump_at END,
+          all_ready_at  = CASE WHEN $5 THEN $4::timestamptz ELSE all_ready_at  END,
+          updated_at    = now()
+        WHERE id = $1
+        RETURNING *
+        `,
+        [ticket.id, newTicketStatus, isFirstBump, now, isAllReady]
+      );
+
       await client.query('COMMIT');
 
       return { item, ticket: updatedTicketResult.rows[0] };
@@ -544,26 +469,19 @@ export class KitchenRepository {
   }
 }
 
-// ── Helper: derive ticket status from item statuses ────────
-// Pure function — easier to unit test in isolation.
 function deriveTicketStatus(
-  itemStatuses: KitchenStatus[],
-  currentTicketStatus: KitchenTicketStatus
+  statuses:      KitchenStatus[],
+  currentStatus: KitchenTicketStatus
 ): KitchenTicketStatus {
-  if (itemStatuses.length === 0) return currentTicketStatus;
-
-  const active = itemStatuses.filter((s) => s !== 'CANCELLED');
-
-  if (active.length === 0) return 'CANCELLED';
-
-  const allServed    = active.every((s) => s === 'SERVED');
-  const allReadyPlus = active.every((s) => s === 'READY' || s === 'SERVED');
-  const anyPreparing = active.some((s) => s === 'PREPARING');
-  const anyPending   = active.some((s) => s === 'PENDING');
-
+  const active = statuses.filter(s => s !== 'CANCELLED' && s !== 'SERVED');
+  if (active.length === 0) return currentStatus;
+  const allServed    = statuses.every(s => s === 'SERVED');
+  const allReadyPlus = active.every(s => s === 'READY');
+  const anyPreparing = active.some(s => s === 'PREPARING');
   if (allServed)    return 'DONE';
   if (allReadyPlus) return 'READY';
-  if (anyPreparing || (!anyPending && !allReadyPlus)) return 'IN_PROGRESS';
-
-  return 'QUEUED';
+  if (anyPreparing) return 'IN_PROGRESS';
+  const allPending = active.every(s => s === 'PENDING');
+  if (allPending) return 'QUEUED';
+  return 'IN_PROGRESS';
 }
