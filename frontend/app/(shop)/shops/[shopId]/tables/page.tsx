@@ -2,6 +2,14 @@
 // =========================================================
 // app/(shop)/shops/[shopId]/tables/page.tsx
 // Manage restaurant tables + QR codes. RESTAURANT shops only.
+//
+// Edit table:
+//   - "Edit" button opens EditTableModal pre-filled with
+//     the table's current table_number and capacity.
+//   - PATCH /api/shops/:shopId/tables/:tableId sends the
+//     updated fields. Backend accepts table_number, capacity,
+//     is_active (all optional, at least one required).
+//   - On success: list re-fetches, modal closes, toast shown.
 // =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -20,12 +28,26 @@ export default function TablesPage() {
   const [tables, setTables]   = useState<RestaurantTable[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [showAdd, setShowAdd]       = useState(false);
-  const [tableNo, setTableNo]       = useState("");
-  const [capacity, setCapacity]     = useState("");
-  const [saving, setSaving]         = useState(false);
+  // ── Add modal state ──────────────────────────────────────
+  const [showAdd, setShowAdd]   = useState(false);
+  const [tableNo, setTableNo]   = useState("");
+  const [capacity, setCapacity] = useState("");
+  const [saving, setSaving]     = useState(false);
 
+  // ── Edit modal state ─────────────────────────────────────
+  // editTarget holds the table being edited so the modal can
+  // pre-fill its fields. null = modal closed.
+  const [editTarget, setEditTarget]       = useState<RestaurantTable | null>(null);
+  const [editTableNo, setEditTableNo]     = useState("");
+  const [editCapacity, setEditCapacity]   = useState("");
+  const [editSaving, setEditSaving]       = useState(false);
+
+  // ── QR preview state ─────────────────────────────────────
   const [qrPreview, setQrPreview] = useState<RestaurantTable | null>(null);
+
+  // ── Rotate QR confirm state ──────────────────────────────
+  const [rotateTarget, setRotateTarget]     = useState<RestaurantTable | null>(null);
+  const [rotateSaving, setRotateSaving]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -39,6 +61,7 @@ export default function TablesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── Add ──────────────────────────────────────────────────
   async function handleAdd() {
     if (!tableNo.trim()) { toast.error("Table number is required."); return; }
     setSaving(true);
@@ -55,6 +78,53 @@ export default function TablesPage() {
     } finally { setSaving(false); }
   }
 
+  // ── Edit ─────────────────────────────────────────────────
+  // Pre-fill the edit modal with the selected table's data.
+  function openEdit(table: RestaurantTable) {
+    setEditTarget(table);
+    setEditTableNo(table.table_number);
+    setEditCapacity(table.capacity != null ? String(table.capacity) : "");
+  }
+
+  function closeEdit() {
+    setEditTarget(null);
+    setEditTableNo("");
+    setEditCapacity("");
+  }
+
+  async function handleEdit() {
+    if (!editTarget) return;
+    if (!editTableNo.trim()) { toast.error("Table number is required."); return; }
+
+    // Only send fields that have actually changed.
+    // The backend requires at least one field (Zod refine check).
+    const payload: Record<string, unknown> = {};
+    if (editTableNo.trim() !== editTarget.table_number) {
+      payload.table_number = editTableNo.trim();
+    }
+    const newCap = editCapacity ? Number(editCapacity) : null;
+    if (newCap !== (editTarget.capacity ?? null)) {
+      payload.capacity = newCap ?? undefined; // undefined removes capacity
+    }
+
+    if (Object.keys(payload).length === 0) {
+      toast("No changes to save.");
+      closeEdit();
+      return;
+    }
+
+    setEditSaving(true);
+    try {
+      await api.patch(`/api/shops/${shopId}/tables/${editTarget.id}`, payload);
+      toast.success("Table updated.");
+      closeEdit();
+      load();
+    } catch (err: any) {
+      toast.error(getErrorMessage(err.response?.data?.message));
+    } finally { setEditSaving(false); }
+  }
+
+  // ── Toggle active ────────────────────────────────────────
   async function handleToggleActive(table: RestaurantTable) {
     try {
       await api.patch(`/api/shops/${shopId}/tables/${table.id}`, {
@@ -66,6 +136,7 @@ export default function TablesPage() {
     }
   }
 
+  // ── Delete ───────────────────────────────────────────────
   async function handleDelete(tableId: string, tableNumber: string) {
     if (!confirm(`Delete table ${tableNumber}?`)) return;
     try {
@@ -77,6 +148,21 @@ export default function TablesPage() {
     }
   }
 
+  // ── Rotate QR ────────────────────────────────────────────
+  async function handleRotateQr() {
+    if (!rotateTarget) return;
+    setRotateSaving(true);
+    try {
+      await api.post(`/api/shops/${shopId}/tables/${rotateTarget.id}/rotate-qr`);
+      toast.success("QR code rotated. Old QR links are now invalid.");
+      setRotateTarget(null);
+      load();
+    } catch (err: any) {
+      toast.error(getErrorMessage(err.response?.data?.message));
+    } finally { setRotateSaving(false); }
+  }
+
+  // ── QR helpers ───────────────────────────────────────────
   function getQrUrl(token: string) {
     const base = process.env.NEXT_PUBLIC_APP_URL ?? (typeof window !== "undefined" ? window.location.origin : "");
     return `${base}/qr/${token}`;
@@ -99,6 +185,7 @@ export default function TablesPage() {
     win.print();
   }
 
+  // ── Restaurant-only guard ────────────────────────────────
   if (shopType !== "RESTAURANT") {
     return (
       <div className="max-w-xl animate-fade-in">
@@ -114,8 +201,11 @@ export default function TablesPage() {
     );
   }
 
+  // ── Render ───────────────────────────────────────────────
   return (
     <div className="max-w-3xl animate-fade-in">
+
+      {/* Page header */}
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-[22px] font-medium text-[#0F2B4C]">Tables</h1>
         {canWrite && (
@@ -128,6 +218,7 @@ export default function TablesPage() {
         )}
       </div>
 
+      {/* Table list */}
       {loading ? (
         <SkeletonTable rows={5} cols={5} />
       ) : tables.length === 0 ? (
@@ -149,8 +240,9 @@ export default function TablesPage() {
             <tbody>
               {tables.map((t) => (
                 <tr key={t.id} className="border-b border-[#F1EFE8] last:border-0 hover:bg-[#F1EFE8]/40">
+
                   <td className="px-5 py-3 font-medium text-[#0F2B4C]">Table {t.table_number}</td>
-                  <td className="px-4 py-3 text-[#5F5E5A]">{t.capacity ?? "—"}</td>
+                  <td className="px-4 py-3 text-[#5F5E5A]">{t.capacity != null ? t.capacity : "—"}</td>
                   <td className="px-4 py-3">
                     <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${
                       t.is_active ? "bg-[#E1F5EE] text-[#0D7A5F]" : "bg-[#F1EFE8] text-[#5F5E5A]"
@@ -158,6 +250,7 @@ export default function TablesPage() {
                       {t.is_active ? "Active" : "Inactive"}
                     </span>
                   </td>
+
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-3">
                       <button
@@ -174,11 +267,24 @@ export default function TablesPage() {
                       </button>
                       {canWrite && (
                         <>
+                          {/* Edit — opens modal pre-filled with table data */}
+                          <button
+                            onClick={() => openEdit(t)}
+                            className="text-[12px] text-[#0F2B4C] hover:underline"
+                          >
+                            Edit
+                          </button>
                           <button
                             onClick={() => handleToggleActive(t)}
                             className="text-[12px] text-[#BA7517] hover:underline"
                           >
                             {t.is_active ? "Disable" : "Enable"}
+                          </button>
+                          <button
+                            onClick={() => setRotateTarget(t)}
+                            className="text-[12px] text-[#534AB7] hover:underline"
+                          >
+                            Rotate QR
                           </button>
                           <button
                             onClick={() => handleDelete(t.id, t.table_number)}
@@ -190,6 +296,7 @@ export default function TablesPage() {
                       )}
                     </div>
                   </td>
+
                 </tr>
               ))}
             </tbody>
@@ -197,7 +304,7 @@ export default function TablesPage() {
         </div>
       )}
 
-      {/* Add table modal */}
+      {/* ── Add table modal ───────────────────────────────── */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-sm shadow-md animate-fade-in">
@@ -226,8 +333,17 @@ export default function TablesPage() {
               </div>
             </div>
             <div className="flex gap-2 justify-end mt-5">
-              <button onClick={() => setShowAdd(false)} className="px-4 h-9 text-[13px] text-[#5F5E5A] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition">Cancel</button>
-              <button onClick={handleAdd} disabled={saving} className="flex items-center gap-2 px-4 h-9 text-[13px] font-medium text-white bg-[#0D7A5F] rounded-lg disabled:opacity-50">
+              <button
+                onClick={() => setShowAdd(false)}
+                className="px-4 h-9 text-[13px] text-[#5F5E5A] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdd}
+                disabled={saving}
+                className="flex items-center gap-2 px-4 h-9 text-[13px] font-medium text-white bg-[#0D7A5F] rounded-lg disabled:opacity-50"
+              >
                 {saving && <Spinner size={14} />} Add table
               </button>
             </div>
@@ -235,10 +351,123 @@ export default function TablesPage() {
         </div>
       )}
 
-      {/* QR preview modal */}
+      {/* ── Edit table modal ──────────────────────────────── */}
+      {/*
+        WHY: The backend's PATCH endpoint already supports updating
+        table_number and capacity. We just needed a modal to expose
+        those fields in the UI.
+
+        PRE-FILL PATTERN: openEdit() copies the table's current values
+        into controlled state before the modal opens. This means the
+        user sees the current values and can change only what they want.
+
+        DIFF LOGIC: We only send fields that actually changed. If nothing
+        changed, we skip the API call entirely. This avoids unnecessary
+        network requests and backend writes.
+      */}
+      {editTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-sm shadow-md animate-fade-in">
+            <h3 className="text-[16px] font-medium text-[#0F2B4C] mb-1">
+              Edit table
+            </h3>
+            <p className="text-[12px] text-[#5F5E5A] mb-4">
+              Currently: Table {editTarget.table_number}
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[12px] text-[#5F5E5A] mb-1">Table number *</label>
+                <input
+                  value={editTableNo}
+                  onChange={(e) => setEditTableNo(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleEdit()}
+                  className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+                  placeholder="e.g. A1, 12, VIP"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] text-[#5F5E5A] mb-1">Capacity (optional)</label>
+                <input
+                  type="number" min="1"
+                  value={editCapacity}
+                  onChange={(e) => setEditCapacity(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleEdit()}
+                  className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+                  placeholder="e.g. 4"
+                />
+                {editCapacity === "" && editTarget.capacity != null && (
+                  <p className="text-[11px] text-[#5F5E5A] mt-1">
+                    Leave empty to clear capacity.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end mt-5">
+              <button
+                onClick={closeEdit}
+                className="px-4 h-9 text-[13px] text-[#5F5E5A] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEdit}
+                disabled={editSaving}
+                className="flex items-center gap-2 px-4 h-9 text-[13px] font-medium text-white bg-[#0D7A5F] rounded-lg disabled:opacity-50"
+              >
+                {editSaving && <Spinner size={14} />} Save changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rotate QR confirm modal ───────────────────────── */}
+      {/*
+        WHY: Rotating the QR token instantly invalidates every printed QR
+        code for this table. We surface a confirmation modal (instead of
+        window.confirm) so the warning is clear and styled consistently
+        with the rest of the app.
+      */}
+      {rotateTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-sm shadow-md animate-fade-in">
+            <h3 className="text-[16px] font-medium text-[#0F2B4C] mb-2">Rotate QR code?</h3>
+            <p className="text-[13px] text-[#5F5E5A] mb-1">
+              Table <span className="font-medium text-[#0F2B4C]">{rotateTarget.table_number}</span>
+            </p>
+            <p className="text-[13px] text-[#A32D2D] mb-5">
+              This will invalidate the current QR code. Any printed copies will stop working. Print a new QR after rotating.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setRotateTarget(null)}
+                className="px-4 h-9 text-[13px] text-[#5F5E5A] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRotateQr}
+                disabled={rotateSaving}
+                className="flex items-center gap-2 px-4 h-9 text-[13px] font-medium text-white bg-[#A32D2D] rounded-lg disabled:opacity-50"
+              >
+                {rotateSaving && <Spinner size={14} />} Rotate QR
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── QR preview modal ──────────────────────────────── */}
       {qrPreview && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setQrPreview(null)}>
-          <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-xs shadow-md animate-fade-in text-center" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={() => setQrPreview(null)}
+        >
+          <div
+            className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-xs shadow-md animate-fade-in text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-[16px] font-medium text-[#0F2B4C] mb-1">Table {qrPreview.table_number}</h3>
             <p className="text-[12px] text-[#5F5E5A] mb-4">Scan to open the menu</p>
             <img
@@ -248,12 +477,23 @@ export default function TablesPage() {
             />
             <p className="text-[10px] text-[#5F5E5A] break-all mb-4">{getQrUrl(qrPreview.qr_token)}</p>
             <div className="flex gap-2">
-              <button onClick={() => setQrPreview(null)} className="flex-1 h-9 text-[13px] text-[#5F5E5A] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition">Close</button>
-              <button onClick={() => handlePrintQr(qrPreview)} className="flex-1 h-9 text-[13px] font-medium text-white bg-[#0D7A5F] rounded-lg hover:bg-opacity-90 transition">Print</button>
+              <button
+                onClick={() => setQrPreview(null)}
+                className="flex-1 h-9 text-[13px] text-[#5F5E5A] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => handlePrintQr(qrPreview)}
+                className="flex-1 h-9 text-[13px] font-medium text-white bg-[#0D7A5F] rounded-lg hover:bg-opacity-90 transition"
+              >
+                Print
+              </button>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }
