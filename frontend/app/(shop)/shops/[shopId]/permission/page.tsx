@@ -105,16 +105,20 @@ export default function PermissionsPage() {
     }
   }
 
-  async function handleDelete(device: ShopDevice) {
-    if (!confirm("Permanently remove this device record? Only revoked devices can be deleted.")) return;
-    try {
-      await api.delete(`/api/shops/${shopId}/devices/${device.id}`);
-      toast.success("Device removed.");
-      load();
-    } catch (err: any) {
-      toast.error(getErrorMessage(err.response?.data?.message));
-    }
+async function handleDelete(device: ShopDevice) {
+  const message =
+    device.status === "PENDING"
+      ? `Remove the device "${device.device_name ?? device.id.slice(0, 8)}"? It hasn't been approved, so this has no effect on access.`
+      : `Permanently remove this device record? Only revoked or pending devices can be deleted.`;
+  if (!confirm(message)) return;
+  try {
+    await api.delete(`/api/shops/${shopId}/devices/${device.id}`);
+    toast.success("Device removed.");
+    load();
+  } catch (err: any) {
+    toast.error(getErrorMessage(err.response?.data?.message));
   }
+}
 
   async function handleRename() {
     if (!renaming || !renameValue.trim()) return;
@@ -363,14 +367,22 @@ function DeviceTable({
                         Rename
                       </button>
 
-                      {device.status === "PENDING" && (
-                        <button
-                          onClick={() => onApprove(device)}
-                          className="text-[12px] text-[#0D7A5F] font-medium hover:underline"
-                        >
-                          Approve
-                        </button>
-                      )}
+{device.status === "PENDING" && (
+  <>
+    <button
+      onClick={() => onApprove(device)}
+      className="text-[12px] text-[#0D7A5F] font-medium hover:underline"
+    >
+      Approve
+    </button>
+    <button
+      onClick={() => onDelete(device)}
+      className="text-[12px] text-[#A32D2D] hover:underline"
+    >
+      Delete
+    </button>
+  </>
+)}
 
                       {device.status === "APPROVED" && (
                         <button
