@@ -13,7 +13,7 @@ const router = Router({ mergeParams: true });
 // All kitchen routes require a valid kitchen_token cookie.
 // CASHIER role cannot obtain this token — they are blocked at login.
 router.use(requireKitchenAuth);
-
+router.patch("/tickets/:ticketId/cancel", KitchenController.cancelTicket);
 // STATIONS — OWNER/CHEF only
 router.post('/stations',   validate(createStationSchema), requireKitchenRole('OWNER', 'CHEF'), KitchenController.createStation);
 router.get('/stations',    KitchenController.getStations);

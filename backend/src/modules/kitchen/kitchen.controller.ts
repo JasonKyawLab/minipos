@@ -185,4 +185,18 @@ export class KitchenController {
       return res.json(result);
     } catch (err) { return handleError(res, err); }
   }
+
+static async cancelTicket(req: Request, res: Response) {
+    try {
+      const shopId      = getParamAsString(req.params.shopId,   'shopId');
+      const ticketId    = getParamAsString(req.params.ticketId, 'ticketId');
+      const requesterId = req.kitchenSession!.userId;
+
+      const result = await KitchenService.cancelTicketByStaff({
+        shopId, ticketId, requesterId,
+      });
+      return res.json(result);
+    } catch (err) { return handleError(res, err); }
+  }
+  
 }

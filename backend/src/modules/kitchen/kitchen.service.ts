@@ -19,7 +19,8 @@ import { emitToShop, emitToKitchenTerminals, emitToQrSession }  from '../socket/
 import { SOCKET_EVENTS }                                         from '../socket/socket.events.js';
 
 const WRITE_ROLES = ['OWNER', 'MANAGER'] as const;
-const ALL_ROLES   = ['OWNER', 'MANAGER', 'CASHIER'] as const;
+const ALL_ROLES   = ['OWNER', 'MANAGER', 'CHEF'] as const;
+const CANCEL_TICKET_ROLES = ["OWNER", "MANAGER"] as const;
 
 const KITCHEN_STATUS_RANK: Record<KitchenStatus, number> = {
   PENDING: 0, PREPARING: 1, READY: 2, SERVED: 3, CANCELLED: 4,
@@ -141,6 +142,47 @@ export class KitchenService {
       emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
     } catch (socketErr) { console.error('Kitchen socket emit failed:', socketErr); }
   }
+
+  static async cancelTicketByStaff(params: {
+  shopId:      string;
+  ticketId:    string;
+  requesterId: string;
+}) {
+  // Permission check — only OWNER/MANAGER can void a kitchen ticket.
+  // CASHIER/CHEF execute orders; they don't have authority to void them.
+  const member = await ShopRepository.getUserShopMembership(params.shopId, params.requesterId);
+  if (!member || !member.is_active || !CANCEL_TICKET_ROLES.includes(member.role as any)) {
+    throw new appError("FORBIDDEN", 403);
+  }
+
+  const ticket = await KitchenRepository.findTicketById(params.ticketId, params.shopId);
+  if (!ticket) throw new appError("TICKET_NOT_FOUND", 404);
+  if (ticket.ticket_status === "CANCELLED") {
+    throw new appError("TICKET_ALREADY_CANCELLED", 400);
+  }
+
+  await KitchenRepository.cancelTicket(ticket.order_id, params.shopId);
+
+  await AuditService.log({
+    shopId:   params.shopId,
+    userId:   params.requesterId,
+    action:   "KITCHEN_TICKET_VOIDED",
+    entity:   "KITCHEN_TICKET",
+    entityId: params.ticketId,
+    metadata: { orderId: ticket.order_id, orderNo: ticket.order_no },
+  });
+
+  const payload = {
+    orderId: ticket.order_id,
+    orderNo: ticket.order_no,
+    ticket_status: "CANCELLED",
+    timestamp: new Date().toISOString(),
+  };
+  emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
+  emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
+
+  return { success: true };
+}
 
   static async getActiveTickets(shopId: string, requesterId: string, filter: { statusList?: KitchenTicketStatus[]; stationId?: string; limit: number; offset: number }) {
     await assertShopMember(shopId, requesterId, ALL_ROLES);

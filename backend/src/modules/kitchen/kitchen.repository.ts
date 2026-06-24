@@ -276,6 +276,19 @@ export class KitchenRepository {
     return { ...ticket, items: itemsResult.rows };
   }
 
+  // Lightweight lookup by the kitchen_ticket's own id — used by
+// cancelTicketByStaff, which receives the ticket id (not the
+// order id) from the route param :ticketId. Do NOT confuse this
+// with findTicketByOrderId, which looks up by order_id and can
+// return a DIFFERENT ticket when an order has multiple rounds.
+static async findTicketById(ticketId: string, shopId: string): Promise<KitchenTicket | null> {
+  const result = await pool.query<KitchenTicket>(
+    `SELECT * FROM kitchen_tickets WHERE id = $1 AND shop_id = $2`,
+    [ticketId, shopId]
+  );
+  return result.rows[0] ?? null;
+}
+
   static async findTicketByOrderId(orderId: string, shopId: string): Promise<KitchenTicket | null> {
     const result = await pool.query<KitchenTicket>(
       `
