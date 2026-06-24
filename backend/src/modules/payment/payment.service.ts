@@ -48,7 +48,7 @@ import { KitchenRepository } from "../kitchen/kitchen.repository.js";
 import { ProcessPaymentInput } from "./payment.types.js";
 import { appError }          from "../../utils/appError.js";
 import { SOCKET_EVENTS }     from "../socket/socket.events.js";
-import { emitToShop }        from "../socket/socket.js";
+import { emitToShop, emitToQrSession  }        from "../socket/socket.js";
 import { pool }              from "../../db/pool.js";
 
 const ALL_ROLES = ["OWNER", "MANAGER", "CASHIER"] as const;
@@ -110,7 +110,8 @@ export class PaymentService {
     // Remember whether this order was OPEN before payment.
     // OPEN means TAKEAWAY or RETAIL — these were never CONFIRMED
     // to the kitchen and need a ticket created on payment.
-    const wasOpen = order.status === "OPEN";
+    const wasOpen = order.status === "OPEN" 
+  && (order.order_type === "TAKEAWAY" || order.order_type === "RETAIL");
     console.log(`[Payment] orderId=${params.orderId} status=${order.status} wasOpen=${wasOpen} orderType=${order.order_type}`);
 
     const payment = await PaymentRepository.processPayment({
@@ -141,6 +142,16 @@ export class PaymentService {
     } catch (socketErr) {
       console.error("Socket emit failed:", socketErr);
     }
+
+    try {
+  emitToQrSession(params.orderId, SOCKET_EVENTS.QR_ORDER_STATUS, {
+    orderId:   params.orderId,
+    newStatus: "PAID",
+    timestamp: new Date().toISOString(),
+  });
+} catch (socketErr) {
+  console.error("QR session socket emit failed:", socketErr);
+}
 
     // ── Create kitchen ticket for TAKEAWAY / RETAIL ──────────
     // These order types are kept OPEN until payment is collected.
