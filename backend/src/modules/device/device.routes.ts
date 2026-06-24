@@ -20,6 +20,8 @@ router.post(
   DeviceController.register
 );
 
+router.get('/status', DeviceController.getStatus);
+
 // ==========================================================
 // PROTECTED ROUTES – require platform authentication
 // ==========================================================
@@ -28,7 +30,7 @@ router.use(requireAuth);
 router.use(requireRole("USER"));
 
 router.get("/", DeviceController.list);
-router.get('/status', DeviceController.getStatus);
+router.get("/pending-count", DeviceController.getPendingCount);
 router.patch("/:deviceId/approve", DeviceController.approve);
 router.patch("/:deviceId/revoke", DeviceController.revoke);
 router.patch("/:deviceId/rename", validate(renameDeviceSchema), DeviceController.rename);

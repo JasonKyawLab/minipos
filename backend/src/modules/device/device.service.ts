@@ -310,35 +310,44 @@ export class DeviceService {
 
   // ── Delete a device ──────────────────────────────────────
   // Hard delete — only allowed on REVOKED devices.
-  static async deleteDevice(params: {
-    shopId:      string;
-    deviceId:    string;
-    requesterId: string;
-  }) {
-    await assertCanManage(params.shopId, params.requesterId);
+ static async deleteDevice(params: {
+  shopId:      string;
+  deviceId:    string;
+  requesterId: string;
+}) {
+  await assertCanManage(params.shopId, params.requesterId);
 
-    const deleted = await DeviceRepository.deleteDevice(
+  const deleted = await DeviceRepository.deleteDevice(
+    params.deviceId,
+    params.shopId
+  );
+
+  if (!deleted) {
+    const existing = await DeviceRepository.findById(
       params.deviceId,
       params.shopId
     );
-
-    if (!deleted) {
-      const existing = await DeviceRepository.findById(
-        params.deviceId,
-        params.shopId
-      );
-      if (!existing) throw new appError('DEVICE_NOT_FOUND', 404);
-      throw new appError('DEVICE_MUST_BE_REVOKED_BEFORE_DELETE', 409);
-    }
-
-    await AuditService.log({
-      shopId:   params.shopId,
-      userId:   params.requesterId,
-      action:   'DEVICE_DELETED',
-      entity:   'SHOP_DEVICE',
-      entityId: params.deviceId,
-    });
-
-    return { success: true };
+    if (!existing) throw new appError('DEVICE_NOT_FOUND', 404);
+    throw new appError('DEVICE_MUST_BE_REVOKED_OR_PENDING_BEFORE_DELETE', 409);
   }
+
+  await AuditService.log({
+    shopId:   params.shopId,
+    userId:   params.requesterId,
+    action:   'DEVICE_DELETED',
+    entity:   'SHOP_DEVICE',
+    entityId: params.deviceId,
+  });
+
+  return { success: true };
+}
+
+// ── Get pending device count (sidebar badge) ─────────────
+  // Same permission gate as getDevices() — OWNER only, matching
+  // the Permissions page's own access check.
+  static async getPendingCount(shopId: string, requesterId: string): Promise<number> {
+    await assertCanManage(shopId, requesterId);
+    return DeviceRepository.countPending(shopId);
+  }
+
 }

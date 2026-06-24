@@ -131,4 +131,16 @@ export class DeviceController {
     return handleError(res, err);
   }
 }
+
+// GET /api/shops/:shopId/devices/pending-count
+  static async getPendingCount(req: Request, res: Response) {
+    try {
+      const shopId      = getParamAsString(req.params.shopId, 'shopId');
+      const requesterId = req.user!.id;
+
+      const count = await DeviceService.getPendingCount(shopId, requesterId);
+      return res.json({ count });
+    } catch (err) { return handleError(res, err); }
+  }
+
 }

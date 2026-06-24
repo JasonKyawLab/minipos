@@ -211,10 +211,29 @@ export class DeviceRepository {
       DELETE FROM shop_devices
       WHERE id      = $1
         AND shop_id = $2
-        AND status  = 'REVOKED'
+        AND status IN ('REVOKED', 'PENDING')
       `,
       [deviceId, shopId]
     );
     return (result.rowCount ?? 0) > 0;
   }
+
+  // ── Count pending devices for a shop ──────────────────────
+  // Used by the sidebar notification badge. Deliberately returns
+  // just a number instead of full rows (IP, user agent, etc.) —
+  // the sidebar renders on every shop page, so this gets polled
+  // far more often than the full device list is ever fetched.
+  static async countPending(shopId: string): Promise<number> {
+    const { rows } = await pool.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM shop_devices
+      WHERE shop_id = $1
+        AND status  = 'PENDING'
+      `,
+      [shopId]
+    );
+    return rows[0]?.count ?? 0;
+  }
+
 }
