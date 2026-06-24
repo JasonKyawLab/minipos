@@ -3,23 +3,31 @@
 // =========================================================
 // app/(kitchen)/kitchen/[shopId]/display/page.tsx
 // Path: frontend/app/(kitchen)/kitchen/[shopId]/display/page.tsx
-// 
+//
 // CHANGES:
 //   - After socket connects, emit "join_terminal_session".
 //   - On reconnect, re‑emit the join and refetch tickets.
 //   - Added error listener for debugging.
+//   - NEW: Void ticket feature. Reads the staff role stored by
+//     the PIN login page (sessionStorage key set in
+//     app/(kitchen)/kitchen/[shopId]/page.tsx) and only shows
+//     the void (✕) button to OWNER/MANAGER. CHEF executes
+//     orders; they don't have authority to cancel them — this
+//     mirrors the backend check in KitchenService.cancelTicketByStaff.
 // =========================================================
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams }  from "next/navigation";
-import kitchenApi     from "@/lib/kitchenApi";
+import kitchenApi, { cancelKitchenTicket } from "@/lib/kitchenApi";
 import { ModeGate }   from "@/components/mode/ModeGate";
+import { VoidTicketModal } from "@/components/kitchen/VoidTicketModal";
 import { createFreshSocket, getSocket } from "@/lib/socket";
 
 // ── Types (mirror backend kitchen.types.ts) ───────────────
 type KitchenStatus       = "PENDING" | "PREPARING" | "READY" | "SERVED" | "CANCELLED";
 type KitchenTicketStatus = "QUEUED"  | "IN_PROGRESS" | "READY" | "DONE" | "CANCELLED";
 type KitchenPriority     = "NORMAL"  | "HIGH";
+type KitchenRole         = "OWNER"   | "MANAGER" | "CHEF";
 
 interface KitchenTicketItem {
   id:                string;
@@ -82,6 +90,17 @@ function isOverdue(queuedAt: string): boolean {
   return Date.now() - new Date(queuedAt).getTime() > 15 * 60_000;
 }
 
+// Reads the role stored by the PIN login page right before
+// redirecting here. Falls back to "CHEF" (most restrictive)
+// if missing, so a stale/cleared session never accidentally
+// grants void access.
+function getStoredKitchenRole(shopId: string): KitchenRole {
+  if (typeof window === "undefined") return "CHEF";
+  const stored = sessionStorage.getItem(`minipos_kitchen_role_${shopId}`);
+  if (stored === "OWNER" || stored === "MANAGER" || stored === "CHEF") return stored;
+  return "CHEF";
+}
+
 // ── Component ─────────────────────────────────────────────
 export default function KitchenDisplayPage() {
   const { shopId } = useParams<{ shopId: string }>();
@@ -98,8 +117,20 @@ export default function KitchenDisplayPage() {
   const [exitingMode, setExitingMode]           = useState(false);
   const [socketConnected, setSocketConnected]   = useState(true);
 
+  // ── Void ticket state ──────────────────────────────────────
+  const [currentRole, setCurrentRole]       = useState<KitchenRole>("CHEF");
+  const [voidingTicket, setVoidingTicket]   = useState<KitchenTicket | null>(null);
+  const [voidLoading, setVoidLoading]       = useState(false);
+  const [voidError, setVoidError]           = useState<string | null>(null);
+
   const socketRef  = useRef<ReturnType<typeof getSocket> | null>(null);
   const fetchingRef = useRef(false);
+
+  // Read the role once on mount — set by the PIN login page
+  // right before it redirected here.
+  useEffect(() => {
+    setCurrentRole(getStoredKitchenRole(shopId));
+  }, [shopId]);
 
   const fetchTickets = useCallback(async () => {
     if (fetchingRef.current) return;
@@ -273,6 +304,37 @@ export default function KitchenDisplayPage() {
     }
   }
 
+  // ── Void ticket ────────────────────────────────────────────
+  // OWNER/MANAGER only — enforced both here (UI gate) and again
+  // in KitchenService.cancelTicketByStaff (backend gate). The
+  // backend check is the one that actually matters for security;
+  // this one just keeps the button from showing to CHEF.
+async function handleConfirmVoid() {
+  if (!voidingTicket) return;
+  setVoidLoading(true);
+  setVoidError(null);
+  try {
+    await cancelKitchenTicket(shopId, voidingTicket.id);
+    setTickets((prev) => prev.filter((t) => t.id !== voidingTicket.id));
+    setVoidingTicket(null);
+  } catch (err: any) {
+    const code = err?.response?.data?.message;
+    if (code === "FORBIDDEN") {
+      setVoidError("Only an Owner or Manager can void a ticket.");
+    } else if (code === "TICKET_ALREADY_CANCELLED" || code === "TICKET_NOT_FOUND") {
+      // The ticket is already gone server-side (cancelled, or
+      // cleared via a DB cleanup) — this is stale frontend state,
+      // not a real error. Drop the card silently instead of
+      // showing a confusing error for something the user can't act on.
+      setTickets((prev) => prev.filter((t) => t.id !== voidingTicket.id));
+      setVoidingTicket(null);
+    } else {
+      setVoidError("Could not void this ticket. Please try again.");
+    }
+  } finally {
+    setVoidLoading(false);
+  }
+}
   // ── Shift / exit ──────────────────────────────────────────
   function handleEndShiftClick() {
     const startStr = sessionStorage.getItem(SHIFT_START_KEY);
@@ -290,6 +352,7 @@ export default function KitchenDisplayPage() {
     setEndingShift(true);
     try { await kitchenApi.post(`/api/shops/${shopId}/kitchen-auth/logout`); } catch {}
     sessionStorage.removeItem(SHIFT_START_KEY);
+    sessionStorage.removeItem(`minipos_kitchen_role_${shopId}`);
     window.location.href = `/kitchen/${shopId}`;
   }
 
@@ -298,6 +361,7 @@ export default function KitchenDisplayPage() {
     setExitingMode(true);
     try { await kitchenApi.post(`/api/shops/${shopId}/kitchen-auth/logout`); } catch {}
     sessionStorage.removeItem(SHIFT_START_KEY);
+    sessionStorage.removeItem(`minipos_kitchen_role_${shopId}`);
     window.location.href = `/shops/${shopId}/dashboard`;
   }
 
@@ -372,8 +436,10 @@ export default function KitchenDisplayPage() {
                           ticket={ticket}
                           bumpingItems={bumpingItems}
                           completing={completingIds.has(ticket.id)}
+                          currentRole={currentRole}
                           onBumpItem={handleBumpItem}
                           onComplete={handleCompleteTicket}
+                          onVoidTicket={setVoidingTicket}
                         />
                       ))
                   )}
@@ -427,6 +493,17 @@ export default function KitchenDisplayPage() {
           onCancel={() => setShowExitGate(false)}
         />
       )}
+
+      {/* ── Void ticket modal ── */}
+      {voidingTicket && (
+        <VoidTicketModal
+          orderNo={voidingTicket.order_no}
+          isLoading={voidLoading}
+          errorMessage={voidError}
+          onConfirm={handleConfirmVoid}
+          onCancel={() => { setVoidingTicket(null); setVoidError(null); }}
+        />
+      )}
     </>
   );
 }
@@ -436,16 +513,20 @@ interface TicketCardProps {
   ticket:       KitchenTicket;
   bumpingItems: Set<string>;
   completing:   boolean;
+  currentRole:  KitchenRole;
   onBumpItem:   (ticket: KitchenTicket, item: KitchenTicketItem) => void;
   onComplete:   (ticket: KitchenTicket) => void;
+  onVoidTicket: (ticket: KitchenTicket) => void;
 }
 
 const TicketCard = React.memo(function TicketCard({
   ticket,
   bumpingItems,
   completing,
+  currentRole,
   onBumpItem,
   onComplete,
+  onVoidTicket,
 }: TicketCardProps) {
   const orderTypeLabel: Record<string, string> = {
     DINE_IN:  "Dine In",
@@ -457,6 +538,12 @@ const TicketCard = React.memo(function TicketCard({
   const cardBg = ticket.priority === "HIGH"
     ? "bg-[#D97706]/8 border-[#D97706]/30"
     : "bg-white/5 border-white/10";
+
+  // Only OWNER/MANAGER see the void button — CHEF can prepare
+  // and bump items but cannot cancel an order. Real backend
+  // enforcement lives in KitchenService.cancelTicketByStaff;
+  // this just keeps the control out of the UI for CHEF.
+  const canVoid = currentRole === "OWNER" || currentRole === "MANAGER";
 
   return (
     <div className={`rounded-2xl border ${cardBg} overflow-hidden`}>
@@ -498,7 +585,24 @@ const TicketCard = React.memo(function TicketCard({
               )}
             </div>
           </div>
-          <ElapsedTime queuedAt={ticket.queued_at} />
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <ElapsedTime queuedAt={ticket.queued_at} />
+            {canVoid && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onVoidTicket(ticket);
+                }}
+                title="Void ticket (Owner/Manager only)"
+                className="w-6 h-6 flex items-center justify-center rounded-md text-white/30 hover:text-[#FF6B6B] hover:bg-[#A32D2D]/15 transition"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
         {ticket.notes && (
           <p className="mt-2 text-[#D97706] text-[11px] leading-snug">
