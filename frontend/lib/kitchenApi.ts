@@ -81,4 +81,8 @@ kitchenApi.interceptors.response.use(
   }
 );
 
+export async function cancelKitchenTicket(shopId: string, ticketId: string) {
+  return kitchenApi.patch(`/api/shops/${shopId}/kitchen/tickets/${ticketId}/cancel`);
+}
+
 export default kitchenApi;
