@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState }         from "react";
+import React, { useState, useEffect } from "react";
 import Link                         from "next/link";
 import { usePathname, useRouter }   from "next/navigation";
 import { clsx }                     from "clsx";
@@ -8,9 +8,12 @@ import { useAuth }                  from "@/context/AuthContext";
 import { useShop }                  from "@/context/ShopContext";
 import { ModeGate }                 from "@/components/mode/ModeGate";
 import { ShopType, ShopRole }       from "@/types";
+import api                          from "@/lib/api";
 import toast                        from "react-hot-toast";
 
 type PendingMode = "POS" | "KITCHEN" | null;
+
+const PENDING_DEVICE_POLL_MS = 20_000;
 
 interface NavItem {
   href:  string;
@@ -18,28 +21,28 @@ interface NavItem {
   icon:  React.ReactNode;
   /** Which roles can see this nav item */
   roles: ShopRole[];
+  badgeCount?: number;
 }
 
-function buildNavItems(shopId: string, shopType: ShopType): NavItem[] {
+function buildNavItems(shopId: string, shopType: ShopType, pendingDeviceCount: number): NavItem[] {
   const items: NavItem[] = [
     {
       href:  `/shops/${shopId}/dashboard`,
       label: "Dashboard",
       icon:  <DashIcon />,
-      // FIX: Added CHEF — chefs can see the dashboard
-      roles: ["OWNER", "MANAGER", "CASHIER", "CHEF"],
+      roles: ["OWNER", "MANAGER"],
     },
     {
       href:  `/shops/${shopId}/orders`,
       label: "Orders",
       icon:  <OrderIcon />,
-      roles: ["OWNER", "MANAGER", "CASHIER"],
+      roles: ["OWNER", "MANAGER"],
     },
     {
       href:  `/shops/${shopId}/products`,
       label: "Products",
       icon:  <ProductIcon />,
-      roles: ["OWNER", "MANAGER", "CASHIER"],
+      roles: ["OWNER", "MANAGER"],
     },
     {
       href:  `/shops/${shopId}/staff`,
@@ -73,6 +76,9 @@ function buildNavItems(shopId: string, shopType: ShopType): NavItem[] {
       label: "Permissions",
       icon:  <PermIcon />,
       roles: ["OWNER"],
+      // Badge belongs HERE — pending devices are what the
+      // Permissions page is for, not the Dashboard.
+      badgeCount: pendingDeviceCount,
     },
   ];
 
@@ -96,8 +102,43 @@ export function ShopSidebar() {
   const { logout } = useAuth();
   const { shopId, shopName, shopType, userRole } = useShop();
   const [pendingMode, setPendingMode] = useState<PendingMode>(null);
+  const [pendingDeviceCount, setPendingDeviceCount] = useState(0);
 
-  const navItems     = buildNavItems(shopId, shopType);
+  // Poll for devices waiting on approval. OWNER only — the
+  // endpoint itself rejects everyone else, so skip the call
+  // entirely rather than firing it and eating a 403 on every tick.
+  useEffect(() => {
+    if (userRole !== "OWNER") return;
+
+    let cancelled = false;
+
+    async function fetchCount() {
+      try {
+        const { data } = await api.get<{ count: number }>(
+          `/api/shops/${shopId}/devices/pending-count`
+        );
+        if (!cancelled) setPendingDeviceCount(data.count);
+      } catch {
+        // Silent — a missed badge update for one tick isn't worth a toast.
+      }
+    }
+
+    fetchCount();
+    const interval = setInterval(fetchCount, PENDING_DEVICE_POLL_MS);
+
+    // Instant refresh when the owner approves/revokes a device
+    // on the Permissions page itself — no need to wait for the
+    // next poll tick to see your own action reflected.
+    window.addEventListener("device-permission-changed", fetchCount);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("device-permission-changed", fetchCount);
+    };
+  }, [shopId, userRole]);
+
+  const navItems     = buildNavItems(shopId, shopType, pendingDeviceCount);
   const visibleItems = navItems.filter((item) => item.roles.includes(userRole));
 
   // OWNER and MANAGER activate modes from the sidebar (password gate).
@@ -189,6 +230,11 @@ export function ShopSidebar() {
                   {item.icon}
                 </span>
                 {item.label}
+                {!!item.badgeCount && (
+                  <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-status-red text-white text-[10px] font-semibold leading-none">
+                    {item.badgeCount > 9 ? "9+" : item.badgeCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -232,7 +278,6 @@ export function ShopSidebar() {
 // ── Role pill ─────────────────────────────────────────────
 
 function RolePill({ role }: { role: ShopRole }) {
-  // FIX: Added CHEF style — was missing, causing TypeScript error
   const styles: Record<ShopRole, string> = {
     OWNER:   "bg-[#EEEDFE] text-[#534AB7]",
     MANAGER: "bg-[#FAEEDA] text-[#BA7517]",
@@ -266,5 +311,4 @@ const PosIcon      = () => mk("M2 3h12v8H2V3zM5 14h6M8 11v3");
 const KitchenIcon  = () => mk("M4 2h8l1 6H3L4 2zM2 8h12v6H2V8z");
 const BackIcon     = () => mk("M10 4L6 8l4 4");
 const LogoutIcon   = () => mk("M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3M10 11l3-3-3-3M13 8H6");
-// FIX: Added WorkLogIcon — clock with a checkmark feel
 const WorkLogIcon  = () => mk("M8 2a6 6 0 100 12A6 6 0 008 2zM8 5v3.5l2.5 1.5");
