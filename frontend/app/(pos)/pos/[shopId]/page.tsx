@@ -39,6 +39,23 @@
 // through Next.js so the Set-Cookie lands on the same origin
 // the browser uses for navigation. Without that proxy this
 // page cannot fix the redirect loop no matter what.
+//
+// UX NOTE — "device locked to another mode" copy
+// ─────────────────────────────────────────────────────────
+// When ERR_DEVICE_LOCKED_TO_MODE comes back from the backend
+// (a stale pos_token/kitchen_token/terminal_session cookie is
+// still on this browser from a previous test/session), we do
+// NOT explain cookies or terminal internals to the end user.
+// A cashier or kitchen staffer has no use for that information
+// and shouldn't be expected to act on it. Instead we surface a
+// single "Reset this device" action that reuses the existing
+// ModeGate "exit" password flow, plus a note pointing them to
+// whoever holds the owner/manager password. This is currently
+// the only mechanism available to clear the stale cookie — see
+// chat history for a possible future split into a no-password
+// "soft reset" for the case where no terminalSession is truly
+// active, vs. this password-gated flow for a genuinely live
+// session being interrupted.
 // =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -48,7 +65,6 @@ import { getErrorMessage } from "@/utils/errorMessages";
 import { ModeGate }        from "@/components/mode/ModeGate";
 import type { PosStaffItem } from "@/types";
 import { DevicePendingScreen } from "@/components/terminal/DevicePendingScreen";
-import { getSocket, createFreshSocket } from "@/lib/socket";
 
 // ── No session imports ────────────────────────────────────
 // usePosSession is intentionally absent. This page does not
@@ -100,6 +116,17 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
+// ── Friendly copy for device-error states ─────────────────
+// Keep this non-technical — the person reading it is a
+// cashier/kitchen staffer, not a developer. No mention of
+// cookies, terminal sessions, or browser internals.
+function getFriendlyDeviceMessage(code: string | undefined): string {
+  if (code === "ERR_DEVICE_LOCKED_TO_MODE") {
+    return "This device is already set up for something else.";
+  }
+  return getErrorMessage(code);
+}
+
 export default function PosLoginPage() {
   const { shopId }   = useParams<{ shopId: string }>();
   const searchParams = useSearchParams();
@@ -111,7 +138,8 @@ export default function PosLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [shake, setShake]           = useState(false);
   const [pinError, setPinError]     = useState("");
-  const [deviceError, setDeviceError] = useState("");
+  const [deviceError, setDeviceError]       = useState("");
+  const [deviceErrorCode, setDeviceErrorCode] = useState<string | undefined>(undefined);
 
   const [showExitGate, setShowExitGate]             = useState(false);
   const [pendingDeviceKey, setPendingDeviceKey]     = useState<string | null>(null);
@@ -124,28 +152,42 @@ export default function PosLoginPage() {
   // "waiting for approval" screen. The owner then approves
   // from the Permissions dashboard and activates POS mode,
   // which sets the terminal_id cookie server-side.
-  const handleAutoRegister = useCallback(
-    async (triggerCode: string) => {
-      const deviceKey = getOrCreateDeviceKey(shopId);
-      try {
-        await fetch(`${API_BASE}/api/shops/${shopId}/devices/register`, {
-          method:      "POST",
-          credentials: "include",
-          headers:     { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            device_key:  deviceKey,
-            device_name: `POS — ${navigator.userAgent.slice(0, 40)}`,
-          }),
-        });
-        setPendingDeviceKey(deviceKey);
-        setScreen("DEVICE_PENDING");
-      } catch {
-        setDeviceError(getErrorMessage(triggerCode));
+  //
+  // If registration itself is rejected (e.g. this browser is
+  // still locked to another mode via a stale cookie), we do
+  // NOT show the pending screen — nothing was created on the
+  // backend, so there is nothing to wait on. We surface a
+  // friendly, actionable error instead.
+  const handleAutoRegister = useCallback(async (triggerCode: string) => {
+    const deviceKey = getOrCreateDeviceKey(shopId);
+    try {
+      const res = await fetch(`${API_BASE}/api/shops/${shopId}/devices/register`, {
+        method:      "POST",
+        credentials: "include",
+        headers:     { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          device_key:  deviceKey,
+          device_name: `POS — ${navigator.userAgent.slice(0, 40)}`,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const code = body.message as string | undefined;
+        setDeviceErrorCode(code);
+        setDeviceError(getFriendlyDeviceMessage(code ?? triggerCode));
         setScreen("SELECT_STAFF");
+        return;
       }
-    },
-    [shopId]
-  );
+
+      setPendingDeviceKey(deviceKey);
+      setScreen("DEVICE_PENDING");
+    } catch {
+      setDeviceErrorCode(triggerCode);
+      setDeviceError(getFriendlyDeviceMessage(triggerCode));
+      setScreen("SELECT_STAFF");
+    }
+  }, [shopId]);
 
   // ── Fetch staff list ──────────────────────────────────────
   //
@@ -165,7 +207,8 @@ export default function PosLoginPage() {
       if (code && DEVICE_ERROR_CODES.has(code)) {
         await handleAutoRegister(code);
       } else {
-        setDeviceError(getErrorMessage(code));
+        setDeviceErrorCode(code);
+        setDeviceError(getFriendlyDeviceMessage(code));
         setScreen("SELECT_STAFF");
       }
     }
@@ -173,8 +216,6 @@ export default function PosLoginPage() {
 
   // ── Mount effect ──────────────────────────────────────────
   useEffect(() => {
-
-    
     // Device was just registered and is waiting for approval.
     // URL contains ?device_pending=<deviceId> from ModeGate.
     const pendingKey = searchParams.get("device_pending");
@@ -188,7 +229,8 @@ export default function PosLoginPage() {
     // even reaching this page (e.g. revoked device).
     const errorParam = searchParams.get("error");
     if (errorParam && DEVICE_ERROR_CODES.has(errorParam)) {
-      setDeviceError(getErrorMessage(errorParam));
+      setDeviceErrorCode(errorParam);
+      setDeviceError(getFriendlyDeviceMessage(errorParam));
     }
 
     // Ensure a device key exists for this shop in localStorage
@@ -295,6 +337,19 @@ export default function PosLoginPage() {
 
   function handleExitConfirmed() {
     setShowExitGate(false);
+    // If we got here from the "Reset this tablet" action (a
+    // device-lock error, not a deliberate owner exit), clear
+    // the error state and retry registration immediately
+    // instead of bouncing to the dashboard — the person here
+    // is a staff member standing at the tablet, not an owner
+    // who wants to leave the page.
+    if (deviceErrorCode === "ERR_DEVICE_LOCKED_TO_MODE") {
+      setDeviceError("");
+      setDeviceErrorCode(undefined);
+      setScreen("LOADING");
+      fetchStaff();
+      return;
+    }
     window.location.href = `/shops/${shopId}/dashboard`;
   }
 
@@ -463,57 +518,79 @@ export default function PosLoginPage() {
           Exit Mode
         </button>
 
-        <div className="mb-6 text-center">
-          <p className="text-white/50 text-[13px] uppercase tracking-widest mb-1">Point of Sale</p>
-          <h1 className="text-white text-[26px] font-medium">Who are you?</h1>
-        </div>
-
-        {deviceError && (
-          <div className="mb-5 w-full max-w-sm px-4 py-3 bg-[#BA7517]/20 border border-[#BA7517]/40 rounded-xl text-center">
-            <p className="text-[#FBBF24] text-[13px] font-medium">Device not activated</p>
-            <p className="text-[#FBBF24]/70 text-[12px]">{deviceError}</p>
+        {/* ── Device-locked error: takes over the screen ──────
+            When the device couldn't register at all, there is
+            no staff list to show meaningfully — show only the
+            reset action, not a half-populated staff grid. */}
+        {deviceErrorCode === "ERR_DEVICE_LOCKED_TO_MODE" ? (
+          <div className="bg-[#3A2A1A] border border-[#BA7517]/40 rounded-xl px-6 py-6 max-w-sm text-center">
+            <p className="text-[#FBBF24] text-[15px] font-medium mb-2">This device needs a quick reset</p>
+            <p className="text-white/60 text-[13px] mb-5 leading-relaxed">{deviceError}</p>
+            <button
+              onClick={() => setShowExitGate(true)}
+              className="bg-[#BA7517] hover:bg-[#A8650F] text-white text-[13px] font-medium px-5 py-2.5 rounded-lg transition w-full"
+            >
+              Reset this device
+            </button>
+            <p className="text-white/35 text-[12px] mt-3 leading-relaxed">
+              Ask your manager or owner to enter their password to reset this device.
+            </p>
           </div>
-        )}
+        ) : (
+          <>
+            <div className="mb-6 text-center">
+              <p className="text-white/50 text-[13px] uppercase tracking-widest mb-1">Point of Sale</p>
+              <h1 className="text-white text-[26px] font-medium">Who are you?</h1>
+            </div>
 
-        <div className="flex flex-wrap gap-3 justify-center max-w-lg">
-          {staff.map((member) => {
-            const disabled          = isCardDisabled(member);
-            const isOwnerNeedsSetup = member.role === "OWNER" && !member.has_pin;
+            {deviceError && (
+              <div className="bg-[#3A2A1A] border border-[#BA7517]/40 rounded-xl px-5 py-4 mb-4 text-center max-w-sm">
+                <p className="text-[#FBBF24] text-[13px] font-medium mb-1">Something's not right</p>
+                <p className="text-white/60 text-[13px]">{deviceError}</p>
+              </div>
+            )}
 
-            return (
-              <button
-                key={member.user_id}
-                onClick={() => handleSelectStaff(member)}
-                disabled={disabled}
-                className={`w-28 py-5 rounded-xl flex flex-col items-center gap-2 transition active:scale-95 ${
-                  disabled
-                    ? "bg-white/5 opacity-40 cursor-not-allowed"
-                    : "bg-white/10 hover:bg-white/20"
-                }`}
-              >
-                <div className="w-12 h-12 rounded-full bg-[#0D7A5F] flex items-center justify-center text-white text-[16px] font-medium">
-                  {getInitials(member.name)}
-                </div>
-                <div className="text-center">
-                  <p className="text-white text-[13px] font-medium leading-tight">
-                    {member.name.split(" ")[0]}
-                  </p>
-                  <p className="text-white/40 text-[11px]">{member.role}</p>
-                </div>
-                {isOwnerNeedsSetup && (
-                  <p className="text-[#FBBF24] text-[10px] text-center font-medium">
-                    Setup required
-                  </p>
-                )}
-              </button>
-            );
-          })}
-        </div>
+            <div className="flex flex-wrap gap-3 justify-center max-w-lg">
+              {staff.map((member) => {
+                const disabled          = isCardDisabled(member);
+                const isOwnerNeedsSetup = member.role === "OWNER" && !member.has_pin;
 
-        {pinError && screen === "SELECT_STAFF" && (
-          <p className="mt-5 text-[#FF9B9B] text-[13px] text-center max-w-xs leading-relaxed">
-            {pinError}
-          </p>
+                return (
+                  <button
+                    key={member.user_id}
+                    onClick={() => handleSelectStaff(member)}
+                    disabled={disabled}
+                    className={`w-28 py-5 rounded-xl flex flex-col items-center gap-2 transition active:scale-95 ${
+                      disabled
+                        ? "bg-white/5 opacity-40 cursor-not-allowed"
+                        : "bg-white/10 hover:bg-white/20"
+                    }`}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-[#0D7A5F] flex items-center justify-center text-white text-[16px] font-medium">
+                      {getInitials(member.name)}
+                    </div>
+                    <div className="text-center">
+                      <p className="text-white text-[13px] font-medium leading-tight">
+                        {member.name.split(" ")[0]}
+                      </p>
+                      <p className="text-white/40 text-[11px]">{member.role}</p>
+                    </div>
+                    {isOwnerNeedsSetup && (
+                      <p className="text-[#FBBF24] text-[10px] text-center font-medium">
+                        Setup required
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {pinError && screen === "SELECT_STAFF" && (
+              <p className="mt-5 text-[#FF9B9B] text-[13px] text-center max-w-xs leading-relaxed">
+                {pinError}
+              </p>
+            )}
+          </>
         )}
       </div>
 
