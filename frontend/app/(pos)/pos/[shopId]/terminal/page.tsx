@@ -394,6 +394,10 @@ export default function PosTerminalPage() {
       loadTableStatuses();
     });
 
+    socket.on("qr:order_placed", () => {
+      loadTableStatuses();
+    });
+
     socket.on("payment:processed", (payload: { orderId: string }) => {
       setBillRequests((prev) => prev.filter((r) => r.orderId !== payload.orderId));
       loadTableStatuses();
@@ -402,6 +406,7 @@ export default function PosTerminalPage() {
     return () => {
       socket.off(POS_FORCE_LOGOUT_EVENT);
       socket.off("qr:bill_requested");
+      socket.off("qr:order_placed"); 
       socket.off("payment:processed");
       socket.disconnect();
     };
@@ -1121,11 +1126,10 @@ export default function PosTerminalPage() {
                   {tableStatuses.map((table) => {
                     const isBillRequested = table.bill_requested && table.order_status === "CLOSING";
                     const isOccupied      = !!table.order_id && !isBillRequested;
-                    const isInKitchen     = isOccupied && table.order_status === "CONFIRMED";
                     const cardBorder = isBillRequested ? "border-[#D97706]/60" : isOccupied ? "border-[#1E4FBF]/50" : "border-white/8";
                     const cardBg     = isBillRequested ? "bg-[#D97706]/10"     : isOccupied ? "bg-[#1E4FBF]/10"     : "bg-white/[0.04]";
                     const dotColor   = isBillRequested ? "bg-[#D97706]"        : isOccupied ? "bg-[#93C5FD]"        : "bg-white/20";
-                    const statusLabel = isBillRequested ? "Bill requested" : isInKitchen ? "In kitchen" : isOccupied ? "Ordering" : "Available";
+                    const statusLabel = isBillRequested ? "Bill requested" : isOccupied ? "Occupied" : "Available";                    
                     const statusColor = isBillRequested ? "text-[#D97706]" : isOccupied ? "text-[#93C5FD]" : "text-white/25";
                     const totalAmount = table.total_amount ? parseFloat(table.total_amount) : null;
                     return (
