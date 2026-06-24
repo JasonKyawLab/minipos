@@ -12,7 +12,7 @@ import { KitchenService }    from "../kitchen/kitchen.service.js";
 import { KitchenRepository } from "../kitchen/kitchen.repository.js";
 import { AuditService }      from "../audit/audit.service.js";
 import { appError }          from "../../utils/appError.js";
-import { emitToShop, emitToQrSession } from "../socket/socket.js";
+import { emitToShop, emitToQrSession, emitToPosTerminals} from "../socket/socket.js";
 import { SOCKET_EVENTS }     from "../socket/socket.events.js";
 import { PlaceQrOrderInput } from "./qr.types.js";
 import { pool }              from "../../db/pool.js";
@@ -247,6 +247,24 @@ export class QrService {
       console.error("Socket emit failed:", socketErr);
     }
 
+    // Notify POS terminals (cashier-facing)
+    try {
+  emitToPosTerminals(params.shopId, SOCKET_EVENTS.QR_ORDER_PLACED, {
+    orderId:     order.id,
+    orderNo:     order.order_no,
+    tableId:     params.tableId,
+    tableNumber: params.tableNumber,
+    totalAmount: updatedOrder.total_amount,
+    itemCount:   params.input.items.length,
+    round,
+    is_addon,
+    isNewOrder,
+    timestamp:   new Date().toISOString(),
+  });
+} catch (socketErr) {
+  console.error("POS terminal socket emit failed:", socketErr);
+}
+
     await AuditService.log({
       shopId:   params.shopId,
       action:   is_addon ? "QR_ADDON_ORDER_PLACED" : "QR_ORDER_PLACED",
@@ -297,6 +315,37 @@ export class QrService {
         timestamp:   new Date().toISOString(),
       });
     } catch (e) { console.error("Bill request emit failed:", e); }
+
+// Inside requestBill(), right after the existing emitToShop call (~line 13096):
+
+    try {
+      emitToShop(params.shopId, SOCKET_EVENTS.QR_BILL_REQUESTED, {
+        orderId:     order.id,
+        orderNo:     order.order_no,
+        tableId:     params.tableId,
+        tableNumber,
+        totalAmount: order.total_amount,
+        timestamp:   new Date().toISOString(),
+      });
+    } catch (e) { console.error("Bill request emit failed:", e); }
+
+    // NEW — the POS terminal floor view runs on the "burn the ships" terminal
+    // session, not the platform JWT, so it only ever joins
+    // terminal:{shopId}:POS. emitToShop alone only reaches platform-authenticated
+    // dashboard sockets (owner/manager logged in outside terminal mode) — it never
+    // reaches the actual cashier-facing terminal screen. Without this, the floor
+    // view's "qr:bill_requested" listener never fires, and the status never
+    // refreshes from CLOSING even though the DB was updated correctly.
+    try {
+      emitToPosTerminals(params.shopId, SOCKET_EVENTS.QR_BILL_REQUESTED, {
+        orderId:     order.id,
+        orderNo:     order.order_no,
+        tableId:     params.tableId,
+        tableNumber,
+        totalAmount: order.total_amount,
+        timestamp:   new Date().toISOString(),
+      });
+    } catch (e) { console.error("Bill request POS terminal emit failed:", e); }
 
     try {
       emitToQrSession(order.id, SOCKET_EVENTS.QR_TABLE_LOCKED, {
