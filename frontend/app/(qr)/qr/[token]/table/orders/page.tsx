@@ -131,26 +131,31 @@ export default function TableOrdersPage() {
   }, [session?.order_id]);
 
   // ── Request bill ──────────────────────────────────────────
-  async function handleRequestBill() {
-    if (requesting || session?.status !== "OPEN") return;
-    setRequesting(true);
-    try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/qr/${token}/table/request-bill`,
-        { method: "POST" }
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message ?? "REQUEST_FAILED");
-      }
-      // Optimistically update — socket event will confirm
-      setSession(prev => prev ? { ...prev, status: "CLOSING", bill_requested: true } : prev);
-    } catch (err: any) {
-      alert(err.message === "NO_ACTIVE_ORDER" ? "No active order found." : "Something went wrong. Please try again.");
-    } finally {
-      setRequesting(false);
+ async function handleRequestBill() {
+  // FIX: "CONFIRMED" must be allowed here. Orders move OPEN -> CONFIRMED
+  // once accepted/sent to kitchen (see OrderService state machine), and
+  // that's the normal state a customer is in when they're ready to pay.
+  // The old check only allowed "OPEN", which silently blocked the request
+  // for every order that had already progressed — no error, no log, the
+  // function just returned before the fetch ever fired.
+  if (requesting || !session || !["OPEN", "CONFIRMED"].includes(session.status)) return;
+  setRequesting(true);
+  try {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL || ""}/api/qr/${token}/table/request-bill`,
+      { method: "POST" }
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.message ?? "REQUEST_FAILED");
     }
+    setSession(prev => prev ? { ...prev, status: "CLOSING", bill_requested: true } : prev);
+  } catch (err: any) {
+    alert(err.message === "NO_ACTIVE_ORDER" ? "No active order found." : "Something went wrong. Please try again.");
+  } finally {
+    setRequesting(false);
   }
+ }
 
   // ── Group items by round ──────────────────────────────────
   // Round null means items added before the round tracking migration
