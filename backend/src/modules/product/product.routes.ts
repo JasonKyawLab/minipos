@@ -10,6 +10,7 @@ import { Router }             from "express";
 import { ProductController }  from "./product.controller.js";
 import { requireAuth }        from "../auth/auth.middleware.js";
 import { requireRole }        from "../auth/role.middleware.js";
+import { requireShopRole }    from "../pos-auth/pos-auth.middleware.js";
 import { validate }           from "../../middlewares/validate.middleware.js";
 import {
   createCategorySchema,
@@ -27,7 +28,7 @@ const router = Router({ mergeParams: true });
 
 router.use(requireAuth);
 router.use(requireRole("ADMIN", "USER"));
-
+router.use(requireShopRole("OWNER", "MANAGER"));
 // ==========================================================
 // PRODUCT CATEGORIES
 // ==========================================================
