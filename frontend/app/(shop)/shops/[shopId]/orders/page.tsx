@@ -6,6 +6,12 @@
 //   1. Local type OrderStatus union
 //   2. STATUS_LABELS map
 //   3. STATUS_STYLES map
+//
+// CHANGED: table markup now uses the shared Table/TableHead/
+// Th/TableBody/Tr/Td components instead of raw <table> tags —
+// fixes content getting clipped (not scrollable) on narrower
+// screens, since Table.tsx wraps the table in overflow-x-auto
+// with a min-width instead of overflow-hidden.
 // =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -18,6 +24,7 @@ import { formatDateTime }   from "@/utils/formatDate";
 import toast                from "react-hot-toast";
 import { SkeletonTable }    from "@/components/ui/Skeleton";
 import { EmptyState }       from "@/components/states";
+import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -154,30 +161,32 @@ export default function OrdersPage() {
   const [refundReason, setRefundReason] = useState("");
   const [refunding,    setRefunding]    = useState(false);
 
-  const load = useCallback(async () => {
+const load = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string | number> = {
-        from:   dateFrom,
-        to:     dateTo,
-        limit,
-        offset: (page - 1) * limit,
+        from: dateFrom,
+        to: dateTo,
+        page,
+        pageSize: limit,
       };
-      if (statusFilter) params.status     = statusFilter;
+      if (statusFilter) params.status = statusFilter;
       if (typeFilter)   params.order_type = typeFilter;
 
-      const { data } = await api.get<Order[]>(
-        `/api/shops/${shopId}/orders`, { params }
-      );
+      const { data } = await api.get<{
+        data: Order[];
+        pagination: { totalCount: number; totalPages: number; hasNext: boolean; hasPrev: boolean };
+      }>(`/api/shops/${shopId}/orders`, { params });
 
-      setOrders(Array.isArray(data) ? data : []);
-      setTotal(Array.isArray(data) ? data.length : 0);
+      setOrders(data.data ?? []);
+      setTotal(data.pagination?.totalCount ?? 0);
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
+      setOrders([]);
     } finally {
       setLoading(false);
     }
-  }, [shopId, dateFrom, dateTo, statusFilter, typeFilter, page]);
+  }, [shopId, dateFrom, dateTo, statusFilter, typeFilter, page, limit]);
 
   useEffect(() => { setPage(1); }, [dateFrom, dateTo, statusFilter, typeFilter]);
   useEffect(() => { load(); }, [load]);
@@ -310,7 +319,7 @@ export default function OrdersPage() {
 
       {/* Orders table */}
       {loading ? (
-        <SkeletonTable rows={8} cols={7} />
+        <SkeletonTable rows={8} cols={8} />
       ) : orders.length === 0 ? (
         <EmptyState
           title="No orders found"
@@ -318,60 +327,52 @@ export default function OrdersPage() {
         />
       ) : (
         <>
-          <div className="bg-white border border-[#D3D1C7] rounded-lg overflow-hidden">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="bg-[#F1EFE8] border-b border-[#D3D1C7] text-[#5F5E5A] text-[12px]">
-                  <th className="text-left px-5 py-3 font-medium">Order #</th>
-                  <th className="text-left px-4 py-3 font-medium">Date</th>
-                  <th className="text-left px-4 py-3 font-medium">Type</th>
-                  <th className="text-left px-4 py-3 font-medium">Context</th>
-                  <th className="text-left px-4 py-3 font-medium">Served by</th>
-                  <th className="text-left px-4 py-3 font-medium">Status</th>
-                  <th className="text-right px-4 py-3 font-medium">Total</th>
-                  <th className="text-right px-5 py-3 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => (
-                  <tr
-                    key={o.id}
-                    className="border-b border-[#F1EFE8] last:border-0 hover:bg-[#F1EFE8]/40 cursor-pointer"
-                    onClick={() => openDetail(o.id)}
-                  >
-                    <td className="px-5 py-3 font-mono text-[#0F2B4C] font-medium">
-                      {o.order_no}
-                    </td>
-                    <td className="px-4 py-3 text-[#5F5E5A]">
-                      {formatDateTime(o.created_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[12px] px-2 py-0.5 rounded bg-[#F1EFE8] text-[#5F5E5A] font-medium whitespace-nowrap">
-                        {TYPE_LABELS[o.order_type] ?? o.order_type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-[#5F5E5A]">
-                      {getOrderContext(o)}
-                    </td>
-                    <td className="px-4 py-3 text-[#5F5E5A]">
-                      {o.cashier_name ?? "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${STATUS_STYLES[o.status]}`}>
-                        {STATUS_LABELS[o.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium text-[#0F2B4C]">
-                      {formatCurrency(Number(o.total_amount), currency)}
-                    </td>
-                    <td className="px-5 py-3 text-right text-[12px] text-[#534AB7]">
-                      View →
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table className="min-w-[760px]">
+            <TableHead>
+              <Th>Order #</Th>
+              <Th>Date</Th>
+              <Th>Type</Th>
+              <Th>Context</Th>
+              <Th>Served by</Th>
+              <Th>Status</Th>
+              <Th align="right">Total</Th>
+              <Th align="right"></Th>
+            </TableHead>
+            <TableBody>
+              {orders.map((o) => (
+                <Tr key={o.id} onClick={() => openDetail(o.id)}>
+                  <Td className="font-mono text-[#0F2B4C] font-medium">
+                    {o.order_no}
+                  </Td>
+                  <Td className="text-[#5F5E5A]">
+                    {formatDateTime(o.created_at)}
+                  </Td>
+                  <Td>
+                    <span className="text-[12px] px-2 py-0.5 rounded bg-[#F1EFE8] text-[#5F5E5A] font-medium whitespace-nowrap">
+                      {TYPE_LABELS[o.order_type] ?? o.order_type}
+                    </span>
+                  </Td>
+                  <Td className="text-[#5F5E5A]">
+                    {getOrderContext(o)}
+                  </Td>
+                  <Td className="text-[#5F5E5A]">
+                    {o.cashier_name ?? "—"}
+                  </Td>
+                  <Td>
+                    <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${STATUS_STYLES[o.status]}`}>
+                      {STATUS_LABELS[o.status]}
+                    </span>
+                  </Td>
+                  <Td align="right" className="font-medium text-[#0F2B4C]">
+                    {formatCurrency(Number(o.total_amount), currency)}
+                  </Td>
+                  <Td align="right" className="text-[12px] text-[#534AB7]">
+                    View →
+                  </Td>
+                </Tr>
+              ))}
+            </TableBody>
+          </Table>
 
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 mt-4">
