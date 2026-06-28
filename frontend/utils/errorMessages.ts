@@ -13,7 +13,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   TOKEN_REVOKED:             "Your session was revoked. Please log in again.",
   INVALID_CURRENT_PASSWORD:  "Current password is incorrect.",
   PASSWORD_MUST_BE_DIFFERENT:"New password must be different from current password.",
-
+  SHOP_SUSPENDED:            "This shop has been suspended. Please contact support.",
+  ACCOUNT_SUSPENDED:         "Your account has been suspended. Please contact support.",
   // ── Permissions ───────────────────────────────────────────
   FORBIDDEN:                       "You do not have permission to do this.",
   NOT_AUTHORIZED:                  "You are not authorized for this action.",
@@ -25,6 +26,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   CANNOT_MODIFY_OWNER_ROLE:        "The owner's role cannot be changed.",
   CANNOT_DEMOTE_LAST_ADMIN:        "Cannot demote the last admin account.",
   CANNOT_MODIFY_SELF_ROLE_2:       "You cannot modify your own role.",
+
 
   // ── Shop ──────────────────────────────────────────────────
   SHOP_NOT_FOUND:         "Shop not found.",
