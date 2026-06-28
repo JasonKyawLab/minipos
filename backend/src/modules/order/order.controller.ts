@@ -2,7 +2,8 @@ import { Request, Response } from "express";
 import { OrderService }      from "./order.service.js";
 import { getParamAsString }  from "../../utils/converter.js";
 import { handleError }       from "../../utils/handleError.js";
-import { ListOrdersFilter, OrderStatus } from "./order.types.js";
+import { ListOrdersFilter, OrderStatus, OrderType } from "./order.types.js";
+import { parsePaginationParams } from "../../utils/pagination.js";
 
 export class OrderController {
 
@@ -42,24 +43,27 @@ export class OrderController {
     } catch (err: any) { return handleError(res, err); }
   }
 
-  static async getOrders(req: Request, res: Response) {
+static async getOrders(req: Request<{ shopId: string }>, res: Response)  {
     try {
-      const shopId      = getParamAsString(req.params.shopId, "shopId");
-      const requesterId = req.user!.id;
+      const paginationParams = parsePaginationParams(req);
+      const { shopId } = req.params;
+      const { status, orderType, from, to } = req.query;
 
       const filter: ListOrdersFilter = {
         shopId,
-        status:    req.query.status     as OrderStatus | undefined,
-        orderType: req.query.order_type as any,
-        from:      req.query.from       as string | undefined,
-        to:        req.query.to         as string | undefined,
-        limit:     req.query.limit      ? parseInt(req.query.limit  as string) : undefined,
-        offset:    req.query.offset     ? parseInt(req.query.offset as string) : undefined,
+        status: status as OrderStatus | undefined,
+        orderType: orderType as OrderType | undefined,
+        from: from as string | undefined,
+        to: to as string | undefined,
+        limit: paginationParams.limit,
+        offset: paginationParams.offset,
       };
 
-      const orders = await OrderService.getOrders(filter, requesterId);
-      return res.json(orders);
-    } catch (err: any) { return handleError(res, err); }
+      const result = await OrderService.getOrders(filter, req.user!.id, paginationParams);
+      res.json(result);
+    } catch (err: any) {
+      return handleError(res, err);
+    }
   }
 
   static async getOrderById(req: Request, res: Response) {
