@@ -17,5 +17,10 @@ adminRoutes.patch("/users/:userId/restore", AdminController.restoreUser);
 adminRoutes.get("/shops", AdminController.getShops);
 adminRoutes.delete("/shops/:shopId", AdminController.deleteShop);
 adminRoutes.patch("/shops/:shopId/restore", AdminController.restoreShop);
+adminRoutes.patch("/shops/:shopId/suspend", AdminController.suspendShop);
+adminRoutes.patch("/shops/:shopId/unsuspend", AdminController.unsuspendShop);
+adminRoutes.patch("/users/:userId/suspend", AdminController.suspendUser);
+adminRoutes.patch("/users/:userId/reactivate", AdminController.reactivateUser);
+adminRoutes.get("/stats", AdminController.getStats);
 
 export default adminRoutes;
