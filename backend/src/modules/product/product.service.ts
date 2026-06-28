@@ -28,6 +28,7 @@ import { ShopRepository }     from "../shop/shop.repository.js";
 import { AuditService }       from "../audit/audit.service.js";
 import { ProductRepository }  from "./product.repository.js";
 import { emitToShop }         from "../socket/socket.js";
+import { PaginationParams, buildPaginatedResult } from "../../utils/pagination.js";
 import {
   CreateProductCategoryInput,
   UpdateProductCategoryInput,
@@ -204,9 +205,18 @@ export class ProductService {
     return model;
   }
 
-  static async getModels(shopId: string, requesterId: string) {
+ static async getModels(
+    shopId: string,
+    requesterId: string,
+    pagination: PaginationParams,
+    search?: string,
+    categoryId?: string
+  ) {
     await assertShopMember(shopId, requesterId, READ_ROLES);
-    return ProductRepository.findAllModels(shopId);
+    const { rows, totalCount } = await ProductRepository.findAllModels(
+      shopId, pagination, search, categoryId
+    );
+    return buildPaginatedResult(rows, totalCount, pagination);
   }
 
   static async getModelById(shopId: string, modelId: string, requesterId: string) {
