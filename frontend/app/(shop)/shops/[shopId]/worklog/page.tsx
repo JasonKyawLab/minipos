@@ -36,6 +36,10 @@
 //    Same visibilitychange pattern as the Orders page.
 //    When you return to the Worklog tab after a POS session,
 //    the list automatically refreshes to show the new shift.
+//
+// CHANGED: shifts table now uses the shared Table/TableHead/
+// Th/TableBody/Tr/Td components — fixes the Device column and
+// duration getting clipped (not scrollable) on narrower screens.
 // =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -46,6 +50,7 @@ import { formatDateTime, toISODate, getDefaultDateRange } from "@/utils/formatDa
 import toast from "react-hot-toast";
 import { EmptyState } from "@/components/states";
 import { SkeletonTable } from "@/components/ui/Skeleton";
+import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
 
 interface ShiftRecord {
   session_id:         string;
@@ -99,16 +104,6 @@ function formatMinutes(minutes: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-// ── Error helper with HTTP status ────────────────────────
-//
-// WHY: When an API call fails, knowing the HTTP status code
-// is critical for debugging. A 403 means permissions; a 404
-// means the route doesn't exist or the DB table is missing;
-// a 500 means a server crash. The standard getErrorMessage()
-// only maps the message code — it doesn't expose the status.
-//
-// This helper formats the error as "[STATUS] friendly message"
-// so you can see what's actually happening without DevTools.
 function buildErrorToast(err: any): string {
   const status  = err.response?.status;
   const code    = err.response?.data?.message;
@@ -138,26 +133,15 @@ export default function WorkLogPage() {
   const [modeFilter, setModeFilter] = useState<"" | "POS" | "KITCHEN">("");
   const [userFilter, setUserFilter] = useState("");
 
-  // Load staff dropdown once on mount (non-critical — failure is silent)
   useEffect(() => {
     if (!isManager) return;
     api.get<StaffOption[]>(`/api/shops/${shopId}/shifts/staff`)
       .then(({ data }) => setStaffList(Array.isArray(data) ? data : []))
       .catch(() => {
         // Silently fail — the staff filter just won't appear.
-        // If you're seeing this fail and want to debug it,
-        // temporarily change this to: .catch((err) => console.error(err))
       });
   }, [shopId, isManager]);
 
-  // ── Core load function ───────────────────────────────────
-  //
-  // Loads shifts and stats in one callback. Keeping them
-  // together prevents cascading re-renders in React StrictMode.
-  //
-  // Stats failure is non-fatal: if /shifts/stats fails (e.g.
-  // because the user has no shifts yet), we just hide the
-  // stats cards — the shifts table still loads normally.
   const loadData = useCallback(async (currentPage: number) => {
     setLoading(true);
 
@@ -177,8 +161,6 @@ export default function WorkLogPage() {
       setShifts(Array.isArray(data.shifts) ? data.shifts : []);
       setTotal(typeof data.total === "number" ? data.total : 0);
     } catch (err: any) {
-      // Use buildErrorToast here so you can see the HTTP status
-      // in the error message — critical for diagnosing 403/404/500.
       toast.error(buildErrorToast(err));
       setShifts([]);
       setTotal(0);
@@ -186,7 +168,6 @@ export default function WorkLogPage() {
       setLoading(false);
     }
 
-    // Stats — non-fatal, failure just hides the cards
     try {
       const statsParams: Record<string, string> = { from: dateFrom, to: dateTo };
       if (userFilter) statsParams.userId = userFilter;
@@ -200,13 +181,11 @@ export default function WorkLogPage() {
     }
   }, [shopId, dateFrom, dateTo, modeFilter, userFilter]);
 
-  // Reset page to 1 when filters change, then load
   useEffect(() => {
     setPage(1);
     loadData(1);
   }, [dateFrom, dateTo, modeFilter, userFilter, loadData]);
 
-  // Page change (user-initiated navigation — not filter-triggered)
   const [isPageChange, setIsPageChange] = useState(false);
 
   useEffect(() => {
@@ -220,9 +199,6 @@ export default function WorkLogPage() {
     setIsPageChange(true);
   }
 
-  // ── Auto-refresh on tab visibility ───────────────────────
-  // When you return to the Worklog tab after a POS session,
-  // the list auto-refreshes to show the new shift entry.
   useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === "visible") {
@@ -249,7 +225,6 @@ export default function WorkLogPage() {
         </p>
       </div>
 
-      {/* ── "No shifts yet" hint ─────────────────────────── */}
       {!loading && shifts.length === 0 && (
         <div className="bg-[#FAEEDA] border border-[#BA7517]/30 rounded-lg px-4 py-3 text-[13px] text-[#BA7517]">
           <span className="font-medium">No shifts recorded yet. </span>
@@ -258,7 +233,6 @@ export default function WorkLogPage() {
         </div>
       )}
 
-      {/* ── Stats cards ─────────────────────────────────── */}
       {stats && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard label="Total Shifts"    value={String(stats.total_shifts)}                      colour="navy" />
@@ -268,7 +242,6 @@ export default function WorkLogPage() {
         </div>
       )}
 
-      {/* ── Filters ─────────────────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1.5">
           <input
@@ -312,7 +285,6 @@ export default function WorkLogPage() {
           </select>
         )}
 
-        {/* Manual refresh — also useful to dismiss error states */}
         <button
           onClick={() => loadData(page)}
           disabled={loading}
@@ -337,81 +309,73 @@ export default function WorkLogPage() {
         />
       ) : (
         <>
-          <div className="bg-white border border-[#D3D1C7] rounded-lg overflow-hidden">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="bg-[#F1EFE8] border-b border-[#D3D1C7] text-[#5F5E5A] text-[12px]">
-                  <th className="text-left px-5 py-3 font-medium">Shop</th>
+          <Table className="min-w-[780px]">
+            <TableHead>
+              <Th>Shop</Th>
+              {isManager && <Th>Staff</Th>}
+              <Th>Role</Th>
+              <Th>Mode</Th>
+              <Th>Started</Th>
+              <Th>Ended</Th>
+              <Th align="right">Duration</Th>
+              <Th>Device</Th>
+            </TableHead>
+            <TableBody>
+              {shifts.map((shift) => (
+                <Tr
+                  key={shift.session_id}
+                  className={shift.is_active ? "bg-[#E1F5EE]/20" : undefined}
+                >
+                  <Td className="text-[#0F2B4C] font-medium text-[12px]">
+                    {shopName}
+                  </Td>
+
                   {isManager && (
-                    <th className="text-left px-4 py-3 font-medium">Staff</th>
+                    <Td className="font-medium text-[#0F2B4C]">
+                      {shift.staff_name}
+                    </Td>
                   )}
-                  <th className="text-left px-4 py-3 font-medium">Role</th>
-                  <th className="text-left px-4 py-3 font-medium">Mode</th>
-                  <th className="text-left px-4 py-3 font-medium">Started</th>
-                  <th className="text-left px-4 py-3 font-medium">Ended</th>
-                  <th className="text-right px-4 py-3 font-medium">Duration</th>
-                  <th className="text-left px-5 py-3 font-medium">Device</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shifts.map((shift) => (
-                  <tr
-                    key={shift.session_id}
-                    className={`border-b border-[#F1EFE8] last:border-0 hover:bg-[#F1EFE8]/40 ${
-                      shift.is_active ? "bg-[#E1F5EE]/20" : ""
-                    }`}
-                  >
-                    <td className="px-5 py-3 text-[#0F2B4C] font-medium text-[12px]">
-                      {shopName}
-                    </td>
 
-                    {isManager && (
-                      <td className="px-4 py-3 font-medium text-[#0F2B4C]">
-                        {shift.staff_name}
-                      </td>
+                  <Td>
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${
+                      ROLE_COLOURS[shift.shop_role] ?? "bg-[#F1EFE8] text-[#5F5E5A]"
+                    }`}>
+                      {shift.shop_role}
+                    </span>
+                  </Td>
+
+                  <Td>
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${MODE_COLOURS[shift.mode_type]}`}>
+                      {shift.mode_type}
+                    </span>
+                  </Td>
+
+                  <Td className="text-[#5F5E5A] text-[12px]">
+                    {formatDateTime(shift.login_at)}
+                  </Td>
+
+                  <Td className="text-[#5F5E5A] text-[12px]">
+                    {shift.logout_at ? (
+                      formatDateTime(shift.logout_at)
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-[#0D7A5F] font-medium text-[12px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#0D7A5F] animate-pulse" />
+                        Active now
+                      </span>
                     )}
+                  </Td>
 
-                    <td className="px-4 py-3">
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${
-                        ROLE_COLOURS[shift.shop_role] ?? "bg-[#F1EFE8] text-[#5F5E5A]"
-                      }`}>
-                        {shift.shop_role}
-                      </span>
-                    </td>
+                  <Td align="right" className="font-medium text-[#0F2B4C]">
+                    {shift.duration_formatted}
+                  </Td>
 
-                    <td className="px-4 py-3">
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${MODE_COLOURS[shift.mode_type]}`}>
-                        {shift.mode_type}
-                      </span>
-                    </td>
-
-                    <td className="px-4 py-3 text-[#5F5E5A] text-[12px]">
-                      {formatDateTime(shift.login_at)}
-                    </td>
-
-                    <td className="px-4 py-3 text-[#5F5E5A] text-[12px]">
-                      {shift.logout_at ? (
-                        formatDateTime(shift.logout_at)
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[#0D7A5F] font-medium text-[12px]">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#0D7A5F] animate-pulse" />
-                          Active now
-                        </span>
-                      )}
-                    </td>
-
-                    <td className="px-4 py-3 text-right font-medium text-[#0F2B4C]">
-                      {shift.duration_formatted}
-                    </td>
-
-                    <td className="px-5 py-3 text-[12px] text-[#5F5E5A]">
-                      {shift.device_name ?? "Unknown device"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                  <Td className="text-[12px] text-[#5F5E5A]">
+                    {shift.device_name ?? "Unknown device"}
+                  </Td>
+                </Tr>
+              ))}
+            </TableBody>
+          </Table>
 
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2">
@@ -439,8 +403,6 @@ export default function WorkLogPage() {
     </div>
   );
 }
-
-// ── Stat card sub-component ──────────────────────────────
 
 type Colour = "navy" | "teal" | "purple" | "amber";
 
