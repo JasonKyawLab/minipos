@@ -247,4 +247,12 @@ export class PosAuthRepository {
     );
     return (result.rowCount ?? 0) > 0;
   }
+
+  static async isShopSuspended(shopId: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      `SELECT is_suspended FROM shops WHERE id = $1`,
+      [shopId]
+    );
+    return rows[0]?.is_suspended ?? false;
+  }
 }
