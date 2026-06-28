@@ -17,11 +17,14 @@ export type UserStatus = "ACTIVE" | "SUSPENDED";
 export type ShopRole   = "OWNER" | "MANAGER" | "CASHIER" | "CHEF";
 
 export interface User {
-  id:     string;
-  name:   string;
-  email:  string;
-  role:   UserRole;
-  status: UserStatus;
+  id:         string;
+  name:       string;
+  email:      string;
+  role:       UserRole;
+  status:     UserStatus;
+  is_deleted: boolean;
+  shop_count: number;
+  created_at: string;
 }
 
 // ── Shop ──────────────────────────────────────────────────
@@ -39,6 +42,11 @@ export interface Shop {
   timezone:         string;
   pin_max_attempts: number;
   is_deleted:       boolean;
+  is_suspended:        boolean;
+  suspended_reason:    string | null;
+  suspended_at:        string | null;
+  owner_name:       string | null;
+  owner_email:      string | null;
   created_at:       string;
   updated_at:       string;
 }
