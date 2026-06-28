@@ -218,7 +218,9 @@ export class OrderRepository {
    * Supports pagination via limit/offset.
    * Default: latest 50 orders.
    */
-  static async findOrders(filter: ListOrdersFilter): Promise<Order[]> {
+ static async findOrders(
+    filter: ListOrdersFilter
+  ): Promise<{ rows: Order[]; totalCount: number }> {
     const conditions: string[] = ["o.shop_id = $1"];
     const values: any[]        = [filter.shopId];
     let idx = 2;
@@ -227,63 +229,51 @@ export class OrderRepository {
       conditions.push(`o.status = $${idx++}`);
       values.push(filter.status);
     }
-
     if (filter.orderType) {
       conditions.push(`o.order_type = $${idx++}`);
       values.push(filter.orderType);
     }
-
     if (filter.from) {
       conditions.push(`o.created_at >= $${idx++}::timestamptz`);
       values.push(filter.from);
     }
-
     if (filter.to) {
       conditions.push(`o.created_at <= $${idx++}::timestamptz + INTERVAL '1 day'`);
       values.push(filter.to);
     }
 
-    const limit  = filter.limit  ?? 50;
-    const offset = filter.offset ?? 0;
-
-    const result = await pool.query<Order>(
+    // COUNT(*) OVER() gives us the total matching row count alongside
+    // each page's rows in a single round-trip — cheaper than running
+    // a separate COUNT query, and avoids a race between the two.
+    const result = await pool.query<Order & { total_count: string }>(
       `
       SELECT
-        o.id,
-        o.shop_id,
-        o.order_no,
-        o.order_type,
-        o.status,
-        o.table_id,
-        o.cashier_id,
+        o.id, o.shop_id, o.order_no, o.order_type, o.status,
+        o.table_id, o.cashier_id,
         o.subtotal::FLOAT        AS subtotal,
         o.tax_amount::FLOAT      AS tax_amount,
         o.discount_amount::FLOAT AS discount_amount,
         o.total_amount::FLOAT    AS total_amount,
-        o.customer_name,
-        o.customer_phone,
-        o.delivery_address,
-        o.delivery_note,
-        o.notes,
-        o.cancelled_at,
-        o.completed_at,
-        o.created_at,
-        o.updated_at,
-        u.name                   AS cashier_name,
-        rt.table_number          AS table_number
+        o.customer_name, o.customer_phone,
+        o.delivery_address, o.delivery_note, o.notes,
+        o.cancelled_at, o.completed_at, o.created_at, o.updated_at,
+        u.name           AS cashier_name,
+        rt.table_number  AS table_number,
+        COUNT(*) OVER()  AS total_count
       FROM orders o
-      LEFT JOIN users u
-        ON u.id = o.cashier_id
-      LEFT JOIN restaurant_tables rt
-        ON rt.id = o.table_id
+      LEFT JOIN users u ON u.id = o.cashier_id
+      LEFT JOIN restaurant_tables rt ON rt.id = o.table_id
       WHERE ${conditions.join(" AND ")}
       ORDER BY o.created_at DESC
       LIMIT $${idx++} OFFSET $${idx++}
       `,
-      [...values, limit, offset]
+      [...values, filter.limit, filter.offset]
     );
 
-    return result.rows;
+    const totalCount = result.rows[0] ? parseInt(result.rows[0].total_count, 10) : 0;
+    const rows = result.rows.map(({ total_count, ...row }) => row as Order);
+
+    return { rows, totalCount };
   }
 
   /**
