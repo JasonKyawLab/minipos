@@ -11,6 +11,34 @@
 //     when tracking is enabled.
 //   - handleEditItem sends track_stock on every save.
 //   - Reset itemTrackStock to true when create modal closes.
+//
+//   - CHANGED: ProductsTab's two side-by-side panels (model
+//     list + item detail) now stack vertically below `lg`
+//     (1024px) instead of always sitting side-by-side. The
+//     260px left panel was fixed-width regardless of screen
+//     size, which squeezed the right panel before its own
+//     table even got a chance to render.
+//   - CHANGED: items table now uses the shared TableHead/Th/
+//     TableBody/Tr/Td components inside an overflow-x-auto
+//     wrapper — fixes Actions getting clipped on narrower
+//     screens. Not using the full Table component here since
+//     this table already lives inside its own card (the right
+//     panel), so wrapping it again would nest two cards.
+//
+//   - CHANGED (pagination): GET /products/models now returns
+//     { data, pagination } instead of a raw array, since the
+//     backend paginates the catalog (retail/online shops can
+//     have hundreds of SKUs). ProductsTab's loadModels now
+//     sends page/pageSize/search to the server instead of
+//     filtering client-side, and renders a Pagination control
+//     under the model list. ModifiersTab's buildLinkedMap also
+//     calls this same endpoint to build its "which products are
+//     linked to this modifier group" map — it needs the FULL
+//     catalog, not one page, so it requests the max page size
+//     (100) and unwraps `.data`. NOTE: if a shop ever exceeds
+//     100 products, the modifier-linking view will only see the
+//     first 100 — flagged inline below as a known limitation
+//     rather than silently breaking.
 // =========================================================
 
 "use client";
@@ -33,8 +61,16 @@ import { SkeletonTable }      from "@/components/ui/Skeleton";
 import { Modal }              from "@/components/ui/Modal";
 import { Button }             from "@/components/ui/Button";
 import { ActiveBadge }        from "@/components/ui/Badge";
+import { TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
+import { Pagination, type PaginationMeta } from "@/components/ui/Pagination";
 
 type Tab = "PRODUCTS" | "CATEGORIES" | "MODIFIERS";
+
+// Shape returned by the now-paginated GET /products/models endpoint.
+interface PaginatedModelsResponse {
+  data: ProductModel[];
+  pagination: PaginationMeta;
+}
 
 // ── Preset colours for the colour picker ─────────────────
 const PRESET_COLORS = [
@@ -115,6 +151,10 @@ export default function ProductsPage() {
 //   POST   /api/shops/:shopId/products/categories
 //   PATCH  /api/shops/:shopId/products/categories/:id
 //   DELETE /api/shops/:shopId/products/categories/:id
+//
+// NOT paginated — categories are bounded by reality (a shop
+// has a handful of menu/section categories, not hundreds), so
+// this stays a plain array endpoint.
 
 function CategoriesTab({ shopId, canWrite }: { shopId: string; canWrite: boolean }) {
   const [categories, setCategories] = useState<ProductCategory[]>([]);
@@ -347,6 +387,15 @@ function ProductsTab({ shopId, currency, canWrite }: {
   const [search, setSearch]               = useState("");
   const [categories, setCategories]       = useState<ProductCategory[]>([]);
 
+  // ── Pagination state for the model list ───────────────
+  // The catalog is paginated server-side now (retail/online
+  // shops can have hundreds of SKUs). `page` drives the
+  // current page; `meta` holds totalCount/totalPages/etc.
+  // from the server so the Pagination control can render
+  // correctly without recomputing anything client-side.
+  const [page, setPage] = useState(1);
+  const [meta, setMeta]  = useState<PaginationMeta | null>(null);
+
   // ── Create product ────────────────────────────────────
   const [showCreateModel, setShowCreateModel] = useState(false);
   const [modelName, setModelName]             = useState("");
@@ -390,15 +439,22 @@ function ProductsTab({ shopId, currency, canWrite }: {
     } catch {}
   }, [shopId]);
 
+  // Server-side pagination + search. Backend route now returns
+  // { data, pagination } instead of a raw array — unwrap both.
   const loadModels = useCallback(async () => {
     setModelsLoading(true);
     try {
-      const { data } = await api.get<ProductModel[]>(`/api/shops/${shopId}/products/models`);
-      setModels(data);
+      const { data } = await api.get<PaginatedModelsResponse>(
+        `/api/shops/${shopId}/products/models`,
+        { params: { page, pageSize: 20, search: search || undefined } }
+      );
+      setModels(data.data ?? []);
+      setMeta(data.pagination ?? null);
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
+      setModels([]);
     } finally { setModelsLoading(false); }
-  }, [shopId]);
+  }, [shopId, page, search]);
 
   const loadItems = useCallback(async (model: ProductModel) => {
     setItemsLoading(true);
@@ -412,7 +468,13 @@ function ProductsTab({ shopId, currency, canWrite }: {
     } finally { setItemsLoading(false); }
   }, [shopId]);
 
-  useEffect(() => { loadModels(); loadCategories(); }, [loadModels, loadCategories]);
+  useEffect(() => { loadCategories(); }, [loadCategories]);
+  useEffect(() => { loadModels(); }, [loadModels]);
+
+  // Reset to page 1 whenever the search term changes — otherwise
+  // you could be stuck on page 4 with a search that only matches
+  // one page of results.
+  useEffect(() => { setPage(1); }, [search]);
 
   function selectModel(model: ProductModel) { setSelected(model); loadItems(model); }
 
@@ -557,17 +619,26 @@ function ProductsTab({ shopId, currency, canWrite }: {
     }
   }
 
-  const filteredModels = models.filter((m) =>
-    m.name.toLowerCase().includes(search.toLowerCase())
-  );
+  // NOTE: search is now server-side (sent as a query param in
+  // loadModels), so `models` is already the filtered, current
+  // page's worth of rows — no client-side filtering needed here
+  // anymore. Previously this component had a `filteredModels`
+  // derived array; that's removed since `models` IS the result.
 
   // ── Render ────────────────────────────────────────────
+  //
+  // CHANGED: panels stack vertically below `lg` (1024px) —
+  // full-width list on top, full-width item detail below it.
+  // Below `lg`, max-h-[420px] on the list and min-h-[420px] on
+  // the detail panel keep both bounded instead of one growing
+  // to fill the whole page; at `lg`+, lg:h-full / lg:max-h-none
+  // restore the original fixed-height side-by-side behaviour.
 
   return (
-    <div className="flex gap-4 h-[calc(100vh-180px)]">
+    <div className="flex flex-col lg:flex-row gap-4 lg:h-[calc(100vh-180px)]">
 
       {/* Left: model list */}
-      <div className="w-[260px] shrink-0 bg-white border border-[#D3D1C7] rounded-lg flex flex-col overflow-hidden">
+      <div className="w-full lg:w-[260px] shrink-0 bg-white border border-[#D3D1C7] rounded-lg flex flex-col overflow-hidden max-h-[420px] lg:max-h-none lg:h-full">
         <div className="p-3 border-b border-[#D3D1C7]">
           <input value={search} onChange={(e) => setSearch(e.target.value)}
             className="w-full h-8 px-3 text-[12px] border border-[#D3D1C7] rounded-md focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
@@ -581,13 +652,13 @@ function ProductsTab({ shopId, currency, canWrite }: {
                 <div key={i} className="h-12 bg-[#F1EFE8] rounded-lg animate-pulse" />
               ))}
             </div>
-          ) : filteredModels.length === 0 ? (
+          ) : models.length === 0 ? (
             <div className="p-4 text-center">
               <p className="text-[12px] text-[#5F5E5A]">{search ? "No match." : "No products yet."}</p>
             </div>
           ) : (
             <div className="p-2 space-y-0.5">
-              {filteredModels.map((model) => {
+              {models.map((model) => {
                 const isSelected = selected?.id === model.id;
                 return (
                   <div key={model.id} role="button" tabIndex={0}
@@ -633,6 +704,14 @@ function ProductsTab({ shopId, currency, canWrite }: {
           )}
         </div>
 
+        {/* Pagination — compact, since this panel is only 260px wide.
+            Hidden entirely while loading or when there's nothing to page through. */}
+        {!modelsLoading && meta && meta.totalCount > 0 && (
+          <div className="px-2 py-2 border-t border-[#D3D1C7]">
+            <Pagination meta={meta} onPageChange={setPage} />
+          </div>
+        )}
+
         {canWrite && (
           <div className="p-3 border-t border-[#D3D1C7]">
             <button onClick={() => setShowCreateModel(true)}
@@ -644,7 +723,7 @@ function ProductsTab({ shopId, currency, canWrite }: {
       </div>
 
       {/* Right: items panel */}
-      <div className="flex-1 bg-white border border-[#D3D1C7] rounded-lg flex flex-col overflow-hidden">
+      <div className="flex-1 bg-white border border-[#D3D1C7] rounded-lg flex flex-col overflow-hidden min-h-[420px] lg:min-h-0 lg:h-full">
         {!selected ? (
           <div className="flex-1 flex items-center justify-center">
             <EmptyState title="Select a product" description="Choose from the left to manage its variants." />
@@ -677,48 +756,48 @@ function ProductsTab({ shopId, currency, canWrite }: {
             <div className="flex-1 overflow-y-auto">
               {itemsLoading ? <SkeletonTable rows={4} cols={4} /> :
                items.length === 0 ? <EmptyState title="No items yet" description="Add at least one variant." /> : (
-                <table className="w-full text-[13px]">
-                  <thead>
-                    <tr className="bg-[#F1EFE8] text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wide">
-                      <th className="text-left px-5 py-2.5">Name</th>
-                      <th className="text-left px-4 py-2.5">SKU</th>
-                      <th className="text-right px-4 py-2.5">Price</th>
-                      <th className="text-right px-4 py-2.5">Stock</th>
-                      <th className="text-left px-4 py-2.5">Status</th>
-                      {canWrite && <th className="text-right px-5 py-2.5">Actions</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#F1EFE8]">
-                    {items.map((item) => (
-                      <tr key={item.id} className="hover:bg-[#F1EFE8]/30 transition-colors">
-                        <td className="px-5 py-3 font-medium text-[#0F2B4C]">{item.name}</td>
-                        <td className="px-4 py-3 font-mono text-[12px] text-[#5F5E5A]">{item.sku ?? "—"}</td>
-                        <td className="px-4 py-3 text-right font-medium">
-                          {formatCurrency(Number(item.price), currency as any)}
-                        </td>
-                        {/* Stock column: show qty when tracking, "—" when not tracked */}
-                        <td className="px-4 py-3 text-right text-[#5F5E5A]">
-                          {item.track_stock ? item.stock_qty : "—"}
-                        </td>
-                        <td className="px-4 py-3"><ActiveBadge active={item.is_active} /></td>
-                        {canWrite && (
-                          <td className="px-5 py-3 text-right">
-                            <div className="flex items-center justify-end gap-3">
-                              <button onClick={() => openEditItem(item)}
-                                className="text-[12px] text-[#534AB7] hover:underline flex items-center gap-1">
-                                <PencilIcon /> Edit
-                              </button>
-                              <button onClick={() => handleToggleItemActive(item)}
-                                className="text-[12px] text-[#5F5E5A] hover:underline">
-                                {item.is_active ? "Disable" : "Enable"}
-                              </button>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] text-[13px]">
+                    <TableHead>
+                      <Th>Name</Th>
+                      <Th>SKU</Th>
+                      <Th align="right">Price</Th>
+                      <Th align="right">Stock</Th>
+                      <Th>Status</Th>
+                      {canWrite && <Th align="right">Actions</Th>}
+                    </TableHead>
+                    <TableBody>
+                      {items.map((item) => (
+                        <Tr key={item.id}>
+                          <Td className="font-medium text-[#0F2B4C]">{item.name}</Td>
+                          <Td className="font-mono text-[12px] text-[#5F5E5A]">{item.sku ?? "—"}</Td>
+                          <Td align="right" className="font-medium">
+                            {formatCurrency(Number(item.price), currency as any)}
+                          </Td>
+                          {/* Stock column: show qty when tracking, "—" when not tracked */}
+                          <Td align="right" className="text-[#5F5E5A]">
+                            {item.track_stock ? item.stock_qty : "—"}
+                          </Td>
+                          <Td><ActiveBadge active={item.is_active} /></Td>
+                          {canWrite && (
+                            <Td align="right">
+                              <div className="flex items-center justify-end gap-3">
+                                <button onClick={() => openEditItem(item)}
+                                  className="text-[12px] text-[#534AB7] hover:underline flex items-center gap-1">
+                                  <PencilIcon /> Edit
+                                </button>
+                                <button onClick={() => handleToggleItemActive(item)}
+                                  className="text-[12px] text-[#5F5E5A] hover:underline">
+                                  {item.is_active ? "Disable" : "Enable"}
+                                </button>
+                              </div>
+                            </Td>
+                          )}
+                        </Tr>
+                      ))}
+                    </TableBody>
+                  </table>
+                </div>
               )}
             </div>
           </>
@@ -936,12 +1015,6 @@ function ProductsTab({ shopId, currency, canWrite }: {
 // =========================================================
 // MODIFIERS TAB
 // =========================================================
-// (unchanged — paste your existing ModifiersTab here)
-// =========================================================
-
-// =========================================================
-// MODIFIERS TAB
-// =========================================================
 
 function ModifiersTab({ shopId, canWrite }: { shopId: string; canWrite: boolean }) {
   const [groups, setGroups]       = useState<ModifierGroup[]>([]);
@@ -981,9 +1054,25 @@ function ModifiersTab({ shopId, canWrite }: { shopId: string; canWrite: boolean 
     } finally { setLoading(false); }
   }, [shopId]);
 
+  // Builds "which products is each modifier group linked to" by
+  // fetching every product model, then checking each one's linked
+  // groups. This genuinely needs the FULL catalog, not one page —
+  // so it requests pageSize=100 (the server's hard ceiling) and
+  // unwraps the paginated { data, pagination } response.
+  //
+  // KNOWN LIMITATION: if a shop has more than 100 products, this
+  // view will only see the first 100 and "unlinked products" in
+  // the picker below will be incomplete for the rest. That's an
+  // acceptable trade-off for now (most catalogs are well under
+  // 100), but flagged here rather than silently truncating with
+  // no explanation if it's ever revisited.
   const buildLinkedMap = useCallback(async () => {
     try {
-      const { data: models } = await api.get<ProductModel[]>(`/api/shops/${shopId}/products/models`);
+      const { data: modelsResponse } = await api.get<PaginatedModelsResponse>(
+        `/api/shops/${shopId}/products/models`,
+        { params: { page: 1, pageSize: 100 } }
+      );
+      const models = modelsResponse.data ?? [];
       setAllModels(models);
       const results = await Promise.all(
         models.map((model) =>
