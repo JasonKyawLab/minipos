@@ -93,4 +93,52 @@ export class AdminController {
       return handleError(res, err);
     }
   }
+
+  static async suspendShop(req: Request<{ shopId: string }>, res: Response) {
+    try {
+      const actorId = req.user!.id;
+      const { shopId } = req.params;
+      const { reason } = req.body;
+      const result = await AdminService.suspendShop(shopId, reason, actorId);
+      res.json(result);
+    } catch (err: any) {
+      return handleError(res, err);
+    }
+  }
+
+  static async unsuspendShop(req: Request<{ shopId: string }>, res: Response) {
+    try {
+      const actorId = req.user!.id;
+      const { shopId } = req.params;
+      const result = await AdminService.unsuspendShop(shopId, actorId);
+      res.json(result);
+    } catch (err: any) {
+      return handleError(res, err);
+    }
+  }
+
+  static async suspendUser(req: Request<{ userId: string }>, res: Response) {
+    try {
+      const actorId = req.user!.id;
+      const { userId } = req.params;
+      const result = await AdminService.suspendUser(userId, actorId);
+      return res.json(result);
+    } catch (err) { return handleError(res, err); }
+  }
+
+  static async reactivateUser(req: Request<{ userId: string }>, res: Response) {
+    try {
+      const actorId = req.user!.id;
+      const { userId } = req.params;
+      const result = await AdminService.reactivateUser(userId, actorId);
+      return res.json(result);
+    } catch (err) { return handleError(res, err); }
+  }
+
+  static async getStats(_req: Request, res: Response) {
+    try {
+      const stats = await AdminService.getStats();
+      return res.json(stats);
+    } catch (err) { return handleError(res, err); }
+  }
 }
