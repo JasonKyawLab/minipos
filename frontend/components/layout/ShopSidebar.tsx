@@ -19,72 +19,34 @@ interface NavItem {
   href:  string;
   label: string;
   icon:  React.ReactNode;
-  /** Which roles can see this nav item */
   roles: ShopRole[];
   badgeCount?: number;
 }
 
 function buildNavItems(shopId: string, shopType: ShopType, pendingDeviceCount: number): NavItem[] {
   const items: NavItem[] = [
+    { href: `/shops/${shopId}/dashboard`, label: "Dashboard", icon: <DashIcon />, roles: ["OWNER", "MANAGER"] },
+    { href: `/shops/${shopId}/orders`,    label: "Orders",    icon: <OrderIcon />, roles: ["OWNER", "MANAGER"] },
+    { href: `/shops/${shopId}/products`,  label: "Products",  icon: <ProductIcon />, roles: ["OWNER", "MANAGER"] },
+    { href: `/shops/${shopId}/staff`,     label: "Staff",     icon: <StaffIcon />, roles: ["OWNER", "MANAGER"] },
+    { href: `/shops/${shopId}/reports`,   label: "Reports",   icon: <ReportIcon />, roles: ["OWNER", "MANAGER"] },
     {
-      href:  `/shops/${shopId}/dashboard`,
-      label: "Dashboard",
-      icon:  <DashIcon />,
-      roles: ["OWNER", "MANAGER"],
-    },
-    {
-      href:  `/shops/${shopId}/orders`,
-      label: "Orders",
-      icon:  <OrderIcon />,
-      roles: ["OWNER", "MANAGER"],
-    },
-    {
-      href:  `/shops/${shopId}/products`,
-      label: "Products",
-      icon:  <ProductIcon />,
-      roles: ["OWNER", "MANAGER"],
-    },
-    {
-      href:  `/shops/${shopId}/staff`,
-      label: "Staff",
-      icon:  <StaffIcon />,
-      roles: ["OWNER", "MANAGER"],
-    },
-    {
-      href:  `/shops/${shopId}/reports`,
-      label: "Reports",
-      icon:  <ReportIcon />,
-      roles: ["OWNER", "MANAGER"],
-    },
-    {
-      // FIX: "Work Log" — friendly name visible to ALL roles.
-      // CHEF and CASHIER only see their own shifts.
-      // OWNER and MANAGER see all staff shifts.
       href:  `/shops/${shopId}/worklog`,
       label: "Work Log",
       icon:  <WorkLogIcon />,
       roles: ["OWNER", "MANAGER", "CASHIER", "CHEF"],
     },
-    {
-      href:  `/shops/${shopId}/settings`,
-      label: "Settings",
-      icon:  <SettingsIcon />,
-      roles: ["OWNER", "MANAGER"],
-    },
+    { href: `/shops/${shopId}/settings`, label: "Settings", icon: <SettingsIcon />, roles: ["OWNER", "MANAGER"] },
     {
       href:  `/shops/${shopId}/permission`,
       label: "Permissions",
       icon:  <PermIcon />,
       roles: ["OWNER"],
-      // Badge belongs HERE — pending devices are what the
-      // Permissions page is for, not the Dashboard.
       badgeCount: pendingDeviceCount,
     },
   ];
 
-  // Tables only for restaurants
   if (shopType === "RESTAURANT") {
-    // Insert after Orders
     items.splice(3, 0, {
       href:  `/shops/${shopId}/tables`,
       label: "Tables",
@@ -103,10 +65,8 @@ export function ShopSidebar() {
   const { shopId, shopName, shopType, userRole } = useShop();
   const [pendingMode, setPendingMode] = useState<PendingMode>(null);
   const [pendingDeviceCount, setPendingDeviceCount] = useState(0);
+  const [expanded, setExpanded] = useState(false);
 
-  // Poll for devices waiting on approval. OWNER only — the
-  // endpoint itself rejects everyone else, so skip the call
-  // entirely rather than firing it and eating a 403 on every tick.
   useEffect(() => {
     if (userRole !== "OWNER") return;
 
@@ -126,9 +86,6 @@ export function ShopSidebar() {
     fetchCount();
     const interval = setInterval(fetchCount, PENDING_DEVICE_POLL_MS);
 
-    // Instant refresh when the owner approves/revokes a device
-    // on the Permissions page itself — no need to wait for the
-    // next poll tick to see your own action reflected.
     window.addEventListener("device-permission-changed", fetchCount);
 
     return () => {
@@ -141,8 +98,6 @@ export function ShopSidebar() {
   const navItems     = buildNavItems(shopId, shopType, pendingDeviceCount);
   const visibleItems = navItems.filter((item) => item.roles.includes(userRole));
 
-  // OWNER and MANAGER activate modes from the sidebar (password gate).
-  // CHEF goes directly to kitchen login (they don't own the device).
   const canEnterPosMode     = userRole === "OWNER" || userRole === "MANAGER";
   const canEnterKitchenMode = userRole === "OWNER" || userRole === "MANAGER" || userRole === "CHEF";
 
@@ -161,8 +116,6 @@ export function ShopSidebar() {
     }
   }
 
-  // CHEF clicks Kitchen Mode → skip the password gate and go directly
-  // to the staff selection screen (they use a PIN there instead).
   function handleKitchenClick() {
     if (userRole === "CHEF") {
       router.push(`/kitchen/${shopId}`);
@@ -173,40 +126,92 @@ export function ShopSidebar() {
 
   return (
     <>
-      <aside className="w-[180px] shrink-0 bg-white border-r border-ui-greyBorder flex flex-col h-full">
+      <aside
+        className={clsx(
+          "shrink-0 bg-white border-r border-ui-greyBorder flex flex-col h-full overflow-hidden",
+          "transition-[width] duration-200 ease-in-out",
+          expanded ? "w-[220px]" : "w-14"
+        )}
+      >
+        {/* Top: hamburger (collapsed) / shop name + close (expanded) */}
+        <div className="h-12 flex items-center border-b border-ui-greyBorder shrink-0">
+          {expanded ? (
+            <div className="w-full px-3 flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-[10px] text-ui-grey uppercase tracking-wide leading-none">MiniPOS</p>
+                <p className="text-[14px] font-semibold text-brand-navy leading-tight truncate">{shopName}</p>
+              </div>
+              <button
+                onClick={() => setExpanded(false)}
+                aria-label="Close menu"
+                className="p-1.5 rounded-md text-ui-grey hover:bg-ui-greyLight shrink-0"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setExpanded(true)}
+              aria-label="Open menu"
+              className="w-full h-full flex items-center justify-center text-ui-grey hover:bg-ui-greyLight transition-colors"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M3 5h12M3 9h12M3 13h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+        </div>
 
-        {/* Shop name + role */}
-        <div className="px-4 py-4 border-b border-ui-greyBorder">
-          <p className="text-[11px] text-ui-grey uppercase tracking-wide mb-0.5">MiniPOS</p>
-          <p className="text-[14px] font-semibold text-brand-navy leading-tight truncate">
-            {shopName}
-          </p>
-          <RolePill role={userRole} />
+        {/* Role */}
+        <div className={clsx("px-4 py-2 border-b border-ui-greyBorder shrink-0", !expanded && "flex justify-center px-0")}>
+          {expanded ? (
+            <RolePill role={userRole} />
+          ) : (
+            <p className="text-[11px] font-semibold text-brand-navy">{userRole.charAt(0)}</p>
+          )}
         </div>
 
         {/* Mode buttons */}
+        {/*
+          CHANGED: icons inside these two buttons now render larger
+          (20px instead of 16px) when the sidebar is collapsed.
+          When collapsed, these buttons shrink to icon-only squares
+          and the previous fixed 16px icon looked visually small and
+          cramped inside the solid-color box compared to the regular
+          nav icons below (which sit on a transparent background and
+          read fine small). Padding also shifts slightly in the
+          collapsed state (py-2 -> py-2.5) so the larger icon has
+          proper breathing room instead of touching the button edges.
+        */}
         {(canEnterPosMode || canEnterKitchenMode) && (
-          <div className="px-3 py-2 border-b border-ui-greyBorder space-y-1">
-            {/* POS Mode — OWNER and MANAGER only */}
+          <div className="px-3 py-2 border-b border-ui-greyBorder space-y-1 shrink-0">
             {canEnterPosMode && (
               <button
                 onClick={() => setPendingMode("POS")}
-                className="flex items-center gap-2 w-full px-3 py-2 rounded-md bg-brand-navy text-white text-[13px] font-medium hover:bg-brand-navy/90 transition-colors"
+                title="POS Mode"
+                className={clsx(
+                  "flex items-center gap-2 w-full rounded-md bg-brand-navy text-white text-[13px] font-medium hover:bg-brand-navy/90 transition-colors whitespace-nowrap",
+                  expanded ? "px-3 py-2" : "px-2 py-2.5 justify-center"
+                )}
               >
-                <PosIcon />
-                POS Mode
+                <PosIcon large={!expanded} />
+                {expanded && "POS Mode"}
               </button>
             )}
-
-            {/* Kitchen Mode — OWNER, MANAGER, and CHEF */}
             {canEnterKitchenMode && shopType === "RESTAURANT" && (
               <button
                 onClick={handleKitchenClick}
-                className="flex items-center gap-2 w-full px-3 py-2 rounded-md bg-[#1C2B3A] text-white text-[13px] font-medium hover:bg-[#253646] transition-colors"
-                >
-                  <KitchenIcon />
-                  Kitchen Mode
-                </button>
+                title="Kitchen Mode"
+                className={clsx(
+                  "flex items-center gap-2 w-full rounded-md bg-[#1C2B3A] text-white text-[13px] font-medium hover:bg-[#253646] transition-colors whitespace-nowrap",
+                  expanded ? "px-3 py-2" : "px-2 py-2.5 justify-center"
+                )}
+              >
+                <KitchenIcon large={!expanded} />
+                {expanded && "Kitchen Mode"}
+              </button>
             )}
           </div>
         )}
@@ -219,18 +224,23 @@ export function ShopSidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                title={item.label}
                 className={clsx(
-                  "flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] transition-colors mb-0.5",
+                  "flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] transition-colors mb-0.5 whitespace-nowrap",
+                  !expanded && "justify-center",
                   isActive
                     ? "bg-ui-greyLight text-brand-navy font-medium"
                     : "text-ui-grey hover:bg-ui-greyLight hover:text-brand-navy"
                 )}
               >
-                <span className={clsx("shrink-0", isActive && "text-brand-teal")}>
+                <span className={clsx("shrink-0 relative", isActive && "text-brand-teal")}>
                   {item.icon}
+                  {!expanded && !!item.badgeCount && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-status-red" />
+                  )}
                 </span>
-                {item.label}
-                {!!item.badgeCount && (
+                {expanded && item.label}
+                {expanded && !!item.badgeCount && (
                   <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-status-red text-white text-[10px] font-semibold leading-none">
                     {item.badgeCount > 9 ? "9+" : item.badgeCount}
                   </span>
@@ -241,25 +251,32 @@ export function ShopSidebar() {
         </nav>
 
         {/* Back + logout */}
-        <div className="px-2 py-3 border-t border-ui-greyBorder space-y-0.5">
+        <div className="px-2 py-3 border-t border-ui-greyBorder space-y-0.5 shrink-0">
           <Link
             href="/dashboard"
-            className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-[13px] text-ui-grey hover:bg-ui-greyLight hover:text-brand-navy transition-colors"
+            title="All Shops"
+            className={clsx(
+              "flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-[13px] text-ui-grey hover:bg-ui-greyLight hover:text-brand-navy transition-colors whitespace-nowrap",
+              !expanded && "justify-center"
+            )}
           >
             <BackIcon />
-            All Shops
+            {expanded && "All Shops"}
           </Link>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-[13px] text-ui-grey hover:bg-ui-greyLight hover:text-status-red transition-colors"
+            title="Log out"
+            className={clsx(
+              "flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-[13px] text-ui-grey hover:bg-ui-greyLight hover:text-status-red transition-colors whitespace-nowrap",
+              !expanded && "justify-center"
+            )}
           >
             <LogoutIcon />
-            Log out
+            {expanded && "Log out"}
           </button>
         </div>
       </aside>
 
-      {/* Password gate — only for POS/KITCHEN mode entry by OWNER/MANAGER */}
       {pendingMode && (
         <ModeGate
           shopId={shopId}
@@ -285,7 +302,7 @@ function RolePill({ role }: { role: ShopRole }) {
     CHEF:    "bg-[#0F2B4C]/10 text-[#0F2B4C]",
   };
   return (
-    <span className={`inline-block mt-1.5 px-2 py-0.5 text-[10px] font-medium rounded ${styles[role]}`}>
+    <span className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded ${styles[role]}`}>
       {role}
     </span>
   );
@@ -293,13 +310,21 @@ function RolePill({ role }: { role: ShopRole }) {
 
 // ── Icons ─────────────────────────────────────────────────
 
-const mk = (d: string) => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+// CHANGED: mk() now accepts an optional `size` (defaults to 16,
+// unchanged for every existing call site). Only PosIcon/KitchenIcon
+// pass a custom size, via their new `large` prop.
+const mk = (d: string, size: number = 16) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
     <path d={d} stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
-const DashIcon     = () => mk("M2 8l6-5 6 5v6H2V8z");
+const DashIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <path d="M2 6l6-4 6 4v8H2V6z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <path d="M6 14v-4h4v4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+  </svg>
+);
 const OrderIcon    = () => mk("M3 2h10v12H3V2zM5 6h6M5 9h4");
 const ProductIcon  = () => mk("M8 2l5 3v6L8 14 3 11V5L8 2z");
 const StaffIcon    = () => mk("M8 7a3 3 0 100-6 3 3 0 000 6zM2 14c0-3.3 2.7-6 6-6s6 2.7 6 6");
@@ -307,8 +332,16 @@ const TableIcon    = () => mk("M2 5h12M5 5v8M11 5v8M2 13h12");
 const ReportIcon   = () => mk("M2 14h12M4 14V8M8 14V4M12 14v-6");
 const SettingsIcon = () => mk("M8 10a2 2 0 100-4 2 2 0 000 4zM8 2v2M8 12v2M2 8h2M12 8h2");
 const PermIcon     = () => mk("M8 2l-5 3v4c0 3 2.5 5.5 5 6.5 2.5-1 5-3.5 5-6.5V5L8 2zM6 8l1.5 1.5L10 6");
-const PosIcon      = () => mk("M2 3h12v8H2V3zM5 14h6M8 11v3");
-const KitchenIcon  = () => mk("M4 2h8l1 6H3L4 2zM2 8h12v6H2V8z");
+
+// CHANGED: PosIcon/KitchenIcon now take a `large` flag. Passed as
+// `large={!expanded}` from the buttons above, so the icon renders
+// at 20px when the sidebar is collapsed (icon-only button) and the
+// normal 16px when expanded (icon sits next to a text label).
+const PosIcon      = ({ large = false }: { large?: boolean }) =>
+  mk("M2 3h12v8H2V3zM5 14h6M8 11v3", large ? 20 : 16);
+const KitchenIcon  = ({ large = false }: { large?: boolean }) =>
+  mk("M4 2h8l1 6H3L4 2zM2 8h12v6H2V8z", large ? 20 : 16);
+
 const BackIcon     = () => mk("M10 4L6 8l4 4");
 const LogoutIcon   = () => mk("M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3M10 11l3-3-3-3M13 8H6");
 const WorkLogIcon  = () => mk("M8 2a6 6 0 100 12A6 6 0 008 2zM8 5v3.5l2.5 1.5");
