@@ -9,6 +9,7 @@
 
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
+import { PaginationParams } from "../../utils/pagination.js";
 import {
   ProductCategory,
   ProductModel,
@@ -142,23 +143,47 @@ export class ProductRepository {
    * List all active models with their category name and color.
    * LEFT JOIN so products without a category still appear.
    */
-  static async findAllModels(shopId: string): Promise<ProductModel[]> {
-    const result = await pool.query<ProductModel>(
+  static async findAllModels(
+    shopId: string,
+    pagination: PaginationParams,
+    search?: string,
+    categoryId?: string
+  ): Promise<{ rows: ProductModel[]; totalCount: number }> {
+    const conditions: string[] = ["pm.shop_id = $1", "pm.is_deleted = false"];
+    const values: any[]        = [shopId];
+    let idx = 2;
+
+    if (search) {
+      conditions.push(`pm.name ILIKE $${idx++}`);
+      values.push(`%${search}%`);
+    }
+
+    if (categoryId) {
+      conditions.push(`pm.category_id = $${idx++}`);
+      values.push(categoryId);
+    }
+
+    const result = await pool.query<ProductModel & { total_count: string }>(
       `
       SELECT
         pm.*,
         pc.name  AS category_name,
-        pc.color AS category_color
+        pc.color AS category_color,
+        COUNT(*) OVER() AS total_count
       FROM product_models pm
       LEFT JOIN product_categories pc
         ON pc.id = pm.category_id AND pc.is_deleted = false
-      WHERE pm.shop_id   = $1
-        AND pm.is_deleted = false
+      WHERE ${conditions.join(" AND ")}
       ORDER BY pc.sort_order ASC NULLS LAST, pm.created_at DESC
+      LIMIT $${idx++} OFFSET $${idx++}
       `,
-      [shopId]
+      [...values, pagination.limit, pagination.offset]
     );
-    return result.rows;
+
+    const totalCount = result.rows[0] ? parseInt(result.rows[0].total_count, 10) : 0;
+    const rows = result.rows.map(({ total_count, ...row }) => row as ProductModel);
+
+    return { rows, totalCount };
   }
 
   static async findModelById(
