@@ -9,6 +9,7 @@ import toast from "react-hot-toast";
 import type { ShopRole } from "@/types";
 import { EmptyState, Spinner } from "@/components/states";
 import { SkeletonTable } from "@/components/ui/Skeleton";
+import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
 
 interface StaffMember {
   id:                 string;
@@ -316,187 +317,178 @@ export default function StaffPage() {
           description="Add staff members so they can log in to POS or Kitchen mode with a PIN."
         />
       ) : (
-        <div className="bg-white border border-[#D3D1C7] rounded-lg overflow-hidden">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="bg-[#F1EFE8] border-b border-[#D3D1C7] text-[#5F5E5A] text-[12px]">
-                <th className="text-left px-5 py-3 font-medium">Name</th>
-                <th className="text-left px-4 py-3 font-medium">Role</th>
-                <th className="text-left px-4 py-3 font-medium">POS PIN</th>
-                <th className="text-left px-4 py-3 font-medium">Kitchen PIN</th>
-                {canManage && (
-                  <th className="text-left px-5 py-3 font-medium">Actions</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {staff.map((member) => {
-                const allowedRoles = getAllowedRoleChanges(userRole as ShopRole, member.role);
-                const canChangeRole = canManage && allowedRoles.length > 0;
+        <Table className="min-w-[680px]">
+          <TableHead>
+            <Th>Name</Th>
+            <Th>Role</Th>
+            <Th>POS PIN</Th>
+            <Th>Kitchen PIN</Th>
+            {canManage && <Th>Actions</Th>}
+          </TableHead>
+          <TableBody>
+            {staff.map((member) => {
+              const allowedRoles = getAllowedRoleChanges(userRole as ShopRole, member.role);
+              const canChangeRole = canManage && allowedRoles.length > 0;
 
-                return (
-                  <tr
-                    key={member.id}
-                    className="border-b border-[#F1EFE8] last:border-0 hover:bg-[#F1EFE8]/30"
-                  >
+              return (
+                <Tr key={member.id}>
 
-                    {/* ── Name + avatar ── */}
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-[#0F2B4C] flex items-center justify-center text-white text-[11px] font-medium flex-shrink-0">
-                          {getInitials(member.name)}
-                        </div>
-                        <div>
-                          <p className="font-medium text-[#0F2B4C] leading-tight">{member.name}</p>
-                          <p className="text-[11px] text-[#5F5E5A]">{member.email}</p>
-                        </div>
+                  {/* ── Name + avatar ── */}
+                  <Td>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-[#0F2B4C] flex items-center justify-center text-white text-[11px] font-medium flex-shrink-0">
+                        {getInitials(member.name)}
                       </div>
-                    </td>
+                      <div>
+                        <p className="font-medium text-[#0F2B4C] leading-tight">{member.name}</p>
+                        <p className="text-[11px] text-[#5F5E5A]">{member.email}</p>
+                      </div>
+                    </div>
+                  </Td>
 
-                    {/* ── Role badge + change link ── */}
-                    <td className="px-4 py-3">
+                  {/* ── Role badge + change link ── */}
+                  <Td>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${ROLE_COLOURS[member.role]}`}>
+                        {ROLE_LABELS[member.role]}
+                      </span>
+                      {canChangeRole && (
+                        <button
+                          onClick={() => openRoleModal(member)}
+                          className="text-[11px] text-[#534AB7] hover:underline whitespace-nowrap"
+                        >
+                          Change
+                        </button>
+                      )}
+                    </div>
+                  </Td>
+
+                  {/* ── POS PIN status ── */}
+                  <Td>
+                    {canHavePosPIN(member.role) ? (
                       <div className="flex items-center gap-2">
-                        <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${ROLE_COLOURS[member.role]}`}>
-                          {ROLE_LABELS[member.role]}
+                        <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${
+                          member.pos_pin_locked
+                            ? "bg-[#FCEBEB] text-[#A32D2D]"
+                            : member.has_pos_pin
+                            ? "bg-[#E1F5EE] text-[#0D7A5F]"
+                            : "bg-[#F1EFE8] text-[#5F5E5A]"
+                        }`}>
+                          {member.pos_pin_locked ? "Locked" : member.has_pos_pin ? "Set" : "Not set"}
                         </span>
-                        {canChangeRole && (
+                        {canManage && (
                           <button
-                            onClick={() => openRoleModal(member)}
-                            className="text-[11px] text-[#534AB7] hover:underline whitespace-nowrap"
+                            onClick={() => openPinModal(member, "POS")}
+                            className="text-[11px] text-[#0D7A5F] hover:underline"
                           >
-                            Change
+                            {member.has_pos_pin ? "Update" : "Set"}
+                          </button>
+                        )}
+                        {canManage && member.has_pos_pin && (
+                          <button
+                            onClick={() => handleRemovePosPIN(member)}
+                            disabled={removePinId === member.id}
+                            className="text-[11px] text-[#A32D2D] hover:underline disabled:opacity-40"
+                          >
+                            {removePinId === member.id ? "…" : "Remove"}
                           </button>
                         )}
                       </div>
-                    </td>
-
-                    {/* ── POS PIN status ── */}
-                    <td className="px-4 py-3">
-                      {canHavePosPIN(member.role) ? (
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${
-                            member.pos_pin_locked
-                              ? "bg-[#FCEBEB] text-[#A32D2D]"
-                              : member.has_pos_pin
-                              ? "bg-[#E1F5EE] text-[#0D7A5F]"
-                              : "bg-[#F1EFE8] text-[#5F5E5A]"
-                          }`}>
-                            {member.pos_pin_locked ? "Locked" : member.has_pos_pin ? "Set" : "Not set"}
-                          </span>
-                          {canManage && (
-                            <button
-                              onClick={() => openPinModal(member, "POS")}
-                              className="text-[11px] text-[#0D7A5F] hover:underline"
-                            >
-                              {member.has_pos_pin ? "Update" : "Set"}
-                            </button>
-                          )}
-                          {canManage && member.has_pos_pin && (
-                            <button
-                              onClick={() => handleRemovePosPIN(member)}
-                              disabled={removePinId === member.id}
-                              className="text-[11px] text-[#A32D2D] hover:underline disabled:opacity-40"
-                            >
-                              {removePinId === member.id ? "…" : "Remove"}
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[12px] text-[#D3D1C7]">N/A</span>
-                      )}
-                    </td>
-
-                    {/* ── Kitchen PIN status ── */}
-                    <td className="px-4 py-3">
-                      {canHaveKitchenPIN(member.role) ? (
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${
-                            member.kitchen_pin_locked
-                              ? "bg-[#FCEBEB] text-[#A32D2D]"
-                              : member.has_kitchen_pin
-                              ? "bg-[#EEEDFE] text-[#534AB7]"
-                              : "bg-[#F1EFE8] text-[#5F5E5A]"
-                          }`}>
-                            {member.kitchen_pin_locked ? "Locked" : member.has_kitchen_pin ? "Set" : "Not set"}
-                          </span>
-                          {canManage && (
-                            <button
-                              onClick={() => openPinModal(member, "KITCHEN")}
-                              className="text-[11px] text-[#534AB7] hover:underline"
-                            >
-                              {member.has_kitchen_pin ? "Update" : "Set"}
-                            </button>
-                          )}
-                          {canManage && member.has_kitchen_pin && (
-                            <button
-                              onClick={() => handleRemoveKitchenPIN(member)}
-                              disabled={removeKitchenPinId === member.id}
-                              className="text-[11px] text-[#A32D2D] hover:underline disabled:opacity-40"
-                            >
-                              {removeKitchenPinId === member.id ? "…" : "Remove"}
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[12px] text-[#D3D1C7]">N/A</span>
-                      )}
-                    </td>
-
-                    {/* ── Actions column — stacked vertically ── */}
-                    {canManage && (
-                      <td className="px-5 py-3">
-                        {member.role !== "OWNER" ? (
-                          <div className="flex flex-col items-end gap-1.5">
-
-                            {canHavePosPIN(member.role) && (
-                              <button
-                                onClick={() => handleForceLogout(member)}
-                                disabled={forceLogoutId === member.id}
-                                className="text-[12px] text-[#BA7517] hover:underline disabled:opacity-40 whitespace-nowrap"
-                              >
-                                {forceLogoutId === member.id ? "…" : "Logout POS"}
-                              </button>
-                            )}
-
-                            {canHaveKitchenPIN(member.role) && (
-                              <button
-                                onClick={() => handleForceKitchenLogout(member)}
-                                disabled={forceKitchenLogoutId === member.id}
-                                className="text-[12px] text-[#BA7517] hover:underline disabled:opacity-40 whitespace-nowrap"
-                              >
-                                {forceKitchenLogoutId === member.id ? "…" : "Logout Kitchen"}
-                              </button>
-                            )}
-
-                            {(member.pos_pin_locked || member.kitchen_pin_locked) && (
-                              <button
-                                onClick={() => handleResetLock(member)}
-                                disabled={resetLockId === member.id}
-                                className="text-[12px] text-[#0D7A5F] hover:underline disabled:opacity-40 whitespace-nowrap"
-                              >
-                                {resetLockId === member.id ? "…" : "Unlock"}
-                              </button>
-                            )}
-
-                            <button
-                              onClick={() => handleRemove(member)}
-                              disabled={removingId === member.id}
-                              className="text-[12px] text-[#A32D2D] hover:underline disabled:opacity-40"
-                            >
-                              {removingId === member.id ? "…" : "Remove"}
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-[12px] text-[#D3D1C7]">—</span>
-                        )}
-                      </td>
+                    ) : (
+                      <span className="text-[12px] text-[#D3D1C7]">N/A</span>
                     )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                  </Td>
+
+                  {/* ── Kitchen PIN status ── */}
+                  <Td>
+                    {canHaveKitchenPIN(member.role) ? (
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${
+                          member.kitchen_pin_locked
+                            ? "bg-[#FCEBEB] text-[#A32D2D]"
+                            : member.has_kitchen_pin
+                            ? "bg-[#EEEDFE] text-[#534AB7]"
+                            : "bg-[#F1EFE8] text-[#5F5E5A]"
+                        }`}>
+                          {member.kitchen_pin_locked ? "Locked" : member.has_kitchen_pin ? "Set" : "Not set"}
+                        </span>
+                        {canManage && (
+                          <button
+                            onClick={() => openPinModal(member, "KITCHEN")}
+                            className="text-[11px] text-[#534AB7] hover:underline"
+                          >
+                            {member.has_kitchen_pin ? "Update" : "Set"}
+                          </button>
+                        )}
+                        {canManage && member.has_kitchen_pin && (
+                          <button
+                            onClick={() => handleRemoveKitchenPIN(member)}
+                            disabled={removeKitchenPinId === member.id}
+                            className="text-[11px] text-[#A32D2D] hover:underline disabled:opacity-40"
+                          >
+                            {removeKitchenPinId === member.id ? "…" : "Remove"}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[12px] text-[#D3D1C7]">N/A</span>
+                    )}
+                  </Td>
+
+                  {/* ── Actions column — stacked vertically ── */}
+                  {canManage && (
+                    <Td>
+                      {member.role !== "OWNER" ? (
+                        <div className="flex flex-col items-end gap-1.5">
+
+                          {canHavePosPIN(member.role) && (
+                            <button
+                              onClick={() => handleForceLogout(member)}
+                              disabled={forceLogoutId === member.id}
+                              className="text-[12px] text-[#BA7517] hover:underline disabled:opacity-40 whitespace-nowrap"
+                            >
+                              {forceLogoutId === member.id ? "…" : "Logout POS"}
+                            </button>
+                          )}
+
+                          {canHaveKitchenPIN(member.role) && (
+                            <button
+                              onClick={() => handleForceKitchenLogout(member)}
+                              disabled={forceKitchenLogoutId === member.id}
+                              className="text-[12px] text-[#BA7517] hover:underline disabled:opacity-40 whitespace-nowrap"
+                            >
+                              {forceKitchenLogoutId === member.id ? "…" : "Logout Kitchen"}
+                            </button>
+                          )}
+
+                          {(member.pos_pin_locked || member.kitchen_pin_locked) && (
+                            <button
+                              onClick={() => handleResetLock(member)}
+                              disabled={resetLockId === member.id}
+                              className="text-[12px] text-[#0D7A5F] hover:underline disabled:opacity-40 whitespace-nowrap"
+                            >
+                              {resetLockId === member.id ? "…" : "Unlock"}
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => handleRemove(member)}
+                            disabled={removingId === member.id}
+                            className="text-[12px] text-[#A32D2D] hover:underline disabled:opacity-40"
+                          >
+                            {removingId === member.id ? "…" : "Remove"}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[12px] text-[#D3D1C7]">—</span>
+                      )}
+                    </Td>
+                  )}
+                </Tr>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
 
       {/* ══════════════════════════════════════════════════
