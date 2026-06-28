@@ -16,6 +16,7 @@
 // =========================================================
 
 import React from "react";
+import { ScreenSizeGate } from "@/components/mode/ScreenSizeGate";
 
 export default function KitchenLayout({
   children,
@@ -23,8 +24,10 @@ export default function KitchenLayout({
   children: React.ReactNode;
 }) {
   return (
-    // Dark background — kitchen displays are typically in bright
-    // environments so a near-black background reduces eye strain.
-    <div className="min-h-screen bg-[#0A0A0A]">{children}</div>
+    <div className="min-h-screen bg-[#0A0A0A]">
+      <ScreenSizeGate minWidth={640} minHeight={420}>
+        {children}
+      </ScreenSizeGate>
+    </div>
   );
 }
