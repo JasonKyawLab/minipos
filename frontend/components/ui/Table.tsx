@@ -5,19 +5,17 @@
 import React from "react";
 import { clsx } from "clsx";
 
-// ── Table container ───────────────────────────────────────
-
 export function Table({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <div className={clsx("bg-white border border-[#D3D1C7] rounded-lg overflow-hidden", className)}>
-      <table className="w-full text-[13px]">
-        {children}
-      </table>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-[13px]">
+          {children}
+        </table>
+      </div>
     </div>
   );
 }
-
-// ── Table header ──────────────────────────────────────────
 
 export function TableHead({ children }: { children: React.ReactNode }) {
   return (
@@ -29,10 +27,8 @@ export function TableHead({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Table header cell ─────────────────────────────────────
-
 interface ThProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   align?: "left" | "right" | "center";
   className?: string;
 }
@@ -41,7 +37,7 @@ export function Th({ children, align = "left", className }: ThProps) {
   return (
     <th
       className={clsx(
-        "px-4 py-3 font-medium",
+        "px-4 py-3 font-medium whitespace-nowrap",
         align === "left"   && "text-left",
         align === "right"  && "text-right",
         align === "center" && "text-center",
@@ -53,13 +49,9 @@ export function Th({ children, align = "left", className }: ThProps) {
   );
 }
 
-// ── Table body ────────────────────────────────────────────
-
 export function TableBody({ children }: { children: React.ReactNode }) {
   return <tbody>{children}</tbody>;
 }
-
-// ── Table row ─────────────────────────────────────────────
 
 interface TrProps {
   children: React.ReactNode;
@@ -82,17 +74,17 @@ export function Tr({ children, onClick, className }: TrProps) {
   );
 }
 
-// ── Table data cell ───────────────────────────────────────
-
 interface TdProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   align?: "left" | "right" | "center";
+  colSpan?: number;
   className?: string;
 }
 
-export function Td({ children, align = "left", className }: TdProps) {
+export function Td({ children, align = "left", colSpan, className }: TdProps) {
   return (
     <td
+      colSpan={colSpan}
       className={clsx(
         "px-4 py-3",
         align === "left"   && "text-left",
