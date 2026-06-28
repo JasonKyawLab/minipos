@@ -95,6 +95,7 @@ export class ShopRepository {
       WHERE su.shop_id = $1
         AND su.user_id = $2
         AND s.is_deleted = false
+        AND s.is_suspended = false
       `,
       [shopId, userId]
     );
