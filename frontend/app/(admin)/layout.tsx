@@ -1,18 +1,22 @@
 // =========================================================
 // app/(admin)/layout.tsx
-// Admin section layout. Shares the platform Sidebar.
-// The Sidebar already handles admin-only nav items.
+// Path: frontend/app/(admin)/layout.tsx
+//
+// Admin section layout. Uses a dedicated AdminSidebar — NOT the
+// platform Sidebar. The platform Sidebar is owner/shop-scoped
+// (shop list, settings, etc.) and has no relevance to the ADMIN
+// role, which only manages platform users and shops.
 // =========================================================
 
 import React from "react";
-import { Sidebar } from "@/components/layout/Sidebar";
+import { AdminSidebar } from "@/components/layout/AdminSidebar";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-[#F1EFE8]">
-      <Sidebar />
-      <main className="flex-1 ml-[180px] min-h-screen">
-        <div className="p-6">
+      <AdminSidebar />
+      <main className="flex-1 ml-[180px] min-h-screen min-w-0">
+       <div className="p-6 min-w-0">
           {children}
         </div>
       </main>
