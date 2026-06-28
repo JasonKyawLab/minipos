@@ -10,6 +10,10 @@
 //     updated fields. Backend accepts table_number, capacity,
 //     is_active (all optional, at least one required).
 //   - On success: list re-fetches, modal closes, toast shown.
+//
+// CHANGED: table list now uses the shared Table/TableHead/
+// Th/TableBody/Tr/Td components — the Actions column has 4-5
+// buttons per row, which clipped on narrower screens before.
 // =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -20,6 +24,7 @@ import toast from "react-hot-toast";
 import type { RestaurantTable } from "@/types";
 import { EmptyState, Spinner } from "@/components/states";
 import { SkeletonTable } from "@/components/ui/Skeleton";
+import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
 
 export default function TablesPage() {
   const { shopId, shopType, userRole } = useShop();
@@ -28,24 +33,18 @@ export default function TablesPage() {
   const [tables, setTables]   = useState<RestaurantTable[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ── Add modal state ──────────────────────────────────────
   const [showAdd, setShowAdd]   = useState(false);
   const [tableNo, setTableNo]   = useState("");
   const [capacity, setCapacity] = useState("");
   const [saving, setSaving]     = useState(false);
 
-  // ── Edit modal state ─────────────────────────────────────
-  // editTarget holds the table being edited so the modal can
-  // pre-fill its fields. null = modal closed.
   const [editTarget, setEditTarget]       = useState<RestaurantTable | null>(null);
   const [editTableNo, setEditTableNo]     = useState("");
   const [editCapacity, setEditCapacity]   = useState("");
   const [editSaving, setEditSaving]       = useState(false);
 
-  // ── QR preview state ─────────────────────────────────────
   const [qrPreview, setQrPreview] = useState<RestaurantTable | null>(null);
 
-  // ── Rotate QR confirm state ──────────────────────────────
   const [rotateTarget, setRotateTarget]     = useState<RestaurantTable | null>(null);
   const [rotateSaving, setRotateSaving]     = useState(false);
 
@@ -61,7 +60,6 @@ export default function TablesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Add ──────────────────────────────────────────────────
   async function handleAdd() {
     if (!tableNo.trim()) { toast.error("Table number is required."); return; }
     setSaving(true);
@@ -78,8 +76,6 @@ export default function TablesPage() {
     } finally { setSaving(false); }
   }
 
-  // ── Edit ─────────────────────────────────────────────────
-  // Pre-fill the edit modal with the selected table's data.
   function openEdit(table: RestaurantTable) {
     setEditTarget(table);
     setEditTableNo(table.table_number);
@@ -96,15 +92,13 @@ export default function TablesPage() {
     if (!editTarget) return;
     if (!editTableNo.trim()) { toast.error("Table number is required."); return; }
 
-    // Only send fields that have actually changed.
-    // The backend requires at least one field (Zod refine check).
     const payload: Record<string, unknown> = {};
     if (editTableNo.trim() !== editTarget.table_number) {
       payload.table_number = editTableNo.trim();
     }
     const newCap = editCapacity ? Number(editCapacity) : null;
     if (newCap !== (editTarget.capacity ?? null)) {
-      payload.capacity = newCap ?? undefined; // undefined removes capacity
+      payload.capacity = newCap ?? undefined;
     }
 
     if (Object.keys(payload).length === 0) {
@@ -124,7 +118,6 @@ export default function TablesPage() {
     } finally { setEditSaving(false); }
   }
 
-  // ── Toggle active ────────────────────────────────────────
   async function handleToggleActive(table: RestaurantTable) {
     try {
       await api.patch(`/api/shops/${shopId}/tables/${table.id}`, {
@@ -136,7 +129,6 @@ export default function TablesPage() {
     }
   }
 
-  // ── Delete ───────────────────────────────────────────────
   async function handleDelete(tableId: string, tableNumber: string) {
     if (!confirm(`Delete table ${tableNumber}?`)) return;
     try {
@@ -148,7 +140,6 @@ export default function TablesPage() {
     }
   }
 
-  // ── Rotate QR ────────────────────────────────────────────
   async function handleRotateQr() {
     if (!rotateTarget) return;
     setRotateSaving(true);
@@ -162,7 +153,6 @@ export default function TablesPage() {
     } finally { setRotateSaving(false); }
   }
 
-  // ── QR helpers ───────────────────────────────────────────
   function getQrUrl(token: string) {
     const base = process.env.NEXT_PUBLIC_APP_URL ?? (typeof window !== "undefined" ? window.location.origin : "");
     return `${base}/qr/${token}`;
@@ -185,7 +175,6 @@ export default function TablesPage() {
     win.print();
   }
 
-  // ── Restaurant-only guard ────────────────────────────────
   if (shopType !== "RESTAURANT") {
     return (
       <div className="max-w-xl animate-fade-in">
@@ -201,11 +190,9 @@ export default function TablesPage() {
     );
   }
 
-  // ── Render ───────────────────────────────────────────────
   return (
     <div className="max-w-3xl animate-fade-in">
 
-      {/* Page header */}
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-[22px] font-medium text-[#0F2B4C]">Tables</h1>
         {canWrite && (
@@ -218,7 +205,6 @@ export default function TablesPage() {
         )}
       </div>
 
-      {/* Table list */}
       {loading ? (
         <SkeletonTable rows={5} cols={5} />
       ) : tables.length === 0 ? (
@@ -227,84 +213,78 @@ export default function TablesPage() {
           description="Add tables so customers can scan QR codes and order."
         />
       ) : (
-        <div className="bg-white border border-[#D3D1C7] rounded-lg overflow-hidden">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="bg-[#F1EFE8] border-b border-[#D3D1C7] text-[#5F5E5A] text-[12px]">
-                <th className="text-left px-5 py-3 font-medium">Table</th>
-                <th className="text-left px-4 py-3 font-medium">Capacity</th>
-                <th className="text-left px-4 py-3 font-medium">Status</th>
-                <th className="text-right px-4 py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tables.map((t) => (
-                <tr key={t.id} className="border-b border-[#F1EFE8] last:border-0 hover:bg-[#F1EFE8]/40">
+        <Table className="min-w-[640px]">
+          <TableHead>
+            <Th>Table</Th>
+            <Th>Capacity</Th>
+            <Th>Status</Th>
+            <Th align="right">Actions</Th>
+          </TableHead>
+          <TableBody>
+            {tables.map((t) => (
+              <Tr key={t.id}>
 
-                  <td className="px-5 py-3 font-medium text-[#0F2B4C]">Table {t.table_number}</td>
-                  <td className="px-4 py-3 text-[#5F5E5A]">{t.capacity != null ? t.capacity : "—"}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${
-                      t.is_active ? "bg-[#E1F5EE] text-[#0D7A5F]" : "bg-[#F1EFE8] text-[#5F5E5A]"
-                    }`}>
-                      {t.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
+                <Td className="font-medium text-[#0F2B4C]">Table {t.table_number}</Td>
+                <Td className="text-[#5F5E5A]">{t.capacity != null ? t.capacity : "—"}</Td>
+                <Td>
+                  <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${
+                    t.is_active ? "bg-[#E1F5EE] text-[#0D7A5F]" : "bg-[#F1EFE8] text-[#5F5E5A]"
+                  }`}>
+                    {t.is_active ? "Active" : "Inactive"}
+                  </span>
+                </Td>
 
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-3">
-                      <button
-                        onClick={() => setQrPreview(t)}
-                        className="text-[12px] text-[#534AB7] hover:underline"
-                      >
-                        View QR
-                      </button>
-                      <button
-                        onClick={() => handlePrintQr(t)}
-                        className="text-[12px] text-[#5F5E5A] hover:underline"
-                      >
-                        Print
-                      </button>
-                      {canWrite && (
-                        <>
-                          {/* Edit — opens modal pre-filled with table data */}
-                          <button
-                            onClick={() => openEdit(t)}
-                            className="text-[12px] text-[#0F2B4C] hover:underline"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleToggleActive(t)}
-                            className="text-[12px] text-[#BA7517] hover:underline"
-                          >
-                            {t.is_active ? "Disable" : "Enable"}
-                          </button>
-                          <button
-                            onClick={() => setRotateTarget(t)}
-                            className="text-[12px] text-[#534AB7] hover:underline"
-                          >
-                            Rotate QR
-                          </button>
-                          <button
-                            onClick={() => handleDelete(t.id, t.table_number)}
-                            className="text-[12px] text-[#A32D2D] hover:underline"
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
+                <Td align="right">
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      onClick={() => setQrPreview(t)}
+                      className="text-[12px] text-[#534AB7] hover:underline"
+                    >
+                      View QR
+                    </button>
+                    <button
+                      onClick={() => handlePrintQr(t)}
+                      className="text-[12px] text-[#5F5E5A] hover:underline"
+                    >
+                      Print
+                    </button>
+                    {canWrite && (
+                      <>
+                        <button
+                          onClick={() => openEdit(t)}
+                          className="text-[12px] text-[#0F2B4C] hover:underline"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleToggleActive(t)}
+                          className="text-[12px] text-[#BA7517] hover:underline"
+                        >
+                          {t.is_active ? "Disable" : "Enable"}
+                        </button>
+                        <button
+                          onClick={() => setRotateTarget(t)}
+                          className="text-[12px] text-[#534AB7] hover:underline"
+                        >
+                          Rotate QR
+                        </button>
+                        <button
+                          onClick={() => handleDelete(t.id, t.table_number)}
+                          className="text-[12px] text-[#A32D2D] hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </Td>
 
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </Tr>
+            ))}
+          </TableBody>
+        </Table>
       )}
 
-      {/* ── Add table modal ───────────────────────────────── */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-sm shadow-md animate-fade-in">
@@ -351,20 +331,6 @@ export default function TablesPage() {
         </div>
       )}
 
-      {/* ── Edit table modal ──────────────────────────────── */}
-      {/*
-        WHY: The backend's PATCH endpoint already supports updating
-        table_number and capacity. We just needed a modal to expose
-        those fields in the UI.
-
-        PRE-FILL PATTERN: openEdit() copies the table's current values
-        into controlled state before the modal opens. This means the
-        user sees the current values and can change only what they want.
-
-        DIFF LOGIC: We only send fields that actually changed. If nothing
-        changed, we skip the API call entirely. This avoids unnecessary
-        network requests and backend writes.
-      */}
       {editTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-sm shadow-md animate-fade-in">
@@ -422,13 +388,6 @@ export default function TablesPage() {
         </div>
       )}
 
-      {/* ── Rotate QR confirm modal ───────────────────────── */}
-      {/*
-        WHY: Rotating the QR token instantly invalidates every printed QR
-        code for this table. We surface a confirmation modal (instead of
-        window.confirm) so the warning is clear and styled consistently
-        with the rest of the app.
-      */}
       {rotateTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-sm shadow-md animate-fade-in">
@@ -458,7 +417,6 @@ export default function TablesPage() {
         </div>
       )}
 
-      {/* ── QR preview modal ──────────────────────────────── */}
       {qrPreview && (
         <div
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
