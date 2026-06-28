@@ -22,6 +22,11 @@
 //   - Full device_key with a one-click copy button
 //   - IP address (where the device registered from)
 //   - Registered date (when it first appeared)
+//
+// CHANGED: DeviceTable now uses the shared Table/TableHead/
+// Th/TableBody/Tr/Td components — fixes Actions getting
+// clipped on narrower screens. The expanded detail row uses
+// Td's colSpan prop to span the full table width.
 // =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -33,6 +38,7 @@ import { formatDateTime } from "@/utils/formatDate";
 import toast from "react-hot-toast";
 import { EmptyState, Spinner } from "@/components/states";
 import { SkeletonTable } from "@/components/ui/Skeleton";
+import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
 
 type DeviceStatus = "PENDING" | "APPROVED" | "REVOKED";
 
@@ -105,20 +111,20 @@ export default function PermissionsPage() {
     }
   }
 
-async function handleDelete(device: ShopDevice) {
-  const message =
-    device.status === "PENDING"
-      ? `Remove the device "${device.device_name ?? device.id.slice(0, 8)}"? It hasn't been approved, so this has no effect on access.`
-      : `Permanently remove this device record? Only revoked or pending devices can be deleted.`;
-  if (!confirm(message)) return;
-  try {
-    await api.delete(`/api/shops/${shopId}/devices/${device.id}`);
-    toast.success("Device removed.");
-    load();
-  } catch (err: any) {
-    toast.error(getErrorMessage(err.response?.data?.message));
+  async function handleDelete(device: ShopDevice) {
+    const message =
+      device.status === "PENDING"
+        ? `Remove the device "${device.device_name ?? device.id.slice(0, 8)}"? It hasn't been approved, so this has no effect on access.`
+        : `Permanently remove this device record? Only revoked or pending devices can be deleted.`;
+    if (!confirm(message)) return;
+    try {
+      await api.delete(`/api/shops/${shopId}/devices/${device.id}`);
+      toast.success("Device removed.");
+      load();
+    } catch (err: any) {
+      toast.error(getErrorMessage(err.response?.data?.message));
+    }
   }
-}
 
   async function handleRename() {
     if (!renaming || !renameValue.trim()) return;
@@ -215,7 +221,6 @@ async function handleDelete(device: ShopDevice) {
         </>
       )}
 
-      {/* Rename modal */}
       {renaming && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-sm shadow-md animate-fade-in">
@@ -254,8 +259,6 @@ async function handleDelete(device: ShopDevice) {
   );
 }
 
-// ── Section wrapper ───────────────────────────────────────
-
 function Section({
   title,
   titleColour = "text-[#0F2B4C]",
@@ -280,8 +283,6 @@ function Section({
   );
 }
 
-// ── Device table ──────────────────────────────────────────
-
 function DeviceTable({
   devices,
   onApprove,
@@ -295,7 +296,6 @@ function DeviceTable({
   onDelete:  (d: ShopDevice) => void;
   onRename:  (d: ShopDevice) => void;
 }) {
-  // Track which row is expanded. Clicking the same row again collapses it.
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   function toggleExpand(id: string) {
@@ -303,171 +303,157 @@ function DeviceTable({
   }
 
   return (
-    <div className="bg-white border border-[#D3D1C7] rounded-lg overflow-hidden">
-      <table className="w-full text-[13px]">
-        <thead>
-          <tr className="bg-[#F1EFE8] border-b border-[#D3D1C7] text-[#5F5E5A] text-[12px]">
-            <th className="text-left px-5 py-3 font-medium">Device</th>
-            <th className="text-left px-4 py-3 font-medium">Status</th>
-            <th className="text-left px-4 py-3 font-medium">Mode</th>
-            <th className="text-left px-4 py-3 font-medium">Last seen</th>
-            <th className="text-right px-5 py-3 font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {devices.map((device) => {
-            const isExpanded = expandedId === device.id;
+    <Table className="min-w-[680px]">
+      <TableHead>
+        <Th>Device</Th>
+        <Th>Status</Th>
+        <Th>Mode</Th>
+        <Th>Last seen</Th>
+        <Th align="right">Actions</Th>
+      </TableHead>
+      <TableBody>
+        {devices.map((device) => {
+          const isExpanded = expandedId === device.id;
 
-            return (
-              <React.Fragment key={device.id}>
-                {/* ── Main row ─────────────────────────────── */}
-                <tr className={`border-b border-[#F1EFE8] last:border-0 ${isExpanded ? "bg-[#F1EFE8]/50" : "hover:bg-[#F1EFE8]/30"}`}>
+          return (
+            <React.Fragment key={device.id}>
+              <Tr className={isExpanded ? "bg-[#F1EFE8]/50" : "hover:bg-[#F1EFE8]/30"}>
 
-                  {/* Device name + truncated key + expand toggle */}
-                  <td className="px-5 py-3">
-                    <p className="font-medium text-[#0F2B4C]">
-                      {device.device_name ?? (
-                        <span className="text-[#5F5E5A] italic">Unnamed device</span>
-                      )}
+                <Td>
+                  <p className="font-medium text-[#0F2B4C]">
+                    {device.device_name ?? (
+                      <span className="text-[#5F5E5A] italic">Unnamed device</span>
+                    )}
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <p className="text-[11px] text-[#5F5E5A] font-mono">
+                      {device.device_key.slice(0, 8)}…
                     </p>
-                    {/* Truncated key with Details toggle on the same line */}
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <p className="text-[11px] text-[#5F5E5A] font-mono">
-                        {device.device_key.slice(0, 8)}…
-                      </p>
-                      <button
-                        onClick={() => toggleExpand(device.id)}
-                        className="text-[10px] text-[#0D7A5F] hover:underline leading-none"
-                      >
-                        {isExpanded ? "hide" : "details"}
-                      </button>
-                    </div>
-                  </td>
+                    <button
+                      onClick={() => toggleExpand(device.id)}
+                      className="text-[10px] text-[#0D7A5F] hover:underline leading-none"
+                    >
+                      {isExpanded ? "hide" : "details"}
+                    </button>
+                  </div>
+                </Td>
 
-                  <td className="px-4 py-3">
-                    <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${STATUS_STYLES[device.status]}`}>
-                      {device.status}
-                    </span>
-                  </td>
+                <Td>
+                  <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${STATUS_STYLES[device.status]}`}>
+                    {device.status}
+                  </span>
+                </Td>
 
-                  <td className="px-4 py-3 text-[#5F5E5A]">
-                    {device.current_mode ?? "—"}
-                  </td>
+                <Td className="text-[#5F5E5A]">
+                  {device.current_mode ?? "—"}
+                </Td>
 
-                  <td className="px-4 py-3 text-[#5F5E5A] text-[12px]">
-                    {device.last_seen_at ? formatDateTime(device.last_seen_at) : "Never"}
-                  </td>
+                <Td className="text-[#5F5E5A] text-[12px]">
+                  {device.last_seen_at ? formatDateTime(device.last_seen_at) : "Never"}
+                </Td>
 
-                  <td className="px-5 py-3">
-                    <div className="flex items-center justify-end gap-3">
-                      <button
-                        onClick={() => onRename(device)}
-                        className="text-[12px] text-[#5F5E5A] hover:text-[#0F2B4C] hover:underline"
-                      >
-                        Rename
-                      </button>
+                <Td align="right">
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      onClick={() => onRename(device)}
+                      className="text-[12px] text-[#5F5E5A] hover:text-[#0F2B4C] hover:underline"
+                    >
+                      Rename
+                    </button>
 
-{device.status === "PENDING" && (
-  <>
-    <button
-      onClick={() => onApprove(device)}
-      className="text-[12px] text-[#0D7A5F] font-medium hover:underline"
-    >
-      Approve
-    </button>
-    <button
-      onClick={() => onDelete(device)}
-      className="text-[12px] text-[#A32D2D] hover:underline"
-    >
-      Delete
-    </button>
-  </>
-)}
-
-                      {device.status === "APPROVED" && (
+                    {device.status === "PENDING" && (
+                      <>
                         <button
-                          onClick={() => onRevoke(device)}
+                          onClick={() => onApprove(device)}
+                          className="text-[12px] text-[#0D7A5F] font-medium hover:underline"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => onDelete(device)}
                           className="text-[12px] text-[#A32D2D] hover:underline"
                         >
-                          Revoke
+                          Delete
                         </button>
-                      )}
+                      </>
+                    )}
 
-                      {device.status === "REVOKED" && (
-                        <>
-                          <button
-                            onClick={() => onApprove(device)}
-                            className="text-[12px] text-[#0D7A5F] hover:underline"
-                          >
-                            Re-approve
-                          </button>
-                          <button
-                            onClick={() => onDelete(device)}
-                            className="text-[12px] text-[#A32D2D] hover:underline"
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+                    {device.status === "APPROVED" && (
+                      <button
+                        onClick={() => onRevoke(device)}
+                        className="text-[12px] text-[#A32D2D] hover:underline"
+                      >
+                        Revoke
+                      </button>
+                    )}
 
-                {/* ── Expanded detail panel ─────────────────── */}
-                {isExpanded && (
-                  <tr className="border-b border-[#F1EFE8] last:border-0">
-                    {/* colspan=5 so the panel spans the full table width */}
-                    <td colSpan={5} className="px-5 py-4 bg-[#F8F7F3]">
-                      <div className="space-y-3">
+                    {device.status === "REVOKED" && (
+                      <>
+                        <button
+                          onClick={() => onApprove(device)}
+                          className="text-[12px] text-[#0D7A5F] hover:underline"
+                        >
+                          Re-approve
+                        </button>
+                        <button
+                          onClick={() => onDelete(device)}
+                          className="text-[12px] text-[#A32D2D] hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </Td>
+              </Tr>
 
-                        {/* Full device key + copy */}
-                        <div>
-                          <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wider mb-1">
-                            Device Key
+              {isExpanded && (
+                <Tr>
+                  <Td colSpan={5} className="bg-[#F8F7F3]">
+                    <div className="space-y-3">
+
+                      <div>
+                        <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wider mb-1">
+                          Device Key
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[12px] text-[#0F2B4C] font-mono break-all leading-relaxed flex-1">
+                            {device.device_key}
                           </p>
-                          <div className="flex items-center gap-2">
-                            <p className="text-[12px] text-[#0F2B4C] font-mono break-all leading-relaxed flex-1">
-                              {device.device_key}
-                            </p>
-                            <CopyButton value={device.device_key} />
-                          </div>
+                          <CopyButton value={device.device_key} />
                         </div>
-
-                        {/* IP address + registered date on one row */}
-                        <div className="flex gap-8">
-                          <div>
-                            <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wider mb-0.5">
-                              IP Address
-                            </p>
-                            <p className="text-[12px] text-[#0F2B4C] font-mono">
-                              {device.ip_address ?? "—"}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wider mb-0.5">
-                              Registered
-                            </p>
-                            <p className="text-[12px] text-[#0F2B4C]">
-                              {formatDateTime(device.created_at)}
-                            </p>
-                          </div>
-                        </div>
-
                       </div>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+
+                      <div className="flex gap-8">
+                        <div>
+                          <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wider mb-0.5">
+                            IP Address
+                          </p>
+                          <p className="text-[12px] text-[#0F2B4C] font-mono">
+                            {device.ip_address ?? "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wider mb-0.5">
+                            Registered
+                          </p>
+                          <p className="text-[12px] text-[#0F2B4C]">
+                            {formatDateTime(device.created_at)}
+                          </p>
+                        </div>
+                      </div>
+
+                    </div>
+                  </Td>
+                </Tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </TableBody>
+    </Table>
   );
 }
-
-// ── Copy button ───────────────────────────────────────────
-// Self-contained: manages its own "copied" feedback state.
 
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
