@@ -10,6 +10,7 @@ import { Request, Response }  from "express";
 import { ProductService }     from "./product.service.js";
 import { getParamAsString }   from "../../utils/converter.js";
 import { handleError }        from "../../utils/handleError.js";
+import { parsePaginationParams } from "../../utils/pagination.js";
 
 export class ProductController {
 
@@ -85,9 +86,14 @@ export class ProductController {
     try {
       const shopId      = getParamAsString(req.params.shopId, "shopId");
       const requesterId = req.user!.id;
+      const pagination  = parsePaginationParams(req);
+      const search       = req.query.search as string | undefined;
+      const categoryId    = req.query.categoryId as string | undefined;
 
-      const models = await ProductService.getModels(shopId, requesterId);
-      return res.json(models);
+      const result = await ProductService.getModels(
+        shopId, requesterId, pagination, search, categoryId
+      );
+      return res.json(result);
     } catch (err) { return handleError(res, err); }
   }
 
