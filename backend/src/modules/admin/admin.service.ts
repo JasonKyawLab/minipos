@@ -120,4 +120,70 @@ export class AdminService {
 
     return { success: true };
   }
+
+  static async suspendShop(shopId: string, reason: string, actorId: string) {
+    if (!reason || reason.trim().length < 3) {
+      throw new appError("SUSPEND_REASON_REQUIRED", 400);
+    }
+
+    const suspended = await AdminRepository.suspendShop(shopId, reason.trim());
+    if (!suspended) throw new appError("SHOP_NOT_FOUND", 404);
+
+    await AuditService.log({
+      userId: actorId,
+      action: "SHOP_SUSPENDED_BY_ADMIN",
+      entity: "SHOP",
+      entityId: shopId,
+      metadata: { reason: reason.trim() },
+    });
+
+    return { success: true };
+  }
+
+  static async unsuspendShop(shopId: string, actorId: string) {
+    const unsuspended = await AdminRepository.unsuspendShop(shopId);
+    if (!unsuspended) throw new appError("SHOP_NOT_FOUND", 404);
+
+    await AuditService.log({
+      userId: actorId,
+      action: "SHOP_UNSUSPENDED_BY_ADMIN",
+      entity: "SHOP",
+      entityId: shopId,
+    });
+
+    return { success: true };
+  }
+
+  static async suspendUser(userId: string, actorId: string) {
+    if (userId === actorId) {
+      throw new appError("CANNOT_SUSPEND_SELF", 400);
+    }
+    const suspended = await AdminRepository.suspendUser(userId);
+    if (!suspended) throw new appError("USER_NOT_FOUND", 404);
+
+    await AuditService.log({
+      userId: actorId,
+      action: "USER_SUSPENDED_BY_ADMIN",
+      entity: "USER",
+      entityId: userId,
+    });
+    return { success: true };
+  }
+
+  static async reactivateUser(userId: string, actorId: string) {
+    const reactivated = await AdminRepository.reactivateUser(userId);
+    if (!reactivated) throw new appError("USER_NOT_FOUND", 404);
+
+    await AuditService.log({
+      userId: actorId,
+      action: "USER_REACTIVATED_BY_ADMIN",
+      entity: "USER",
+      entityId: userId,
+    });
+    return { success: true };
+  }
+
+  static async getStats() {
+    return AdminRepository.getStats();
+  }
 }
