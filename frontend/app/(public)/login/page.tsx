@@ -6,13 +6,14 @@ import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { getErrorMessage } from "@/utils/errorMessages";
 import { Spinner } from "@/components/states";
+import toast from "react-hot-toast";
 
 type Tab = "LOGIN" | "REGISTER";
 
 export default function LoginPage() {
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const { refresh, isLoading, isAuthenticated } = useAuth();
+  const { refresh, isLoading, isAuthenticated, user } = useAuth();
 
   const [tab, setTab] = useState<Tab>("LOGIN");
 
@@ -33,11 +34,20 @@ export default function LoginPage() {
   // Calling router during render breaks Next.js RSC payload fetching
   // and causes the infinite "Failed to fetch RSC payload" loop.
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      const redirect = searchParams.get("redirect") ?? "/dashboard";
-      router.replace(redirect);
+     if (!isLoading && isAuthenticated && user) {
+      const explicitRedirect = searchParams.get("redirect");
+      const defaultRedirect = user.role === "ADMIN" ? "/admin/dashboard" : "/dashboard";
+      router.replace(explicitRedirect ?? defaultRedirect);
     }
   }, [isLoading, isAuthenticated, router, searchParams]);
+
+   useEffect(() => {
+   const notice = sessionStorage.getItem("login_notice");
+   if (notice) {
+     toast.error(notice);
+     sessionStorage.removeItem("login_notice");
+   }
+ }, []);
 
   // Show spinner while:
   // 1. AuthContext is checking the existing cookie (isLoading)
