@@ -217,11 +217,11 @@ export class PosAuthService {
     pin:        string;
     terminalId?: string;
   }) {
-    // ── Fetch membership + shop info + user name in one query ──
-    //
-    // WHY one query: we need membership fields (role, pin_hash,
-    // lockout, token_version), shop fields (shop_type, name),
-    // and user name. Joining them here avoids 2 extra round trips.
+    
+    if (await PosAuthRepository.isShopSuspended(params.shopId)) {
+      throw new appError("SHOP_SUSPENDED", 403);
+    }
+
     const { rows: memberRows } = await pool.query(
       `
       SELECT
@@ -527,4 +527,5 @@ export class PosAuthService {
 
     return rows;
   }
+
 }
