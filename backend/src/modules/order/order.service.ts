@@ -34,6 +34,7 @@ import { appError }          from "../../utils/appError.js";
 import { SOCKET_EVENTS }     from "../socket/socket.events.js";
 import { emitToShop, emitToQrSession } from "../socket/socket.js";
 import { KitchenService }    from "../kitchen/kitchen.service.js";
+import { buildPaginatedResult, PaginationParams } from "../../utils/pagination.js";
 
 const ALL_ROLES   = ["OWNER", "MANAGER", "CASHIER"] as const;
 const WRITE_ROLES = ["OWNER", "MANAGER"] as const;
@@ -183,9 +184,14 @@ export class OrderService {
   // READ ORDERS
   // =======================================================
 
-  static async getOrders(filter: ListOrdersFilter, requesterId: string) {
+static async getOrders(
+    filter: ListOrdersFilter,
+    requesterId: string,
+    paginationParams: PaginationParams
+  ) {
     await assertShopMember(filter.shopId, requesterId, ALL_ROLES);
-    return OrderRepository.findOrders(filter);
+    const { rows, totalCount } = await OrderRepository.findOrders(filter);
+    return buildPaginatedResult(rows, totalCount, paginationParams);
   }
 
   static async getOrderById(orderId: string, shopId: string, requesterId: string) {
