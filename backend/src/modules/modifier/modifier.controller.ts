@@ -1,13 +1,7 @@
-// =========================================================
-// modifier.controller.ts
-// Path: backend/src/modules/modifier/modifier.controller.ts
-// Line: Replace handleError function
-// =========================================================
-
 import { Request, Response } from "express";
 import { ModifierService } from "./modifier.service.js";
 import { getParamAsString } from "../../utils/converter.js";
-import { handleError } from "../../utils/handleError.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
 
 export class ModifierController {
 
@@ -15,138 +9,102 @@ export class ModifierController {
   // MODIFIER GROUPS
   // =======================================================
 
-  static async createGroup(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const requesterId = req.user!.id;
+  static createGroup = asyncHandler(async (req: Request, res: Response) => {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const requesterId = req.user!.id;
 
-      const group = await ModifierService.createGroup({
-        shopId, requesterId, input: req.body,
-      });
-      return res.status(201).json(group);
-    } catch (err: any) {
-      return handleError(res, err);
-    }
-  }
+    const group = await ModifierService.createGroup({
+      shopId, requesterId, input: req.body,
+    });
+    res.status(201).json(group);
+  });
 
-  static async getGroups(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const requesterId = req.user!.id;
+  static getGroups = asyncHandler(async (req: Request, res: Response) => {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const requesterId = req.user!.id;
 
-      const groups = await ModifierService.getGroups(shopId, requesterId);
-      return res.json(groups);
-    } catch (err: any) {
-      return handleError(res, err);
-    }
-  }
+    const groups = await ModifierService.getGroups(shopId, requesterId);
+    res.json(groups);
+  });
 
-  static async updateGroup(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const groupId = getParamAsString(req.params.groupId, "groupId");
-      const requesterId = req.user!.id;
+  static updateGroup = asyncHandler(async (req: Request, res: Response) => {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const groupId = getParamAsString(req.params.groupId, "groupId");
+    const requesterId = req.user!.id;
 
-      const updated = await ModifierService.updateGroup({
-        shopId, groupId, requesterId, input: req.body,
-      });
-      return res.json(updated);
-    } catch (err: any) {
-      return handleError(res, err);
-    }
-  }
+    const updated = await ModifierService.updateGroup({
+      shopId, groupId, requesterId, input: req.body,
+    });
+    res.json(updated);
+  });
 
-  static async deleteGroup(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const groupId = getParamAsString(req.params.groupId, "groupId");
-      const requesterId = req.user!.id;
+  static deleteGroup = asyncHandler(async (req: Request, res: Response) => {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const groupId = getParamAsString(req.params.groupId, "groupId");
+    const requesterId = req.user!.id;
 
-      const result = await ModifierService.deleteGroup({
-        shopId, groupId, requesterId,
-      });
-      return res.json(result);
-    } catch (err: any) {
-      return handleError(res, err);
-    }
-  }
+    const result = await ModifierService.deleteGroup({
+      shopId, groupId, requesterId,
+    });
+    res.json(result);
+  });
 
-  static async restoreGroup(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const groupId = getParamAsString(req.params.groupId, "groupId");
-      const requesterId = req.user!.id;
+  static restoreGroup = asyncHandler(async (req: Request, res: Response) => {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const groupId = getParamAsString(req.params.groupId, "groupId");
+    const requesterId = req.user!.id;
 
-      const result = await ModifierService.restoreGroup({
-        shopId, groupId, requesterId,
-      });
-      return res.json(result);
-    } catch (err: any) {
-      return handleError(res, err);
-    }
-  }
+    const result = await ModifierService.restoreGroup({
+      shopId, groupId, requesterId,
+    });
+    res.json(result);
+  });
 
   // =======================================================
   // MODIFIER OPTIONS
   // =======================================================
 
-  static async createOption(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const groupId = getParamAsString(req.params.groupId, "groupId");
-      const requesterId = req.user!.id;
+  static createOption = asyncHandler(async (req: Request, res: Response) => {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const groupId = getParamAsString(req.params.groupId, "groupId");
+    const requesterId = req.user!.id;
 
-      const option = await ModifierService.createOption({
-        shopId, groupId, requesterId, input: req.body,
-      });
-      return res.status(201).json(option);
-    } catch (err: any) {
-      return handleError(res, err);
-    }
-  }
+    const option = await ModifierService.createOption({
+      shopId, groupId, requesterId, input: req.body,
+    });
+    res.status(201).json(option);
+  });
 
-  static async getOptions(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const groupId = getParamAsString(req.params.groupId, "groupId");
-      const requesterId = req.user!.id;
+  static getOptions = asyncHandler(async (req: Request, res: Response) => {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const groupId = getParamAsString(req.params.groupId, "groupId");
+    const requesterId = req.user!.id;
 
-      const options = await ModifierService.getOptions({
-        shopId, groupId, requesterId,
-      });
-      return res.json(options);
-    } catch (err: any) {
-      return handleError(res, err);
-    }
-  }
+    const options = await ModifierService.getOptions({
+      shopId, groupId, requesterId,
+    });
+    res.json(options);
+  });
 
-  static async updateOption(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const optionId = getParamAsString(req.params.optionId, "optionId");
-      const requesterId = req.user!.id;
+  static updateOption = asyncHandler(async (req: Request, res: Response) => {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const optionId = getParamAsString(req.params.optionId, "optionId");
+    const requesterId = req.user!.id;
 
-      const updated = await ModifierService.updateOption({
-        shopId, optionId, requesterId, input: req.body,
-      });
-      return res.json(updated);
-    } catch (err: any) {
-      return handleError(res, err);
-    }
-  }
+    const updated = await ModifierService.updateOption({
+      shopId, optionId, requesterId, input: req.body,
+    });
+    res.json(updated);
+  });
 
-  static async deleteOption(req: Request, res: Response) {
-    try {
-      const shopId = getParamAsString(req.params.shopId, "shopId");
-      const optionId = getParamAsString(req.params.optionId, "optionId");
-      const requesterId = req.user!.id;
+  static deleteOption = asyncHandler(async (req: Request, res: Response) => {
+    const shopId = getParamAsString(req.params.shopId, "shopId");
+    const optionId = getParamAsString(req.params.optionId, "optionId");
+    const requesterId = req.user!.id;
 
-      const result = await ModifierService.deleteOption({
-        shopId, optionId, requesterId,
-      });
-      return res.json(result);
-    } catch (err: any) {
-      return handleError(res, err);
-    }
-  }
+    const result = await ModifierService.deleteOption({
+      shopId, optionId, requesterId,
+    });
+    res.json(result);
+  });
 }

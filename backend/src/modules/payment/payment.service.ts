@@ -1,82 +1,27 @@
-// =========================================================
-// payment.service.ts
-// Path: backend/src/modules/payment/payment.service.ts
-//
-// FIX: TAKEAWAY and RETAIL orders were never reaching the
-// Kitchen Display System (KDS).
-//
-// ROOT CAUSE:
-//   The POS flow for TAKEAWAY/RETAIL keeps the order in
-//   OPEN status until payment is collected (intentional —
-//   prevents wasted kitchen effort on unpaid orders).
-//   After processPayment() succeeds, the frontend fires a
-//   second PATCH /status CONFIRMED.
-//
-//   BUT: PaymentRepository.processPayment() internally sets
-//   the order to PAID as part of the payment transaction.
-//   By the time the CONFIRMED patch arrives, the order is
-//   already PAID. ALLOWED_TRANSITIONS['PAID'] = [] so the
-//   patch is rejected with INVALID_STATUS_TRANSITION (400).
-//   The frontend .catch(() => {}) silently swallows it.
-//   No kitchen ticket is ever created.
-//
-// FIX:
-//   processPayment() now detects when it is paying an OPEN
-//   order (TAKEAWAY / RETAIL) and creates the kitchen ticket
-//   directly, after the payment transaction commits. This
-//   removes the need for the second PATCH /status call from
-//   the frontend entirely — the kitchen notification is
-//   atomic with payment success.
-//
-//   The CONFIRMED status PATCH from the frontend is now a
-//   no-op because the order is already PAID, which is fine
-//   — the .catch(() => {}) absorbs the 400 gracefully.
-//
-// WHAT DID NOT CHANGE:
-//   DINE_IN orders are confirmed to the kitchen immediately
-//   when the cashier taps "Send to Kitchen" — they never go
-//   through processPayment() in OPEN status, so the DINE_IN
-//   path is unaffected.
-// =========================================================
-
-import { ShopRepository }    from "../shop/shop.repository.js";
 import { AuditService }      from "../audit/audit.service.js";
 import { OrderRepository }   from "../order/order.repository.js";
 import { PaymentRepository } from "./payment.repository.js";
 import { KitchenService }    from "../kitchen/kitchen.service.js";
 import { KitchenRepository } from "../kitchen/kitchen.repository.js";
+import { TableRepository }   from "../table/table.repository.js";
 import { ProcessPaymentInput } from "./payment.types.js";
 import { appError }          from "../../utils/appError.js";
+import { assertShopRole }    from "../../utils/authorize.js";
+import { READ_ROLES }        from "../../constants/roles.constants.js";
 import { SOCKET_EVENTS }     from "../socket/socket.events.js";
-import { emitToShop, emitToQrSession  }        from "../socket/socket.js";
-import { pool }              from "../../db/pool.js";
-
-const ALL_ROLES = ["OWNER", "MANAGER", "CASHIER"] as const;
-
-async function assertShopMember(
-  shopId:  string,
-  userId:  string,
-  allowed: readonly string[]
-) {
-  const member = await ShopRepository.getUserShopMembership(shopId, userId);
-  if (!member || !member.is_active || !allowed.includes(member.role)) {
-    throw new appError("FORBIDDEN", 403);
-  }
-}
+import { emitToShop, emitToQrSession } from "../socket/socket.js";
 
 // ── Helper: resolve table_number for kitchen ticket ───────
 // TAKEAWAY and RETAIL orders have no table_id, so this
 // returns null for those types. Only DINE_IN / QR have tables.
 async function resolveTableNumber(
+  shopId:    string,
   orderType: string,
   tableId:   string | null
 ): Promise<string | null> {
   if ((orderType === "DINE_IN" || orderType === "QR") && tableId) {
-    const result = await pool.query(
-      `SELECT table_number FROM restaurant_tables WHERE id = $1`,
-      [tableId]
-    );
-    return result.rows[0]?.table_number ?? null;
+    const table = await TableRepository.findTableById(tableId, shopId);
+    return table?.table_number ?? null;
   }
   return null;
 }
@@ -84,7 +29,7 @@ async function resolveTableNumber(
 export class PaymentService {
 
   static async processPayment(params: ProcessPaymentInput & { requesterId: string }) {
-    await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, READ_ROLES);
 
     const order = await OrderRepository.findOrderWithItems(params.orderId, params.shopId);
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);
@@ -110,9 +55,8 @@ export class PaymentService {
     // Remember whether this order was OPEN before payment.
     // OPEN means TAKEAWAY or RETAIL — these were never CONFIRMED
     // to the kitchen and need a ticket created on payment.
-    const wasOpen = order.status === "OPEN" 
-  && (order.order_type === "TAKEAWAY" || order.order_type === "RETAIL");
-    console.log(`[Payment] orderId=${params.orderId} status=${order.status} wasOpen=${wasOpen} orderType=${order.order_type}`);
+    const wasOpen = order.status === "OPEN"
+      && (order.order_type === "TAKEAWAY" || order.order_type === "RETAIL");
 
     const payment = await PaymentRepository.processPayment({
       orderId:        params.orderId,
@@ -144,14 +88,14 @@ export class PaymentService {
     }
 
     try {
-  emitToQrSession(params.orderId, SOCKET_EVENTS.QR_ORDER_STATUS, {
-    orderId:   params.orderId,
-    newStatus: "PAID",
-    timestamp: new Date().toISOString(),
-  });
-} catch (socketErr) {
-  console.error("QR session socket emit failed:", socketErr);
-}
+      emitToQrSession(params.orderId, SOCKET_EVENTS.QR_ORDER_STATUS, {
+        orderId:   params.orderId,
+        newStatus: "PAID",
+        timestamp: new Date().toISOString(),
+      });
+    } catch (socketErr) {
+      console.error("QR session socket emit failed:", socketErr);
+    }
 
     // ── Create kitchen ticket for TAKEAWAY / RETAIL ──────────
     // These order types are kept OPEN until payment is collected.
@@ -162,7 +106,7 @@ export class PaymentService {
     // (before payment), so we skip those here.
     if (wasOpen) {
       try {
-        const tableNumber    = await resolveTableNumber(order.order_type, order.table_id ?? null);
+        const tableNumber    = await resolveTableNumber(params.shopId, order.order_type, order.table_id ?? null);
         const existingRounds = await KitchenRepository.getTicketRoundCount(params.orderId);
         const round          = existingRounds + 1;
         const is_addon       = round > 1;
@@ -213,12 +157,11 @@ export class PaymentService {
     shopId:      string;
     requesterId: string;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, READ_ROLES);
 
     const order = await OrderRepository.findOrderById(params.orderId, params.shopId);
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);
 
     return PaymentRepository.findPaymentsByOrder(params.orderId);
   }
-
 }

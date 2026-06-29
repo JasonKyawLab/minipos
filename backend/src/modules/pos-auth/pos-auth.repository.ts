@@ -255,4 +255,33 @@ export class PosAuthRepository {
     );
     return rows[0]?.is_suspended ?? false;
   }
+
+    static async getTableStatus(shopId: string) {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        t.id                                AS table_id,
+        t.table_number,
+        t.capacity,
+        o.id                                AS order_id,
+        o.order_no,
+        o.status                            AS order_status,
+        o.total_amount,
+        o.bill_requested,
+        o.bill_requested_at,
+        o.created_at                        AS order_started_at
+      FROM restaurant_tables t
+      LEFT JOIN orders o
+        ON  o.table_id = t.id
+        AND o.shop_id  = $1
+        AND o.status NOT IN ('PAID', 'CANCELLED', 'REFUNDED')
+      WHERE t.shop_id   = $1
+        AND t.is_active = TRUE
+      ORDER BY t.table_number ASC
+      `,
+      [shopId]
+    );
+
+    return rows;
+  }
 }

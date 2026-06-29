@@ -27,6 +27,45 @@ export class DeviceModeRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
+// ── Close all active staff sessions on terminal exit ──────
+  // Used by TerminalService.exitTerminal() — when a terminal
+  // device exits POS/Kitchen mode, every staff member currently
+  // clocked in on it must be force-logged-out so they don't
+  // appear "active" forever on a torn-down terminal.
+  //
+  // Falls back to closing by shop_id + mode_type when the
+  // session has no device_id (edge case: device never registered).
+  static async closeSessionsOnTerminalExit(params: {
+    shopId:   string;
+    deviceId: string | null;
+    mode:     string;
+  }): Promise<void> {
+    if (params.deviceId) {
+      await pool.query(
+        `
+        UPDATE staff_mode_sessions
+        SET logout_at     = now(),
+            logout_reason = 'MODE_EXIT'
+        WHERE device_id = $1
+          AND logout_at IS NULL
+        `,
+        [params.deviceId]
+      );
+    } else {
+      await pool.query(
+        `
+        UPDATE staff_mode_sessions
+        SET logout_at     = now(),
+            logout_reason = 'MODE_EXIT'
+        WHERE shop_id   = $1
+          AND mode_type = $2
+          AND logout_at IS NULL
+        `,
+        [params.shopId, params.mode]
+      );
+    }
+  }
+  
   // ── Exit mode on a device ─────────────────────────────
   // Clears current_mode. Done atomically with closing all
   // active staff sessions for this device.

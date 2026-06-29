@@ -304,6 +304,120 @@ export class OrderRepository {
     return result.rows[0] ?? null;
   }
 
+// ── Find the active (non-terminal) order for a table ──────
+  // "Active" = not PAID/CANCELLED/REFUNDED. Used by the QR flow
+  // to find the table's current running tab.
+  static async findActiveOrderForTable(
+    shopId: string,
+    tableId: string
+  ): Promise<Order | null> {
+    const result = await pool.query<Order>(
+      `
+      SELECT * FROM orders
+      WHERE shop_id  = $1
+        AND table_id = $2
+        AND status NOT IN ('PAID', 'CANCELLED', 'REFUNDED')
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [shopId, tableId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  // ── Find a CLOSING QR order for a table ────────────────────
+  // Used two ways by the QR flow:
+  //   1. As a lock check before placing a new order (if a row
+  //      comes back, the table is mid-checkout — reject the order)
+  //   2. To fetch the full order when the table session needs to
+  //      show bill-requested state.
+  static async findClosingQrOrderForTable(
+    shopId: string,
+    tableId: string
+  ): Promise<Order | null> {
+    const result = await pool.query<Order>(
+      `
+      SELECT * FROM orders
+      WHERE shop_id    = $1
+        AND table_id   = $2
+        AND order_type = 'QR'
+        AND status     = 'CLOSING'
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [shopId, tableId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  // ── Active items for a table session, with kitchen round info ──
+  // Correlates each order_item to the kitchen_ticket "round" it was
+  // part of, by matching created_at against the ticket's queued_at
+  // window. Used by the QR customer-facing table session view.
+  static async findActiveItemsWithTicketInfo(orderId: string) {
+    const result = await pool.query(
+      `
+      SELECT
+        oi.id,
+        oi.product_name_snapshot  AS product_name,
+        oi.item_name_snapshot     AS item_name,
+        oi.unit_price_snapshot::FLOAT AS unit_price,
+        oi.qty,
+        oi.subtotal::FLOAT        AS subtotal,
+        oi.modifier_snapshot,
+        oi.item_note,
+        oi.kitchen_status,
+        oi.created_at,
+        kt.round,
+        kt.is_addon
+      FROM order_items oi
+      LEFT JOIN kitchen_tickets kt
+        ON  kt.order_id    = oi.order_id
+        AND oi.created_at >= kt.queued_at
+        AND oi.created_at  < COALESCE(
+          (
+            SELECT MIN(kt2.queued_at)
+            FROM kitchen_tickets kt2
+            WHERE kt2.order_id = kt.order_id
+              AND kt2.round    > kt.round
+          ),
+          'infinity'::timestamptz
+        )
+      WHERE oi.order_id = $1
+        AND oi.status   = 'ACTIVE'
+      ORDER BY oi.created_at ASC
+      `,
+      [orderId]
+    );
+    return result.rows;
+  }
+
+  // ── Mark an order CLOSING (bill requested) ─────────────────
+  static async markOrderClosing(orderId: string): Promise<void> {
+    await pool.query(
+      `
+      UPDATE orders
+      SET status = 'CLOSING', bill_requested = TRUE,
+          bill_requested_at = now(), updated_at = now()
+      WHERE id = $1
+      `,
+      [orderId]
+    );
+  }
+
+  // ── Reopen a CLOSING order back to OPEN ────────────────────
+  static async markOrderOpen(orderId: string): Promise<void> {
+    await pool.query(
+      `
+      UPDATE orders
+      SET status = 'OPEN', bill_requested = FALSE,
+          bill_requested_at = NULL, updated_at = now()
+      WHERE id = $1
+      `,
+      [orderId]
+    );
+  }
+
   /**
    * Recalculate and update order totals after any item change.
    *

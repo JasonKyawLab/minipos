@@ -1,64 +1,15 @@
-// =========================================================
-// device-mode.service.ts
-// Path: backend/src/modules/device-mode/device-mode.service.ts
-//
-// ── BUG FIX #3: Unified device mode access (POS + KITCHEN) ──
-//
-// PROBLEM
-// ───────
-// The original recordStaffLogin() called:
-//
-//   if (!device || device.current_mode !== params.mode) {
-//     throw new appError('DEVICE_NOT_IN_MODE', 409);
-//   }
-//
-// This means a device activated as POS could NOT record a Kitchen
-// staff login, and vice versa.  A manager approves ONE device record
-// in the Permissions panel — there is no separate POS approval vs
-// Kitchen approval.  Forcing separate mode locks for the same physical
-// machine breaks the unified approval model.
-//
-// FIX
-// ───
-// Remove the mode-match check from recordStaffLogin().
-// The device only needs to be APPROVED and have a non-null current_mode.
-// The mode argument on the session row itself records which terminal type
-// the staff member signed into — that is enough for audit purposes.
-//
-// Why this is safe:
-//   - Device approval is already validated at the middleware layer
-//     (requireVerifiedDevice) — the device must be APPROVED to reach
-//     this code at all.
-//   - The current_mode column records WHAT the owner activated the
-//     device as, not a restriction on which routes can be used.
-//   - Both POS and Kitchen share the same device approval workflow.
-//     Requiring a separate mode activation per physical machine is
-//     unnecessary operational overhead with no security benefit.
-// =========================================================
-
 import { comparePassword }        from '../../utils/password.js';
-import { ShopRepository }         from '../shop/shop.repository.js';
 import { AuditService }           from '../audit/audit.service.js';
 import { DeviceModeRepository }   from './device-mode.repository.js';
 import { UserRepository }         from '../user/user.repository.js';
 import { appError }               from '../../utils/appError.js';
+import { assertShopRole }         from '../../utils/authorize.js';
+import { WRITE_ROLES }            from '../../constants/roles.constants.js';
 import { DeviceMode }             from './device-mode.types.js';
-
-const MANAGE_ROLES = ['OWNER', 'MANAGER'] as const;
-
-async function assertCanManageMode(shopId: string, userId: string) {
-  const member = await ShopRepository.getUserShopMembership(shopId, userId);
-  if (!member || !member.is_active || !MANAGE_ROLES.includes(member.role)) {
-    throw new appError('FORBIDDEN', 403);
-  }
-  return member;
-}
 
 export class DeviceModeService {
 
   // ── Activate Mode ─────────────────────────────────────────
-  // Owner/manager enters their platform password → device locks into mode.
-  // The mode (POS | KITCHEN) is stored as current_mode on shop_devices.
   static async activateMode(params: {
     shopId:      string;
     deviceId:    string;
@@ -66,16 +17,14 @@ export class DeviceModeService {
     password:    string;
     mode:        DeviceMode;
   }) {
-    await assertCanManageMode(params.shopId, params.requesterId);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
-    // Verify their platform password
     const user = await UserRepository.findById(params.requesterId);
     if (!user) throw new appError('USER_NOT_FOUND', 404);
 
     const isValid = await comparePassword(params.password, user.password_hash);
     if (!isValid) throw new appError('INVALID_PASSWORD', 401);
 
-    // Check device is approved and not already in a mode
     const device = await DeviceModeRepository.getDeviceMode(
       params.deviceId,
       params.shopId
@@ -107,7 +56,6 @@ export class DeviceModeService {
   }
 
   // ── Get Device Mode Status ─────────────────────────────────
-  // Frontend calls this on load to decide which UI to show.
   static async getModeStatus(deviceId: string, shopId: string) {
     const device = await DeviceModeRepository.getDeviceMode(deviceId, shopId);
     if (!device) throw new appError('DEVICE_NOT_FOUND', 404);
@@ -115,7 +63,7 @@ export class DeviceModeService {
     return {
       device_id:         device.id,
       device_name:       device.device_name,
-      current_mode:      device.current_mode,   // null | 'POS' | 'KITCHEN'
+      current_mode:      device.current_mode,
       mode_activated_at: device.mode_activated_at,
       is_in_mode:        device.current_mode !== null,
       status:            device.status,
@@ -130,9 +78,8 @@ export class DeviceModeService {
     password?:   string;
     forced:      boolean;
   }) {
-    await assertCanManageMode(params.shopId, params.requesterId);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
-    // Normal exit requires password — force exit does not
     if (!params.forced) {
       if (!params.password) throw new appError('PASSWORD_REQUIRED', 400);
 
@@ -171,30 +118,14 @@ export class DeviceModeService {
   }
 
   // ── Record Staff Login ─────────────────────────────────────
-  //
-  // BUG FIX #3 — removed strict mode-match check.
-  //
-  // OLD (broken):
-  //   if (!device || device.current_mode !== params.mode) {
-  //     throw new appError('DEVICE_NOT_IN_MODE', 409);
-  //   }
-  //
-  // This blocked a POS-approved device from recording a Kitchen login
-  // and vice versa, despite both modes sharing the same device approval.
-  //
-  // NEW:
-  //   Only check that the device is APPROVED.  The mode arg on the
-  //   session row records which terminal type the staff signed into.
-  //   The requireVerifiedDevice middleware already enforced APPROVED
-  //   status before this service is reached.
+  // BUG FIX #3 — device only needs to be APPROVED; mode-match
+  // check removed since POS and Kitchen share one approval flow.
   static async recordStaffLogin(params: {
     shopId:   string;
     deviceId: string;
     userId:   string;
     mode:     DeviceMode;
   }) {
-    // Verify device exists and is APPROVED for this shop.
-    // We no longer require device.current_mode === params.mode.
     const device = await DeviceModeRepository.getDeviceMode(
       params.deviceId,
       params.shopId
@@ -244,7 +175,7 @@ export class DeviceModeService {
     limit:       number;
     offset:      number;
   }) {
-    await assertCanManageMode(params.shopId, params.requesterId);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const device = await DeviceModeRepository.getDeviceMode(
       params.deviceId,

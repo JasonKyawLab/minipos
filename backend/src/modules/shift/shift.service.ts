@@ -1,8 +1,4 @@
-// =========================================================
-// src/modules/shift/shift.service.ts
-//
-// Business logic for the Work Log / Shift Tracking feature.
-//
+//=========================================================
 // Access control rules:
 //   OWNER / MANAGER → can see ALL staff shifts for their shop
 //   CASHIER         → can only see their OWN shifts
@@ -12,9 +8,9 @@
 // see other people's work history.
 // =========================================================
 
-import { ShopRepository }  from "../shop/shop.repository.js";
 import { ShiftRepository } from "./shift.repository.js";
 import { appError }        from "../../utils/appError.js";
+import { assertShopMember } from "../../utils/authorize.js";
 
 // Roles that can view ALL shifts for the shop
 const MANAGER_ROLES = ["OWNER", "MANAGER"] as const;
@@ -24,14 +20,6 @@ const STAFF_ROLES   = ["CASHIER", "CHEF"] as const;
 
 // All roles that are allowed to access the shift tab at all
 const ALL_SHIFT_ROLES = [...MANAGER_ROLES, ...STAFF_ROLES] as const;
-
-async function assertShopMember(shopId: string, userId: string) {
-  const member = await ShopRepository.getUserShopMembership(shopId, userId);
-  if (!member || !member.is_active) {
-    throw new appError("FORBIDDEN", 403);
-  }
-  return member;
-}
 
 export class ShiftService {
 

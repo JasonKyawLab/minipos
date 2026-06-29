@@ -1,31 +1,9 @@
-// =========================================================
-// table.service.ts
-// Path: backend/src/modules/table/table.service.ts
-// =========================================================
-// Business logic + permission checks.
-// Pattern is identical to product.service.ts — consistent
-// by design so any reader can navigate the codebase quickly.
-// =========================================================
-
-import { ShopRepository }  from "../shop/shop.repository.js";
 import { AuditService }    from "../audit/audit.service.js";
 import { TableRepository } from "./table.repository.js";
 import { CreateTableInput, UpdateTableInput } from "./table.types.js";
 import { appError } from "../../utils/appError.js";
-
-const WRITE_ROLES = ["OWNER", "MANAGER"] as const;
-const READ_ROLES  = ["OWNER", "MANAGER", "CASHIER"] as const;
-
-async function assertShopMember(
-  shopId: string,
-  userId: string,
-  allowed: readonly string[]
-) {
-  const member = await ShopRepository.getUserShopMembership(shopId, userId);
-  if (!member || !member.is_active || !allowed.includes(member.role)) {
-    throw new appError("FORBIDDEN", 403);
-  }
-}
+import { assertShopRole } from "../../utils/authorize.js";
+import { WRITE_ROLES, READ_ROLES } from "../../constants/roles.constants.js";
 
 export class TableService {
 
@@ -35,7 +13,7 @@ export class TableService {
     tableNumber: string;
     capacity?: number;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     // Duplicate table number check — DB has UNIQUE(shop_id, table_number)
     // but checking here gives a cleaner error message than a DB constraint error
@@ -64,7 +42,7 @@ export class TableService {
   }
 
   static async getTables(shopId: string, requesterId: string) {
-    await assertShopMember(shopId, requesterId, READ_ROLES);
+    await assertShopRole(shopId, requesterId, READ_ROLES);
     return TableRepository.findAllTables(shopId);
   }
 
@@ -73,7 +51,7 @@ export class TableService {
     tableId: string,
     requesterId: string
   ) {
-    await assertShopMember(shopId, requesterId, READ_ROLES);
+    await assertShopRole(shopId, requesterId, READ_ROLES);
 
     const table = await TableRepository.findTableById(tableId, shopId);
     if (!table) throw new appError("TABLE_NOT_FOUND", 404);
@@ -87,7 +65,7 @@ export class TableService {
     requesterId: string;
     input: UpdateTableInput;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     // If renaming, check new number isn't taken
     if (params.input.tableNumber) {
@@ -123,7 +101,7 @@ export class TableService {
     tableId: string;
     requesterId: string;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const updated = await TableRepository.rotateQrToken(
       params.tableId,

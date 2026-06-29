@@ -1,25 +1,10 @@
-// =========================================================
-// order.service.ts
-// Path: backend/src/modules/order/order.service.ts
-//
-// FIX (kitchen tickets not appearing):
-//   KitchenService.createTicket() requires `round` and
-//   `is_addon` after the Flow D migration. Both callers
-//   (updateOrderStatus and updateOrderStatusFromPOS) were
-//   not passing those fields, causing a NOT NULL constraint
-//   violation that was silently swallowed by the catch block.
-//   No ticket was ever inserted → kitchen display stayed empty.
-//
-//   Fix: both callers now call
-//   KitchenRepository.getTicketRoundCount() before creating
-//   the ticket, exactly as qr.service.ts already does.
-// =========================================================
-
-import { ShopRepository }    from "../shop/shop.repository.js";
 import { AuditService }      from "../audit/audit.service.js";
 import { OrderRepository }   from "./order.repository.js";
 import { ProductRepository } from "../product/product.repository.js";
+import { ModifierRepository } from "../modifier/modifier.repository.js";
 import { KitchenRepository } from "../kitchen/kitchen.repository.js";
+import { TableRepository }   from "../table/table.repository.js";
+import { ShopRepository }    from "../shop/shop.repository.js";
 import {
   CreateOrderInput,
   AddOrderItemInput,
@@ -29,62 +14,37 @@ import {
   OrderType,
   ModifierSnapshot,
 } from "./order.types.js";
-import { pool }              from "../../db/pool.js";
 import { appError }          from "../../utils/appError.js";
+import { assertShopRole }    from "../../utils/authorize.js";
+import { READ_ROLES, WRITE_ROLES } from "../../constants/roles.constants.js";
 import { SOCKET_EVENTS }     from "../socket/socket.events.js";
 import { emitToShop, emitToQrSession } from "../socket/socket.js";
 import { KitchenService }    from "../kitchen/kitchen.service.js";
 import { buildPaginatedResult, PaginationParams } from "../../utils/pagination.js";
 
-const ALL_ROLES   = ["OWNER", "MANAGER", "CASHIER"] as const;
-const WRITE_ROLES = ["OWNER", "MANAGER"] as const;
-
-async function assertShopMember(
-  shopId:  string,
-  userId:  string,
-  allowed: readonly string[]
-) {
-  const member = await ShopRepository.getUserShopMembership(shopId, userId);
-  if (!member || !member.is_active || !allowed.includes(member.role)) {
-    throw new appError("FORBIDDEN", 403);
-  }
-  return member;
-}
-
 async function getShopInfo(shopId: string): Promise<{ taxRate: number; shopType: string }> {
-  const result = await pool.query(
-    `SELECT tax_rate, shop_type FROM shops WHERE id = $1 AND is_deleted = false`,
-    [shopId]
-  );
-  if (result.rows.length === 0) throw new appError("SHOP_NOT_FOUND", 404);
-  return {
-    taxRate:  parseFloat(result.rows[0].tax_rate),
-    shopType: result.rows[0].shop_type,
-  };
+  const info = await ShopRepository.findOperationalInfo(shopId);
+  if (!info) throw new appError("SHOP_NOT_FOUND", 404);
+  return info;
 }
 
 async function getShopTaxRate(shopId: string): Promise<number> {
-  const result = await pool.query(
-    `SELECT tax_rate FROM shops WHERE id = $1 AND is_deleted = false`,
-    [shopId]
-  );
-  if (result.rows.length === 0) throw new appError("SHOP_NOT_FOUND", 404);
-  return parseFloat(result.rows[0].tax_rate);
+  const info = await ShopRepository.findOperationalInfo(shopId);
+  if (!info) throw new appError("SHOP_NOT_FOUND", 404);
+  return info.taxRate;
 }
 
 // ── Helper: look up table_number for orders that have a table ──
 // Used by both updateOrderStatus and updateOrderStatusFromPOS
 // to populate kitchen ticket table_number on CONFIRMED.
 async function resolveTableNumber(
+  shopId:    string,
   orderType: string,
   tableId:   string | null
 ): Promise<string | null> {
   if ((orderType === "DINE_IN" || orderType === "QR") && tableId) {
-    const tableResult = await pool.query(
-      `SELECT table_number FROM restaurant_tables WHERE id = $1`,
-      [tableId]
-    );
-    return tableResult.rows[0]?.table_number ?? null;
+    const table = await TableRepository.findTableById(tableId, shopId);
+    return table?.table_number ?? null;
   }
   return null;
 }
@@ -124,7 +84,7 @@ export class OrderService {
   }) {
     const { taxRate, shopType } = await getShopInfo(params.shopId);
 
-    await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, READ_ROLES);
 
     if (params.orderType !== "QR") {
       const allowed = ALLOWED_ORDER_TYPES_BY_SHOP[shopType] ?? [];
@@ -137,15 +97,11 @@ export class OrderService {
     }
 
     if (params.orderType === "DINE_IN" && params.tableId) {
-      const tableResult = await pool.query(
-        `SELECT id, is_active FROM restaurant_tables
-         WHERE id = $1 AND shop_id = $2`,
-        [params.tableId, params.shopId]
-      );
-      if (tableResult.rows.length === 0) {
+      const table = await TableRepository.findTableById(params.tableId, params.shopId);
+      if (!table) {
         throw new appError("TABLE_NOT_FOUND", 404);
       }
-      if (!tableResult.rows[0].is_active) {
+      if (!table.is_active) {
         throw new appError("TABLE_NOT_ACTIVE", 400);
       }
     }
@@ -184,18 +140,18 @@ export class OrderService {
   // READ ORDERS
   // =======================================================
 
-static async getOrders(
+  static async getOrders(
     filter: ListOrdersFilter,
     requesterId: string,
     paginationParams: PaginationParams
   ) {
-    await assertShopMember(filter.shopId, requesterId, ALL_ROLES);
+    await assertShopRole(filter.shopId, requesterId, READ_ROLES);
     const { rows, totalCount } = await OrderRepository.findOrders(filter);
     return buildPaginatedResult(rows, totalCount, paginationParams);
   }
 
   static async getOrderById(orderId: string, shopId: string, requesterId: string) {
-    await assertShopMember(shopId, requesterId, ALL_ROLES);
+    await assertShopRole(shopId, requesterId, READ_ROLES);
 
     const order = await OrderRepository.findOrderWithItems(orderId, shopId);
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);
@@ -213,7 +169,7 @@ static async getOrders(
     requesterId: string;
     newStatus:   OrderStatus;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const order = await OrderRepository.findOrderById(params.orderId, params.shopId);
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);
@@ -229,7 +185,6 @@ static async getOrders(
       params.newStatus
     );
 
-    // Notify QR customer if this is a QR order
     if (order.order_type === "QR") {
       try {
         emitToQrSession(params.orderId, SOCKET_EVENTS.QR_ORDER_STATUS, {
@@ -243,7 +198,6 @@ static async getOrders(
       }
     }
 
-    // Always notify the staff room
     try {
       emitToShop(params.shopId, SOCKET_EVENTS.ORDER_STATUS_CHANGED, {
         orderId:   params.orderId,
@@ -257,15 +211,10 @@ static async getOrders(
       console.error("Shop socket emit failed:", socketErr);
     }
 
-    // CONFIRMED → create kitchen ticket
     if (params.newStatus === "CONFIRMED") {
       try {
-        const tableNumber = await resolveTableNumber(order.order_type, order.table_id);
+        const tableNumber = await resolveTableNumber(params.shopId, order.order_type, order.table_id);
 
-        // FIX: determine round so the KDS can show ADD-ON badge correctly.
-        // Both updateOrderStatus and updateOrderStatusFromPOS must pass
-        // round + is_addon — KitchenService.createTicket has them as
-        // required fields after the Flow D migration.
         const existingRounds = await KitchenRepository.getTicketRoundCount(params.orderId);
         const round    = existingRounds + 1;
         const is_addon = round > 1;
@@ -282,12 +231,10 @@ static async getOrders(
           is_addon,
         });
       } catch (kitchenErr) {
-        // Non-fatal — order status is already committed
         console.error("Kitchen ticket creation failed:", kitchenErr);
       }
     }
 
-    // CANCELLED → cancel any existing kitchen ticket
     if (params.newStatus === "CANCELLED") {
       try {
         await KitchenService.cancelTicket({
@@ -315,8 +262,6 @@ static async getOrders(
   // =======================================================
   // UPDATE ORDER STATUS FROM POS (pos_token auth)
   // =======================================================
-  // Cashiers are permitted to confirm/cancel — ALL_ROLES.
-  // Uses the same kitchen ticket logic as updateOrderStatus.
 
   static async updateOrderStatusFromPOS(params: {
     orderId:     string;
@@ -324,8 +269,7 @@ static async getOrders(
     requesterId: string;
     newStatus:   "CONFIRMED" | "CANCELLED";
   }) {
-    // ALL_ROLES — cashiers are permitted to confirm/cancel
-    await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, READ_ROLES);
 
     const order = await OrderRepository.findOrderById(params.orderId, params.shopId);
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);
@@ -341,7 +285,6 @@ static async getOrders(
       params.newStatus
     );
 
-    // Notify the staff room
     try {
       emitToShop(params.shopId, SOCKET_EVENTS.ORDER_STATUS_CHANGED, {
         orderId:   params.orderId,
@@ -355,15 +298,10 @@ static async getOrders(
       console.error("Shop socket emit failed:", socketErr);
     }
 
-    // CONFIRMED → create kitchen ticket
     if (params.newStatus === "CONFIRMED") {
       try {
-        const tableNumber = await resolveTableNumber(order.order_type, order.table_id);
+        const tableNumber = await resolveTableNumber(params.shopId, order.order_type, order.table_id);
 
-        // FIX: determine round so the KDS can show ADD-ON badge correctly.
-        // Both updateOrderStatus and updateOrderStatusFromPOS must pass
-        // round + is_addon — KitchenService.createTicket has them as
-        // required fields after the Flow D migration.
         const existingRounds = await KitchenRepository.getTicketRoundCount(params.orderId);
         const round    = existingRounds + 1;
         const is_addon = round > 1;
@@ -384,7 +322,6 @@ static async getOrders(
       }
     }
 
-    // CANCELLED → cancel kitchen ticket
     if (params.newStatus === "CANCELLED") {
       try {
         await KitchenService.cancelTicket({
@@ -422,7 +359,7 @@ static async getOrders(
     modifiers?:    ModifierSnapshot[];
     itemNote?:     string;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, READ_ROLES);
 
     const order = await OrderRepository.findOrderById(params.orderId, params.shopId);
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);
@@ -450,16 +387,11 @@ static async getOrders(
     let resolvedModifiers: ModifierSnapshot[] = [];
     if (params.modifiers && params.modifiers.length > 0) {
       const modifierIds = params.modifiers.map((m) => m.modifier_option_id);
-      const modResult   = await pool.query(
-        `SELECT id, name, price_delta
-         FROM modifier_options
-         WHERE id = ANY($1::uuid[]) AND is_active = true`,
-        [modifierIds]
-      );
-      resolvedModifiers = modResult.rows.map((row) => ({
+      const options = await ModifierRepository.findActiveOptionsByIds(modifierIds);
+      resolvedModifiers = options.map((row) => ({
         modifier_option_id: row.id,
         name:               row.name,
-        price_delta:        parseFloat(row.price_delta),
+        price_delta:        parseFloat(String(row.price_delta)),
       }));
     }
 
@@ -497,7 +429,7 @@ static async getOrders(
     requesterId: string;
     input:       { qty: number };
   }) {
-    await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, READ_ROLES);
 
     const order = await OrderRepository.findOrderById(params.orderId, params.shopId);
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);
@@ -535,7 +467,7 @@ static async getOrders(
     shopId:      string;
     requesterId: string;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, ALL_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, READ_ROLES);
 
     const order = await OrderRepository.findOrderById(params.orderId, params.shopId);
     if (!order) throw new appError("ORDER_NOT_FOUND", 404);

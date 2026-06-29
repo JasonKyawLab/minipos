@@ -1,14 +1,3 @@
-// =========================================================
-// shop.repository.ts (additions only — add these methods)
-// Path: backend/src/modules/shop/shop.repository.ts
-//
-// NEW: changeStaffRole() — changes a staff member's role
-// within a shop. Used by the new role management endpoint.
-//
-// Note: The full file keeps all existing methods unchanged.
-// Only changeStaffRole() is new.
-// =========================================================
-
 import { pool } from "../../db/pool.js";
 import { Shop } from "./shop.types.js";
 
@@ -171,7 +160,7 @@ export class ShopRepository {
     return result.rowCount;
   }
 
-  // ── NEW: Change a staff member's role ────────────────────
+  // ── Change a staff member's role ────────────────────
   // Updates the role column for an active shop_users row.
   //
   // Why a dedicated method?
@@ -221,10 +210,6 @@ export class ShopRepository {
     );
   }
 
-  // ── NEW: Clear Kitchen PIN when role no longer allows kitchen ──
-  // Called when a CHEF is changed to CASHIER.
-  // A CASHIER cannot log into Kitchen Mode, so their kitchen
-  // PIN should be cleared.
   static async clearKitchenPinForUser(shopId: string, userId: string): Promise<void> {
     await pool.query(
       `
@@ -252,4 +237,35 @@ export class ShopRepository {
     );
     return result.rowCount === 1;
   }
+
+  static async findBasicInfo(
+    shopId: string
+  ): Promise<{ name: string; currency: string } | null> {
+    const { rows } = await pool.query(
+      `SELECT name, currency FROM shops WHERE id = $1 AND is_deleted = false`,
+      [shopId]
+    );
+    return rows[0] ?? null;
+  }
+
+  // ── Operational info for order/tax calculations ───────────
+  // Used by OrderService and QrService instead of each running
+  // its own `SELECT tax_rate, shop_type FROM shops` — single
+  // source of truth for "what does this shop need to calculate
+  // a total" instead of three near-identical raw queries
+  // scattered across two service files.
+  static async findOperationalInfo(
+    shopId: string
+  ): Promise<{ taxRate: number; shopType: string } | null> {
+    const result = await pool.query(
+      `SELECT tax_rate, shop_type FROM shops WHERE id = $1 AND is_deleted = false`,
+      [shopId]
+    );
+    if (result.rows.length === 0) return null;
+    return {
+      taxRate:  parseFloat(result.rows[0].tax_rate),
+      shopType: result.rows[0].shop_type,
+    };
+  }
+
 }

@@ -84,6 +84,30 @@ export class ModifierRepository {
     return result.rows[0] ?? null;
   }
 
+  //   
+  //  Re-resolve modifier options by ID, ignoring inactive ones.
+  //  Used at order-creation time to fetch the authoritative
+  //  name/price_delta for client-supplied modifier IDs — the
+  //  client only ever sends IDs, never trusted price data.
+  //
+  static async findActiveOptionsByIds(
+    optionIds: string[]
+  ): Promise<ModifierOption[]> {
+    if (optionIds.length === 0) return [];
+
+    const result = await pool.query<ModifierOption>(
+      `
+      SELECT id, name, price_delta
+      FROM modifier_options
+      WHERE id = ANY($1::uuid[])
+        AND is_active = true
+      `,
+      [optionIds]
+    );
+
+    return result.rows;
+  }
+
   /**
    * Update a modifier group's fields.
    */

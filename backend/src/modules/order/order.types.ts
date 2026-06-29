@@ -28,6 +28,9 @@ export interface Order {
   order_no: string;
   order_type: OrderType;
 
+  bill_requested: boolean;
+  bill_requested_at: Date | string | null;
+
   table_id: string | null;
 
   subtotal: number;

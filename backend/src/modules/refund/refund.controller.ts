@@ -1,25 +1,15 @@
-// =========================================================
-// refund.controller.ts
-// Path: backend/src/modules/refund/refund.controller.ts
-// =========================================================
-// HTTP layer only.
-// Reads request, calls service, returns response.
-// =========================================================
-
 import { Request, Response } from "express";
 import { RefundService }     from "./refund.service.js";
 import { getParamAsString }  from "../../utils/converter.js";
-import { handleError }       from "../../utils/handleError.js";
+import { asyncHandler }      from "../../utils/asyncHandler.js";
 
 export class RefundController {
 
- static async processRefund(req: Request, res: Response) {
-  try {
+  static processRefund = asyncHandler(async (req: Request, res: Response) => {
     const shopId      = getParamAsString(req.params.shopId,  "shopId");
     const orderId     = getParamAsString(req.params.orderId, "orderId");
     const requesterId = req.user!.id;
 
-    // idempotency_key must be included here
     const { type, restock, items, reason, idempotency_key } = req.body;
 
     const result = await RefundService.processRefund({
@@ -30,20 +20,17 @@ export class RefundController {
       restock,
       items,
       reason,
-      idempotency_key,  // ← was missing
+      idempotency_key,
     });
 
-    return res.status(201).json(result);
-  } catch (err: any) { return handleError(res, err); }
-}
+    res.status(201).json(result);
+  });
 
-static async getRefunds(req: Request, res: Response) {
-  try {
+  static getRefunds = asyncHandler(async (req: Request, res: Response) => {
     const shopId      = getParamAsString(req.params.shopId,  "shopId");
     const orderId     = getParamAsString(req.params.orderId, "orderId");
     const requesterId = req.user!.id;
 
-    // #5 — parse pagination from query string
     const limit  = req.query.limit  ? parseInt(req.query.limit  as string) : undefined;
     const offset = req.query.offset ? parseInt(req.query.offset as string) : undefined;
 
@@ -55,8 +42,6 @@ static async getRefunds(req: Request, res: Response) {
       offset,
     });
 
-    return res.json(refunds);
-  } catch (err: any) { return handleError(res, err); }
+    res.json(refunds);
+  });
 }
-}
-

@@ -1,12 +1,3 @@
-// =========================================================
-// product.repository.ts
-// Path: backend/src/modules/product/product.repository.ts
-//
-// CHANGES: Added category CRUD methods.
-//          Updated createModel, findAllModels, updateModel
-//          to include category_id.
-// =========================================================
-
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
 import { PaginationParams } from "../../utils/pagination.js";
@@ -289,9 +280,9 @@ export class ProductRepository {
       return result.rows[0];
     } catch (err: any) {
       if (err.code === "23505") {
-        if (err.constraint?.includes("barcode")) throw new Error("BARCODE_ALREADY_EXISTS");
-        if (err.constraint?.includes("sku"))     throw new Error("SKU_ALREADY_EXISTS");
-        throw new Error("DUPLICATE_ENTRY");
+        if (err.constraint?.includes("barcode")) throw new appError("BARCODE_ALREADY_EXISTS", 409);
+        if (err.constraint?.includes("sku"))     throw new appError("SKU_ALREADY_EXISTS", 409);
+        throw new appError("DUPLICATE_ENTRY", 409);
       }
       throw err;
     }
@@ -402,7 +393,7 @@ export class ProductRepository {
         `SELECT id, stock_qty, track_stock FROM product_items WHERE id = $1 FOR UPDATE`,
         [input.productItemId]
       );
-      if (lockResult.rows.length === 0) throw new Error("ITEM_NOT_FOUND");
+      if (lockResult.rows.length === 0) throw new appError("ITEM_NOT_FOUND", 404);
       const item = lockResult.rows[0];
       if (item.track_stock) {
         const newQty = item.stock_qty + input.quantity;

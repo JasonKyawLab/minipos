@@ -1,28 +1,13 @@
-// =========================================================
-// refund.service.ts
-// Path: backend/src/modules/refund/refund.service.ts
-// =========================================================
-import { ShopRepository }   from "../shop/shop.repository.js";
 import { AuditService }     from "../audit/audit.service.js";
 import { OrderRepository }  from "../order/order.repository.js";
 import { RefundRepository } from "./refund.repository.js";
 import { ProcessRefundInput, RefundItemInput, ListRefundsFilter } from "./refund.types.js";
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
+import { assertShopRole } from "../../utils/authorize.js";
+import { WRITE_ROLES } from "../../constants/roles.constants.js";
 import { SOCKET_EVENTS } from "../socket/socket.events.js";
 import { emitToShop } from "../socket/socket.js";
-
-// ── Permission constants ──────────────────────────────────
-const REFUND_ROLES = ["OWNER", "MANAGER"] as const;
-
-// ── Permission helper ─────────────────────────────────────
-async function assertCanRefund(shopId: string, userId: string) {
-  const member = await ShopRepository.getUserShopMembership(shopId, userId);
-
-  if (!member || !member.is_active || !REFUND_ROLES.includes(member.role)) {
-    throw new appError("FORBIDDEN", 403);
-  }
-}
 
 // ── Fetch payment helper ──────────────────────────────────
 async function getPaidPayment(orderId: string) {
@@ -45,7 +30,7 @@ async function getPaidPayment(orderId: string) {
 // Validates each item and calculates total refund amount.
 // Note: this is a PRE-CHECK only. The repository will do
 // the same checks again inside a transaction with FOR UPDATE
-// to prevent race conditions (#1).
+// to prevent race conditions.
 async function calculateRefundAmounts(
   orderId: string,
   shopId: string,
@@ -57,7 +42,6 @@ async function calculateRefundAmounts(
 
   for (const refundItem of items) {
 
-    //  — extra safety check (Zod already enforces positive)
     if (refundItem.qty <= 0) {
       throw new appError("REFUND_QTY_MUST_BE_POSITIVE", 400);
     }
@@ -72,7 +56,6 @@ async function calculateRefundAmounts(
     );
 
     if (result.rows.length === 0) {
-      //  — audit log validation failure
       await AuditService.log({
         shopId,
         userId: requesterId,
@@ -87,7 +70,6 @@ async function calculateRefundAmounts(
     const row = result.rows[0];
 
     if (row.status !== "ACTIVE" || row.refunded_qty >= row.qty) {
-      //  — audit log validation failure
       await AuditService.log({
         shopId,
         userId: requesterId,
@@ -102,10 +84,8 @@ async function calculateRefundAmounts(
       throw new appError("ORDER_ITEM_ALREADY_REFUNDED", 400);
     }
 
-    // — check remaining refundable qty
     const remainingQty = row.qty - row.refunded_qty;
     if (refundItem.qty > remainingQty) {
-      //  — audit log validation failure
       await AuditService.log({
         shopId,
         userId: requesterId,
@@ -136,22 +116,21 @@ async function calculateRefundAmounts(
 export class RefundService {
 
   static async processRefund(params: ProcessRefundInput) {
-    await assertCanRefund(params.shopId, params.requesterId);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     if (params.idempotency_key) {
       const existing = await RefundRepository.findRefundByIdempotencyKey(
-      params.idempotency_key
-    );
-    if (existing) {
-      // Return the existing refund without any validation or side effects
-      return {
-      refund:          existing,
-      refund_amount:   parseFloat(String(existing.amount)),
-      restocked_items: 0,
-      skipped_restock: 0,
-      was_duplicate:   true,
-    };
-    }
+        params.idempotency_key
+      );
+      if (existing) {
+        return {
+          refund:          existing,
+          refund_amount:   parseFloat(String(existing.amount)),
+          restocked_items: 0,
+          skipped_restock: 0,
+          was_duplicate:   true,
+        };
+      }
     }
 
     // ── Fetch and validate order ──────────────────────
@@ -197,7 +176,6 @@ export class RefundService {
         idempotency_key: params.idempotency_key,
       });
 
-      // — skip audit log if this was a duplicate request
       if (!was_duplicate) {
         const activeItems    = order.items.filter(i => i.status === "ACTIVE");
         const restockedItems = params.restock ? activeItems.length : 0;
@@ -220,18 +198,18 @@ export class RefundService {
           },
         });
 
-          try {
-    emitToShop(params.shopId, SOCKET_EVENTS.REFUND_PROCESSED, {
-      orderId:      params.orderId,
-      orderNo:      order.order_no,
-      refundAmount,
-      type:         "FULL",
-      restocked:    params.restock ?? false,
-      timestamp:    new Date().toISOString(),
-    });
-  } catch (socketErr) {
-    console.error("Socket emit failed:", socketErr);
-  }
+        try {
+          emitToShop(params.shopId, SOCKET_EVENTS.REFUND_PROCESSED, {
+            orderId:      params.orderId,
+            orderNo:      order.order_no,
+            refundAmount,
+            type:         "FULL",
+            restocked:    params.restock ?? false,
+            timestamp:    new Date().toISOString(),
+          });
+        } catch (socketErr) {
+          console.error("Socket emit failed:", socketErr);
+        }
 
         return {
           refund,
@@ -257,7 +235,6 @@ export class RefundService {
         throw new appError("REFUND_ITEMS_REQUIRED", 400);
       }
 
-      //  — use helper for validation and amount calculation
       const { total: refundAmount, validatedItems } = await calculateRefundAmounts(
         params.orderId,
         params.shopId,
@@ -280,7 +257,6 @@ export class RefundService {
         idempotency_key: params.idempotency_key,
       });
 
-      //  — skip audit log if this was a duplicate request
       if (!was_duplicate) {
         const restockedItems = validatedItems.filter(i => i.restock).length;
         const skippedRestock = validatedItems.filter(i => !i.restock).length;
@@ -302,19 +278,18 @@ export class RefundService {
           },
         });
 
-          try {
-    emitToShop(params.shopId, SOCKET_EVENTS.REFUND_PROCESSED, {
-      orderId:      params.orderId,
-      orderNo:      order.order_no,
-      refundAmount,
-      type:         "PARTIAL",
-      items:        validatedItems.map(i => ({ order_item_id: i.order_item_id, qty: i.qty, restock: i.restock })),
-      timestamp:    new Date().toISOString(),
-    });
-  } catch (socketErr) {
-    console.error("Socket emit failed:", socketErr);
-  }
-
+        try {
+          emitToShop(params.shopId, SOCKET_EVENTS.REFUND_PROCESSED, {
+            orderId:      params.orderId,
+            orderNo:      order.order_no,
+            refundAmount,
+            type:         "PARTIAL",
+            items:        validatedItems.map(i => ({ order_item_id: i.order_item_id, qty: i.qty, restock: i.restock })),
+            timestamp:    new Date().toISOString(),
+          });
+        } catch (socketErr) {
+          console.error("Socket emit failed:", socketErr);
+        }
 
         return {
           refund,
@@ -337,7 +312,6 @@ export class RefundService {
     throw new appError("INVALID_REFUND_TYPE", 400);
   }
 
-  //  — pagination added
   static async getRefundsByOrder(params: {
     orderId: string;
     shopId: string;
@@ -345,7 +319,7 @@ export class RefundService {
     limit?: number;
     offset?: number;
   }) {
-    await assertCanRefund(params.shopId, params.requesterId);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const order = await OrderRepository.findOrderById(
       params.orderId,

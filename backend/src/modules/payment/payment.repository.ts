@@ -1,25 +1,5 @@
-// =========================================================
-// payment.repository.ts
-// Path: backend/src/modules/payment/payment.repository.ts
-// =========================================================
-// The most critical file in the payment module.
-//
-// processPayment() runs everything in a single DB transaction:
-//
-//   BEGIN
-//     1. INSERT payment record
-//     2. UPDATE order status → PAID
-//     3. For each order item:
-//        a. SELECT product_item FOR UPDATE  (lock the row)
-//        b. UPDATE stock_qty - qty          (decrement stock)
-//        c. INSERT inventory_movement       (audit trail)
-//   COMMIT
-//
-// If ANY step fails → ROLLBACK.
-// No orphaned payments, no incorrect stock levels.
-// =========================================================
-
-import { pool }    from "../../db/pool.js";
+import { pool }      from "../../db/pool.js";
+import { appError }  from "../../utils/appError.js";
 import { Payment, ProcessPaymentInput } from "./payment.types.js";
 
 export class PaymentRepository {
@@ -115,7 +95,7 @@ export class PaymentRepository {
         // (DB CHECK constraint also catches this, but this gives
         //  a cleaner error message)
         if (item.stock_qty < item.qty) {
-          throw new Error("INSUFFICIENT_STOCK");
+          throw new appError("INSUFFICIENT_STOCK", 409);
         }
 
         // Decrement stock

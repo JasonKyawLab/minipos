@@ -1,10 +1,3 @@
-// =========================================================
-// modifier.service.ts
-// Path: backend/src/modules/modifier/modifier.service.ts
-// Line: Replace all error throws with appError
-// =========================================================
-
-import { ShopRepository } from "../shop/shop.repository.js";
 import { AuditService } from "../audit/audit.service.js";
 import { ModifierRepository } from "./modifier.repository.js";
 import {
@@ -14,21 +7,8 @@ import {
   UpdateModifierOptionInput,
 } from "./modifier.types.js";
 import { appError } from "../../utils/appError.js";
-
-const WRITE_ROLES = ["OWNER", "MANAGER"] as const;
-const READ_ROLES = ["OWNER", "MANAGER", "CASHIER"] as const;
-
-async function assertShopMember(
-  shopId: string,
-  userId: string,
-  allowed: readonly string[]
-) {
-  const member = await ShopRepository.getUserShopMembership(shopId, userId);
-
-  if (!member || !member.is_active || !allowed.includes(member.role)) {
-    throw new appError("FORBIDDEN", 403);
-  }
-}
+import { assertShopRole } from "../../utils/authorize.js";
+import { WRITE_ROLES, READ_ROLES } from "../../constants/roles.constants.js";
 
 export class ModifierService {
 
@@ -41,7 +21,7 @@ export class ModifierService {
     requesterId: string;
     input: Omit<CreateModifierGroupInput, "shopId">;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const group = await ModifierRepository.createGroup({
       ...params.input,
@@ -61,7 +41,7 @@ export class ModifierService {
   }
 
   static async getGroups(shopId: string, requesterId: string) {
-    await assertShopMember(shopId, requesterId, READ_ROLES);
+    await assertShopRole(shopId, requesterId, READ_ROLES);
     return ModifierRepository.findAllGroups(shopId);
   }
 
@@ -71,7 +51,7 @@ export class ModifierService {
     requesterId: string;
     input: UpdateModifierGroupInput;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     if (
       params.input.min_select !== undefined &&
@@ -106,7 +86,7 @@ export class ModifierService {
     groupId: string;
     requesterId: string;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const deleted = await ModifierRepository.softDeleteGroup(
       params.groupId,
@@ -131,7 +111,7 @@ export class ModifierService {
     groupId: string;
     requesterId: string;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const restored = await ModifierRepository.restoreGroup(
       params.groupId,
@@ -161,7 +141,7 @@ export class ModifierService {
     requesterId: string;
     input: Omit<CreateModifierOptionInput, "groupId">;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const group = await ModifierRepository.findGroupById(
       params.groupId,
@@ -191,7 +171,7 @@ export class ModifierService {
     groupId: string;
     requesterId: string;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, READ_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, READ_ROLES);
 
     const group = await ModifierRepository.findGroupById(
       params.groupId,
@@ -208,7 +188,7 @@ export class ModifierService {
     requesterId: string;
     input: UpdateModifierOptionInput;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const updated = await ModifierRepository.updateOption(
       params.optionId,
@@ -235,7 +215,7 @@ export class ModifierService {
     optionId: string;
     requesterId: string;
   }) {
-    await assertShopMember(params.shopId, params.requesterId, WRITE_ROLES);
+    await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
 
     const deleted = await ModifierRepository.deleteOption(
       params.optionId,
