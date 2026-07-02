@@ -1,70 +1,66 @@
-# =========================
-# General
-# =========================
-node_modules/
-dist/
-build/
-coverage/
-.tmp/
-.cache/
-
-# =========================
-# Environment files
-# =========================
+# ======================
+# Environment variables
+# ======================
 .env
 .env.local
-.env.development
-.env.production
+.env.*.local
 
-# =========================
-# Logs
-# =========================
+# ======================
+# Node / JS
+# ======================
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-logs/
-*.log
 
-# =========================
-# OS files
-# =========================
-.DS_Store
-Thumbs.db
-
-# =========================
-# Editor / IDE
-# =========================
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# =========================
-# Next.js
-# =========================
+# ======================
+# Build outputs
+# ======================
+dist/
+build/
 .next/
 out/
 
-# =========================
-# TypeScript
-# =========================
-*.tsbuildinfo
+# ======================
+# Docker / Database
+# ======================
+database/data/          # postgres volume (VERY IMPORTANT)
+*.log
 
-# =========================
-# Docker
-# =========================
-docker-data/
-postgres-data/
+# ======================
+# OS / Editor
+# ======================
+.DS_Store
+Thumbs.db
 
-# =========================
-# Database
-# =========================
-*.sqlite
-*.db
+# ======================
+# IDE
+# ======================
+.vscode/
+.idea/
+*.swp
+
+# ======================
+# Test / Coverage
+# ======================
+coverage/
+
+# =====================
+# Documentation
+# =====================
+docs/
+*.txt
+*.sh
+
+# ======================
+# Dev / seed data
+# ======================
+seed_*.sql
 
 # =========================
 # Misc
 # =========================
 *.pem
 *.key
+
