@@ -1,7 +1,3 @@
-// =========================================================
-// app/(qr)/layout.tsx
-// Public QR menu layout — mobile-first, no auth required.
-// =========================================================
 
 import React from "react";
 

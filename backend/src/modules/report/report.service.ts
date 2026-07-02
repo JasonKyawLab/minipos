@@ -4,7 +4,6 @@
 //   2. Apply default date range if not provided
 //   3. Validate from <= to
 //   4. Delegate to ReportRepository
-// =========================================================
 
 import { ReportRepository } from "./report.repository.js";
 import { DateRangeFilter } from "./report.types.js";
@@ -96,5 +95,19 @@ export class ReportService {
     validateDateRange(from, to);
 
     return ReportRepository.getRefundSummary(filter.shopId, from, to);
+  }
+
+  static async getPeakHours(
+    filter: DateRangeFilter & { timezone?: string },
+    requesterId: string
+  ) {
+    await assertShopRole(filter.shopId, requesterId, WRITE_ROLES);
+
+    const { from, to } = resolveDateRange(filter.from, filter.to);
+    validateDateRange(from, to);
+
+    const timezone = filter.timezone ?? "UTC";
+
+    return ReportRepository.getPeakHours(filter.shopId, from, to, timezone);
   }
 }

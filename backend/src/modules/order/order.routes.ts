@@ -1,7 +1,3 @@
-// =========================================================
-// order.routes.ts
-// Path: backend/src/modules/order/order.routes.ts
-// =========================================================
 // All routes nested under /api/shops/:shopId/orders
 // mergeParams: true makes :shopId available in req.params
 //
@@ -9,7 +5,6 @@
 //   requireAuth      → valid JWT cookie (platform auth)
 //   requireRole      → platform role check (ADMIN or USER)
 //   shop membership  → enforced inside OrderService
-// =========================================================
 
 import { Router }          from "express";
 import { OrderController } from "./order.controller.js";

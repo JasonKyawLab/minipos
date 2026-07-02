@@ -1,6 +1,3 @@
-// =========================================================
-// shop.service.ts
-// Path: backend/src/modules/shop/shop.service.ts
 //
 // NEW: changeStaffRole() — handles role change with proper
 // permission checks and PIN cleanup side effects.
@@ -12,7 +9,6 @@
 //   - When changing TO CHEF: clear POS PIN (chef can't use POS)
 //   - When changing FROM CHEF to CASHIER/MANAGER: clear kitchen PIN
 //   - MANAGER cannot promote someone to MANAGER
-// =========================================================
 
 import { AuditService }    from "../audit/audit.service.js";
 import { ShopRepository }  from "./shop.repository.js";
@@ -60,6 +56,9 @@ export class ShopService {
     requesterId: string;
     name?: string;
     currency?: string;
+    shopType?: "RETAIL" | "RESTAURANT" | "ONLINE_SHOP";
+    taxRate?: number;
+    timezone?: string;
   }) {
     const member = await ShopRepository.getUserShopMembership(
       params.shopId,
@@ -75,6 +74,7 @@ export class ShopService {
       action: "SHOP_UPDATED",
       entity: "SHOP",
       entityId: params.shopId,
+      metadata: params.shopType ? { shopTypeChangedTo: params.shopType } : undefined,
     });
     return updated;
   }

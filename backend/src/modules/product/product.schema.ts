@@ -1,6 +1,3 @@
-// =========================================================
-// product.schema.ts
-// Path: backend/src/modules/product/product.schema.ts
 //
 // FIX: Replaced z.string().uuid() with a loose UUID regex
 //      on all client-supplied ID fields.
@@ -16,7 +13,6 @@
 //   a valid UUID-shaped string?" not "is this UUID version 4?"
 //   The database enforces referential integrity — Zod only
 //   needs to ensure the shape is safe to pass to a query.
-// =========================================================
 
 import { z } from "zod";
 

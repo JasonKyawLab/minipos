@@ -1,9 +1,3 @@
-// =========================================================
-// utils/formatDate.ts
-// All date formatting in one place. Uses native Intl API
-// to avoid a large date-fns bundle for simple cases.
-// =========================================================
-
 /**
  * "15 Apr 2025, 14:30"
  */
@@ -61,8 +55,14 @@ function toLocalDate(d: Date): string {
  * Returns today and 30 days ago as ISO date strings.
  */
 export function getDefaultDateRange(): { from: string; to: string } {
-  const today = toLocalDate(new Date());
-  return { from: today, to: today };
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(today.getDate() - 30);
+
+  return {
+    from: toLocalDate(thirtyDaysAgo),
+    to:   toLocalDate(today),
+  };
 }
 
 /**

@@ -1,8 +1,4 @@
 "use client";
-// =========================================================
-// components/ui/Skeleton.tsx
-// Shimmer placeholder for loading states.
-// =========================================================
 
 import React from "react";
 import { clsx } from "clsx";

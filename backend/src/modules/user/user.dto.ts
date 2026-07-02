@@ -24,6 +24,7 @@ export interface UserShopDTO {
   shopName: string;
   shopType: string;
   currency: string;
+  timezone: string;
   role: ShopRole;
 }
 
@@ -32,6 +33,7 @@ interface UserShopRow {
   name: string;
   shop_type: string;
   currency: string;
+  timezone: string | null;
   shop_role: ShopRole;
 }
 
@@ -41,6 +43,7 @@ export function toUserShopDTO(row: UserShopRow): UserShopDTO {
     shopName: row.name,
     shopType: row.shop_type,
     currency: row.currency,
+    timezone: row.timezone ?? "UTC",
     role: row.shop_role,
   };
 }

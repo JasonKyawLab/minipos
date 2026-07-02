@@ -1,7 +1,4 @@
 "use client";
-// =========================================================
-// app/(platform)/dashboard/page.tsx
-// =========================================================
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";

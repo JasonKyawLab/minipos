@@ -1,9 +1,5 @@
-// =========================================================
-// shop.routes.ts
-// Path: backend/src/modules/shop/shop.routes.ts
 //
 // NEW: PATCH /:shopId/staff/:userId/role — change staff role
-// =========================================================
 
 import { Router }          from "express";
 import { ShopController }  from "./shop.controller.js";

@@ -1,7 +1,3 @@
-// =========================================================
-// refund.schema.ts
-// Path: backend/src/modules/refund/refund.schema.ts
-// =========================================================
 import { z } from "zod";
 
 const refundItemSchema = z.object({

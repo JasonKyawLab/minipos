@@ -1,16 +1,3 @@
-// =========================================================
-// components/ui/Badge.tsx
-//
-// FIX 1: Added CLOSING to ORDER_STATUS_STYLES.
-//        OrderStatus now includes "CLOSING" after the Flow D
-//        migration, so the Record<OrderStatus> map must be
-//        exhaustive.
-//
-// FIX 2: Added CHEF to ROLE_STYLES.
-//        ShopRole includes "CHEF" in types/index.ts but the
-//        Record<ShopRole> map was missing it, causing TS2741.
-//        STAFF is not a valid ShopRole value so it is not added.
-// =========================================================
 
 import React from "react";
 import { clsx } from "clsx";

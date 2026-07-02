@@ -1,4 +1,3 @@
-// Path: backend/src/modules/terminal/terminal.middleware.ts
 // Purpose: The gateway that all terminal routes pass through.
 // This replaces requireApprovedDevice for terminal operations.
 //
@@ -45,7 +44,7 @@ export async function requireTerminalSession(
 
     // Attach context for downstream handlers
     req.terminalSession = {
-      sessionId:    session.id,
+      id:           session.id,
       shopId:       session.shop_id,
       deviceId:     session.device_id,
       mode:         session.mode,

@@ -1,6 +1,3 @@
-// =========================================================
-// qr.schema.ts
-// Path: backend/src/modules/qr/qr.schema.ts
 //
 // FIX: Replaced z.string().uuid() with z.string().min(1) for
 //      product_item_id and modifier_option_id.
@@ -20,7 +17,6 @@
 //
 //   Using z.string().min(1) keeps the "must be present and
 //   non-empty" guarantee without breaking on non-standard UUIDs.
-// =========================================================
 
 import { z } from "zod";
 

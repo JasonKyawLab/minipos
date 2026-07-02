@@ -1,7 +1,3 @@
-// =========================================================
-// qr.repository.ts
-// Path: backend/src/modules/qr/qr.repository.ts
-// =========================================================
 // Read-only queries for the public QR menu.
 // Never exposes cost_price, internal stock levels, or any
 // data that isn't safe for a customer to see.
@@ -11,7 +7,6 @@
 //   single JOIN. We then group in JavaScript — this avoids
 //   N+1 queries (one per model) and keeps the DB round-trips
 //   to a minimum.
-// =========================================================
 
 import { pool } from "../../db/pool.js";
 import {

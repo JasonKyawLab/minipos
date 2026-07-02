@@ -1,4 +1,3 @@
-// Path: backend/src/utils/token.ts
 // Purpose: Cryptographically secure token generation.
 // Using crypto.randomBytes (Node built-in) — no external dep.
 // 32 bytes = 256 bits of entropy. Cannot be brute-forced.

@@ -1,26 +1,14 @@
 "use client";
-// =========================================================
-// app/(shop)/shops/[shopId]/reports/page.tsx
-//
-// Sales reports: summary KPIs, top products, order types,
-// and refund summary. OWNER and MANAGER only.
-//
-// Backend routes used:
-//   GET /api/shops/:shopId/reports/sales-summary
-//   GET /api/shops/:shopId/reports/sales-by-product
-//   GET /api/shops/:shopId/reports/sales-by-order-type
-//   GET /api/shops/:shopId/reports/refunds
-// =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useShop } from "@/context/ShopContext";
 import api from "@/lib/api";
-import { getErrorMessage } from "@/utils/errorMessages";
 import { formatCurrency } from "@/utils/formatCurrency";
 import { toISODate } from "@/utils/formatDate";
 import toast from "react-hot-toast";
 import { EmptyState } from "@/components/states";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
 import type { SalesSummary } from "@/types";
 
 // ── Types matching backend response shapes ────────────────
@@ -117,12 +105,15 @@ export default function ReportsPage() {
     setLoadingSummary(false);
 
     if (productRes.status === "fulfilled") setByProduct(productRes.value.data);
+    else toast.error("Failed to load top products.");
     setLoadingProduct(false);
 
     if (orderTypeRes.status === "fulfilled") setByOrderType(orderTypeRes.value.data);
+    else toast.error("Failed to load sales by order type.");
     setLoadingOrderType(false);
 
     if (refundRes.status === "fulfilled") setRefunds(refundRes.value.data);
+    else toast.error("Failed to load refund summary.");
     setLoadingRefunds(false);
   }, [shopId, range, canView]);
 
@@ -226,31 +217,29 @@ export default function ReportsPage() {
           ) : byProduct.length === 0 ? (
             <EmptyState title="No sales yet" description="No paid orders in this period." />
           ) : (
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="text-[11px] text-[#5F5E5A] font-medium uppercase border-b border-[#F1EFE8]">
-                  <th className="text-left py-2">Product</th>
-                  <th className="text-right py-2">Qty</th>
-                  <th className="text-right py-2">Revenue</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#F1EFE8]">
+            <Table>
+              <TableHead>
+                <Th>Product</Th>
+                <Th align="right">Qty</Th>
+                <Th align="right">Revenue</Th>
+              </TableHead>
+              <TableBody>
                 {byProduct.map((row, i) => (
-                  <tr key={i} className="hover:bg-[#F1EFE8]/40">
-                    <td className="py-2.5">
+                  <Tr key={i}>
+                    <Td>
                       <p className="text-[#0F2B4C] font-medium">{row.item_name}</p>
                       <p className="text-[11px] text-[#5F5E5A]">{row.product_name}</p>
-                    </td>
-                    <td className="py-2.5 text-right font-medium text-[#0F2B4C]">
+                    </Td>
+                    <Td align="right" className="font-medium text-[#0F2B4C]">
                       {row.total_qty_sold}
-                    </td>
-                    <td className="py-2.5 text-right font-medium text-[#0D7A5F]">
+                    </Td>
+                    <Td align="right" className="font-medium text-[#0D7A5F]">
                       {formatCurrency(Number(row.total_revenue), currency)}
-                    </td>
-                  </tr>
+                    </Td>
+                  </Tr>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </Section>
 

@@ -1,11 +1,7 @@
-// =========================================================
-// qr.types.ts
-// Path: backend/src/modules/qr/qr.types.ts
 //
 // CHANGE: Added category fields to PublicMenuItem so the
 // updated getPublicMenu query (which JOINs product_categories)
 // compiles without TS error 2353.
-// =========================================================
 
 // Attached to req by qr.middleware.ts after resolving token
 export interface QrContext {

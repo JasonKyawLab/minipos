@@ -1,13 +1,9 @@
-// =========================================================
-// kitchen-auth.repository.ts
-// Path: backend/src/modules/kitchen-auth/kitchen-auth.repository.ts
 //
 // BUG FIX: NULL + 1 = NULL in incrementKitchenTokenVersion
 // (Same root cause as pos-auth.repository.ts — see that file.)
 //
 // FIX:
 //   SET kitchen_token_version = COALESCE(kitchen_token_version, 0) + 1
-// =========================================================
 
 import { pool } from "../../db/pool.js";
 
@@ -52,8 +48,12 @@ export class KitchenAuthRepository {
         su.kitchen_pin_hash,
         su.kitchen_pin_attempts,
         su.kitchen_pin_locked_until,
-        su.kitchen_token_version
+        su.kitchen_token_version,
+        u.name,
+        s.name AS shop_name
       FROM shop_users su
+      JOIN users  u ON u.id = su.user_id
+      JOIN shops  s ON s.id = su.shop_id
       WHERE su.shop_id = $1
         AND su.user_id = $2
         AND su.role    = ANY($3::shop_role[])

@@ -1,10 +1,6 @@
-// =========================================================
-// pos-auth.routes.ts
-// Path: backend/src/modules/pos-auth/pos-auth.routes.ts
 //
 // CHANGE: Added /orders/:orderId/kitchen-ticket route.
 // See pos-auth.controller.ts notifyKitchenAddon() for why.
-// =========================================================
 
 import { Router }             from "express";
 import { PosAuthController }  from "./pos-auth.controller.js";

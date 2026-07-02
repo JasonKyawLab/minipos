@@ -8,8 +8,9 @@ import { getErrorMessage } from "@/utils/errorMessages";
 import { formatDateTime } from "@/utils/formatDate";
 import toast from "react-hot-toast";
 import type { Shop } from "@/types";
-import { EmptyState } from "@/components/states";
+import { EmptyState, Spinner } from "@/components/states";
 import { SkeletonTable } from "@/components/ui/Skeleton";
+import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
 import { useSearchParams } from "next/navigation";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -155,81 +156,66 @@ export default function AdminShopsPage() {
           description={search ? "Try a different search." : "No shops registered yet."}
         />
       ) : (
-        <div className="bg-white border border-[#D3D1C7] rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px] min-w-[820px]">
-              <thead>
-                <tr className="bg-[#F1EFE8] border-b border-[#D3D1C7] text-[#5F5E5A] text-[12px]">
-                  <th className="text-left px-5 py-3 font-medium">Shop name</th>
-                  <th className="text-left px-4 py-3 font-medium">Owner</th>
-                  <th className="text-left px-4 py-3 font-medium">Type</th>
-                  <th className="text-left px-4 py-3 font-medium">Currency</th>
-                  <th className="text-left px-4 py-3 font-medium">Created</th>
-                  <th className="text-right px-5 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((shop) => (
-                  <tr
-                    key={shop.id}
-                    className={`border-b border-[#F1EFE8] last:border-0 hover:bg-[#F1EFE8]/40 ${shop.is_deleted ? "opacity-50" : ""}`}
+        <Table className="min-w-[820px]">
+          <TableHead>
+            <Th>Shop name</Th>
+            <Th>Owner</Th>
+            <Th>Type</Th>
+            <Th>Currency</Th>
+            <Th>Created</Th>
+            <Th align="right">Actions</Th>
+          </TableHead>
+          <TableBody>
+            {filtered.map((shop) => (
+              <Tr key={shop.id} className={shop.is_deleted ? "opacity-50" : ""}>
+                <Td>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-[#0F2B4C]">{shop.name}</span>
+                    {shop.is_deleted && (
+                      <span className="text-[11px] px-1.5 py-0.5 bg-[#FCEBEB] text-[#A32D2D] rounded">Deleted</span>
+                    )}
+                    {!shop.is_deleted && shop.is_suspended && (
+                      <span className="text-[11px] px-1.5 py-0.5 bg-[#FFF3DC] text-[#8A5A00] rounded">Suspended</span>
+                    )}
+                  </div>
+                  {/* Truncated ID — click to copy full UUID for log/DB queries. */}
+                  <p
+                    className="text-[11px] text-[#5F5E5A] font-mono cursor-pointer hover:text-[#0F2B4C] transition-colors w-fit"
+                    title="Click to copy full ID"
+                    onClick={() => handleCopyId(shop.id)}
                   >
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-[#0F2B4C]">{shop.name}</span>
-                        {shop.is_deleted && (
-                          <span className="text-[11px] px-1.5 py-0.5 bg-[#FCEBEB] text-[#A32D2D] rounded">
-                            Deleted
-                          </span>
-                        )}
-                        {!shop.is_deleted && shop.is_suspended && (
-                          <span className="text-[11px] px-1.5 py-0.5 bg-[#FFF3DC] text-[#8A5A00] rounded">
-                            Suspended
-                          </span>
-                        )}
-                      </div>
-                      {/* Click-to-copy full ID — kept truncated visually so it
-                          doesn't clutter the row, but the full UUID is one
-                          click away for pasting into a DB query or log search. */}
-                      <p
-                        className="text-[11px] text-[#5F5E5A] font-mono cursor-pointer hover:text-[#0F2B4C] transition-colors w-fit"
-                        title="Click to copy full ID"
-                        onClick={() => handleCopyId(shop.id)}
-                      >
-                        {shop.id.slice(0, 8)}…
-                      </p>
-                      {!shop.is_deleted && shop.is_suspended && shop.suspended_reason && (
-                        <p className="text-[11px] text-[#8A5A00] mt-0.5 max-w-xs truncate" title={shop.suspended_reason}>
-                          Reason: {shop.suspended_reason}
-                        </p>
-                      )}
-                    </td>
-                    {/* Owner — links back to Users tab pre-filtered to this
-                        owner's email, closing the loop between the two tabs. */}
-                    <td className="px-4 py-3">
-                      {shop.owner_name ? (
-                        <Link
-                          href={`/admin/users?search=${encodeURIComponent(shop.owner_email ?? "")}`}
-                          className="hover:underline"
-                        >
-                          <p className="font-medium text-[#0F2B4C]">{shop.owner_name}</p>
-                          <p className="text-[11px] text-[#5F5E5A]">{shop.owner_email}</p>
-                        </Link>
-                      ) : (
-                        <span className="text-[11px] text-[#A32D2D]">No owner</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-[#5F5E5A]">
-                      {TYPE_LABELS[shop.shop_type] ?? shop.shop_type}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-[#0F2B4C]">{shop.currency}</span>
-                    </td>
-                    <td className="px-4 py-3 text-[#5F5E5A]">
-                      {formatDateTime(shop.created_at)}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <div className="flex items-center justify-end gap-3">
+                    {shop.id.slice(0, 8)}…
+                  </p>
+                  {!shop.is_deleted && shop.is_suspended && shop.suspended_reason && (
+                    <p className="text-[11px] text-[#8A5A00] mt-0.5 max-w-xs truncate" title={shop.suspended_reason}>
+                      Reason: {shop.suspended_reason}
+                    </p>
+                  )}
+                </Td>
+                <Td>
+                  {shop.owner_name ? (
+                    <Link
+                      href={`/admin/users?search=${encodeURIComponent(shop.owner_email ?? "")}`}
+                      className="hover:underline"
+                    >
+                      <p className="font-medium text-[#0F2B4C]">{shop.owner_name}</p>
+                      <p className="text-[11px] text-[#5F5E5A]">{shop.owner_email}</p>
+                    </Link>
+                  ) : (
+                    <span className="text-[11px] text-[#A32D2D]">No owner</span>
+                  )}
+                </Td>
+                <Td className="text-[#5F5E5A]">
+                  {TYPE_LABELS[shop.shop_type] ?? shop.shop_type}
+                </Td>
+                <Td>
+                  <span className="font-medium text-[#0F2B4C]">{shop.currency}</span>
+                </Td>
+                <Td className="text-[#5F5E5A]">
+                  {formatDateTime(shop.created_at)}
+                </Td>
+                <Td align="right">
+                  <div className="flex items-center justify-end gap-3">
                         {/* "View" intentionally removed: it pointed at the
                             owner-only dashboard route, which an admin has
                             no shop_users membership to legitimately enter.
@@ -277,14 +263,12 @@ export default function AdminShopsPage() {
                             Restore
                           </button>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                  </div>
+                </Td>
+              </Tr>
+            ))}
+          </TableBody>
+        </Table>
       )}
 
       {/* ── Suspend confirmation modal ── */}
@@ -340,7 +324,7 @@ export default function AdminShopsPage() {
                 disabled={suspending || !reasonValid}
                 className="flex items-center gap-2 px-4 h-9 text-[13px] font-medium text-white bg-[#8A5A00] rounded-lg disabled:opacity-50 hover:bg-opacity-90 transition"
               >
-                {suspending && <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+                {suspending && <Spinner size={14} />}
                 Suspend shop
               </button>
             </div>
@@ -416,7 +400,7 @@ export default function AdminShopsPage() {
                 disabled={deleting || !confirmationMatches}
                 className="flex items-center gap-2 px-4 h-9 text-[13px] font-medium text-white bg-[#A32D2D] rounded-lg disabled:opacity-50 hover:bg-opacity-90 transition"
               >
-                {deleting && <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+                {deleting && <Spinner size={14} />}
                 Delete shop
               </button>
             </div>

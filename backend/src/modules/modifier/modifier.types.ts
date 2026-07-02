@@ -1,8 +1,3 @@
-// =========================================================
-// modifier.types.ts
-// Path: backend/src/modules/modifier/modifier.types.ts
-// =========================================================
-
 // ── Modifier Group ────────────────────────────────────────
 export interface ModifierGroup {
   id: string;

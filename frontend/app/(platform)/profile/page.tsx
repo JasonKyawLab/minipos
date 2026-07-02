@@ -1,8 +1,4 @@
 "use client";
-// =========================================================
-// app/(platform)/profile/page.tsx
-// User profile — edit name/email, change password, delete.
-// =========================================================
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";

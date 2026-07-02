@@ -1,9 +1,3 @@
-// =========================================================
-// app/(pos)/layout.tsx
-// POS layout: full-screen, no nav sidebar.
-// Only mounts PosContext and CartContext providers.
-// =========================================================
-
 "use client";
 
 import React from "react";

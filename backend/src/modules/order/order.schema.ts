@@ -1,7 +1,3 @@
-// =========================================================
-// order.schema.ts
-// Path: backend/src/modules/order/order.schema.ts
-// =========================================================
 // Zod validation schemas for all order-related request bodies.
 //
 // Key design: conditional validation with superRefine()
@@ -10,7 +6,6 @@
 //                 delivery_address required
 //   - ONLINE /
 //     PICKUP    → customer_name, customer_phone required
-// =========================================================
 
 import { z } from "zod";
 

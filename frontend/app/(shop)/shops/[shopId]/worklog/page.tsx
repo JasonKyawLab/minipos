@@ -1,46 +1,4 @@
 "use client";
-// =========================================================
-// app/(shop)/shops/[shopId]/worklog/page.tsx
-//
-// FIX: Two changes made here:
-//
-// 1. BETTER ERROR DIAGNOSTICS
-//    The previous code called toast.error(getErrorMessage(...))
-//    which maps the backend code to a friendly string. But
-//    if the backend returns an unexpected error (e.g. a DB
-//    crash, missing table, or 404 route mismatch), the string
-//    "Something went wrong" tells you nothing.
-//
-//    The fix: we now capture err.response?.status (the raw
-//    HTTP status code) alongside the message code, and show
-//    a richer error: "[503] Something went wrong." This lets
-//    you identify at a glance whether it's a:
-//      403 → permissions problem (user not in shop_users)
-//      404 → route not found (check backend mounting)
-//      500 → server crash (check backend logs / DB)
-//      503 → DB connection failed
-//
-//    If you're getting a 404 specifically on /shifts, the
-//    most likely causes are:
-//      a) The 'staff_mode_sessions' table doesn't exist yet.
-//         Run your migration scripts. The table is defined
-//         in 001_init_schema.sql.
-//      b) The shift router isn't mounted. Check app.ts line:
-//         app.use("/api/shops/:shopId/shifts", shiftRoutes);
-//      c) Your user account is not in shop_users for this
-//         shop. The owner must have a shop_users row with
-//         role='OWNER'. This is created when the shop is
-//         created via ShopService.create().
-//
-// 2. AUTO-REFRESH ON TAB VISIBILITY
-//    Same visibilitychange pattern as the Orders page.
-//    When you return to the Worklog tab after a POS session,
-//    the list automatically refreshes to show the new shift.
-//
-// CHANGED: shifts table now uses the shared Table/TableHead/
-// Th/TableBody/Tr/Td components — fixes the Device column and
-// duration getting clipped (not scrollable) on narrower screens.
-// =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useShop } from "@/context/ShopContext";

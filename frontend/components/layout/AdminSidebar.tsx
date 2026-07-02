@@ -1,19 +1,4 @@
 "use client";
-// =========================================================
-// components/layout/AdminSidebar.tsx
-// Path: frontend/components/layout/AdminSidebar.tsx
-//
-// Dedicated sidebar for the ADMIN role. Kept separate from the
-// owner's Sidebar on purpose — admin is a platform-operator role,
-// not a "super owner" role, so it should never show shop-scoped
-// nav (Orders, Products, Tables, Settings, Reports).
-//
-// FIXED: added z-50 so this sidebar always renders above any
-// content that scrolls horizontally in <main> (e.g. wide tables).
-// Without an explicit z-index, a fixed sidebar with no stacking
-// context can end up visually underneath scrolled content that
-// has its own (even implicit) stacking context.
-// =========================================================
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";

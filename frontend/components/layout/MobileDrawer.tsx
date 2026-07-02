@@ -1,11 +1,4 @@
 "use client";
-// =========================================================
-// components/layout/MobileDrawer.tsx
-//
-// Shared mobile-nav primitives used by Sidebar.tsx and
-// ShopSidebar.tsx so both behave identically below 768px
-// instead of each component reinventing its own drawer logic.
-// =========================================================
 
 import React from "react";
 

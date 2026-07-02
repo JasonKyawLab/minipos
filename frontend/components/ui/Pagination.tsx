@@ -1,14 +1,4 @@
 "use client";
-// =========================================================
-// components/ui/Pagination.tsx
-// Path: frontend/components/ui/Pagination.tsx
-//
-// One pagination control reused by every list page (Orders,
-// Admin Users, Admin Shops, Staff, Products, ...). Pure UI —
-// it doesn't know about API calls, it just shows page numbers
-// and calls onPageChange. Each page component owns its own
-// data-fetching.
-// =========================================================
 
 import React from "react";
 

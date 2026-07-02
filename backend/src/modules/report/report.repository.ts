@@ -1,7 +1,3 @@
-// =========================================================
-// report.repository.ts
-// Path: backend/src/modules/report/report.repository.ts
-// =========================================================
 // ALL raw SQL for reports. No business logic here.
 //
 // Performance notes:
@@ -10,7 +6,6 @@
 //   - Date range params are cast to TIMESTAMPTZ at query
 //     boundaries so the index scan stays tight.
 //   - We never JOIN more tables than necessary per query.
-// =========================================================
 
 import { pool } from "../../db/pool.js";
 import {
@@ -20,6 +15,7 @@ import {
   InventorySummaryRow,
   RefundSummaryReport,
   TopRefundedItem,
+  PeakHourRow,
 } from "./report.types.js";
 
 export class ReportRepository {
@@ -370,5 +366,45 @@ export class ReportRepository {
         refund_qty:   parseInt(String(r.refund_qty)),
       })),
     };
+  }
+
+  // =======================================================
+  // PEAK HOURS
+  // =======================================================
+
+  /**
+   * Groups PAID orders by local hour of day (0–23).
+   * Uses AT TIME ZONE so the hour reflects the shop's
+   * local time, not UTC. The timezone string is taken
+   * from the shop record — never from user input.
+   */
+  static async getPeakHours(
+    shopId: string,
+    from: string,
+    to: string,
+    timezone: string
+  ): Promise<PeakHourRow[]> {
+    const result = await pool.query(
+      `
+      SELECT
+        EXTRACT(HOUR FROM created_at AT TIME ZONE $4)::int AS hour,
+        COUNT(*)                                            AS order_count,
+        COALESCE(SUM(total_amount), 0)                     AS total_revenue
+      FROM orders
+      WHERE shop_id    = $1
+        AND status     = 'PAID'
+        AND created_at >= $2::timestamptz
+        AND created_at <  $3::timestamptz + INTERVAL '1 day'
+      GROUP BY hour
+      ORDER BY hour
+      `,
+      [shopId, from, to, timezone]
+    );
+
+    return result.rows.map(row => ({
+      hour:          parseInt(row.hour),
+      order_count:   parseInt(row.order_count),
+      total_revenue: parseFloat(row.total_revenue),
+    }));
   }
 }

@@ -1,36 +1,3 @@
-// =========================================================
-// device.repository.ts
-// Path: backend/src/modules/device/device.repository.ts
-//
-// Verified against schema columns (001_init_schema.sql):
-//   id, shop_id, device_name, device_key, status,
-//   current_mode, mode_activated_by, approved_by,
-//   mode_activated_at, user_agent, ip_address,
-//   last_seen_at, created_at
-//
-// device_status enum: ('PENDING', 'APPROVED', 'REVOKED')
-//
-// ── BUG FIX: approveDevice accepts PENDING and REVOKED ───
-//
-// The original WHERE clause was:
-//   WHERE id = $1 AND shop_id = $2 AND status = 'PENDING'
-//
-// This prevented a REVOKED device from being directly approved
-// without going through the full re-registration cycle first.
-// The fix adds an `acceptRevoked` parameter (default: false for
-// safety) that widens the WHERE to include 'REVOKED'.
-//
-// ── ON CONFLICT target: (device_key) ─────────────────────
-// device_key is UNIQUE. The conflict target must match that
-// constraint — not (id), which is the PK and is always new.
-//
-// Status transition table for registerDevice:
-//   First call, no row         → INSERT → PENDING,  isNew = true
-//   Repeat call, PENDING       → conflict, WHERE false → no change, isNew = false
-//   Repeat call, APPROVED      → conflict, WHERE false → no change, isNew = false
-//   Repeat call, REVOKED       → DO UPDATE → PENDING, isNew = true  ✓
-// =========================================================
-
 import { pool }                           from '../../db/pool.js';
 import { ShopDevice, RegisterDeviceInput } from './device.types.js';
 

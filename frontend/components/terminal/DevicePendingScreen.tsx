@@ -31,6 +31,7 @@
 "use client";
 
 import React, { useEffect, useRef } from "react";
+import { Spinner } from "@/components/states";
 
 type Mode = "POS" | "KITCHEN";
 
@@ -177,21 +178,7 @@ export function DevicePendingScreen({
 
           {/* Polling indicator */}
           <div className="flex items-center gap-2.5 text-white/30 text-[12px]">
-            <svg
-              className="animate-spin flex-shrink-0"
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-            >
-              <circle
-                cx="7" cy="7" r="5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeDasharray="20 10"
-                strokeLinecap="round"
-              />
-            </svg>
+            <Spinner size={14} />
             Checking for approval every 5 seconds…
           </div>
         </div>

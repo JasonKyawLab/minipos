@@ -1,11 +1,9 @@
-// =========================================================
 // src/modules/shift/shift.routes.ts
 //
 // Nested under /api/shops/:shopId/shifts
 //
 // All routes require platform auth (access_token cookie).
 // Shop-role enforcement happens inside ShiftService.
-// =========================================================
 
 import { Router }           from "express";
 import { ShiftController }  from "./shift.controller.js";

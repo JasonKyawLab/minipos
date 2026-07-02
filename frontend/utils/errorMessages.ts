@@ -1,7 +1,3 @@
-// =========================================================
-// utils/errorMessages.ts
-// Converts backend error codes to user-facing messages.
-// =========================================================
 
 const ERROR_MESSAGES: Record<string, string> = {
   // ── Auth ──────────────────────────────────────────────────

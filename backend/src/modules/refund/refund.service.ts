@@ -1,6 +1,7 @@
 import { AuditService }     from "../audit/audit.service.js";
 import { OrderRepository }  from "../order/order.repository.js";
 import { RefundRepository } from "./refund.repository.js";
+import { KitchenService }   from "../kitchen/kitchen.service.js";
 import { ProcessRefundInput, RefundItemInput, ListRefundsFilter } from "./refund.types.js";
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
@@ -209,6 +210,17 @@ export class RefundService {
           });
         } catch (socketErr) {
           console.error("Socket emit failed:", socketErr);
+        }
+
+        // Cancel any active kitchen ticket so it disappears from kitchen displays
+        try {
+          await KitchenService.cancelTicket({
+            shopId:  params.shopId,
+            orderId: params.orderId,
+            orderNo: order.order_no,
+          });
+        } catch {
+          // Ticket may not exist (retail/takeaway without kitchen routing) — safe to ignore
         }
 
         return {

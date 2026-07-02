@@ -1,7 +1,3 @@
-// =========================================================
-// qr.middleware.ts
-// Path: backend/src/modules/qr/qr.middleware.ts
-// =========================================================
 // Resolves a QR token from the route param into a validated
 // shop + table context and attaches it to req.qr.
 //
@@ -14,7 +10,6 @@
 // Failure modes:
 //   - Token not a valid UUID → 400
 //   - Token not found or table inactive → 404
-// =========================================================
 
 import { Request, Response, NextFunction } from "express";
 import { TableRepository } from "../table/table.repository.js";

@@ -1,11 +1,7 @@
-// =========================================================
-// qr.routes.ts
-// Path: backend/src/modules/qr/qr.routes.ts
 //
 // Flow D additions:
 //   GET  /:token/table/session       — load active table session
 //   POST /:token/table/request-bill  — customer requests bill
-// =========================================================
 
 import { Router }             from "express";
 import { QrController }       from "./qr.controller.js";

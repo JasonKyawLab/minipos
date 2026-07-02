@@ -1,9 +1,3 @@
-// =========================================================
-// admin.service.ts
-// Path: backend/src/modules/admin/admin.service.ts
-// Line: Replace all error throws with appError
-// =========================================================
-
 import { AdminRepository } from "./admin.repository.js";
 import { AuditService } from "../audit/audit.service.js";
 import { appError } from "../../utils/appError.js";

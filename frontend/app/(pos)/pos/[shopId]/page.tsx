@@ -1,18 +1,4 @@
 "use client";
-// =========================================================
-// app/(pos)/pos/[shopId]/login/page.tsx
-// Path: frontend/app/(pos)/pos/[shopId]/login/page.tsx
-//
-// SECURITY MODEL — "burn the ships"
-// ─────────────────────────────────────────────────────────
-// After a successful PIN login the backend sets a pos_token
-// HttpOnly cookie. This page does NOT read, store, or pass
-// any session data to the terminal page.
-//
-// The terminal page (terminal/page.tsx) is responsible for
-// fetching its own session by calling GET /pos-auth/me using
-// the pos_token cookie. No data crosses the client-storage
-// boundary at any point.
 //
 // WHY window.location.href instead of router.push()
 // ─────────────────────────────────────────────────────────
@@ -56,7 +42,6 @@
 // "soft reset" for the case where no terminalSession is truly
 // active, vs. this password-gated flow for a genuinely live
 // session being interrupted.
-// =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams }               from "next/navigation";

@@ -1,10 +1,5 @@
-// =========================================================
-// table.routes.ts
-// Path: backend/src/modules/table/table.routes.ts
-// =========================================================
 // Nested under /api/shops/:shopId/tables
 // One public route for QR scan: /api/tables/qr/:token
-// =========================================================
 
 import { Router }          from "express";
 import { TableController } from "./table.controller.js";

@@ -1,12 +1,4 @@
 "use client";
-// =========================================================
-// frontend/components/kitchen/VoidTicketModal.tsx
-//
-// Confirmation modal shown before voiding a kitchen ticket.
-// Voiding is destructive (removes the ticket from the KDS
-// permanently) so we force an explicit confirm step rather
-// than a single tap, mirroring the existing ExitGate pattern.
-// =========================================================
 import React from "react";
 
 interface VoidTicketModalProps {

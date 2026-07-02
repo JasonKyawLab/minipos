@@ -1,12 +1,3 @@
-// =========================================================
-// app/(admin)/layout.tsx
-// Path: frontend/app/(admin)/layout.tsx
-//
-// Admin section layout. Uses a dedicated AdminSidebar — NOT the
-// platform Sidebar. The platform Sidebar is owner/shop-scoped
-// (shop list, settings, etc.) and has no relevance to the ADMIN
-// role, which only manages platform users and shops.
-// =========================================================
 
 import React from "react";
 import { AdminSidebar } from "@/components/layout/AdminSidebar";

@@ -1,15 +1,4 @@
 "use client";
-// =========================================================
-// app/(qr)/qr/[token]/orders/[orderId]/status/page.tsx
-//
-// FIX: Added CLOSING to STATUS_INFO so the Record<OrderStatus>
-// is exhaustive after CLOSING was added to the OrderStatus type.
-//
-// Also added:
-// - Socket listener for qr:table_locked and qr:order_status
-//   so the UI updates instantly without waiting for the poll
-// - Polling extended to also run while status is "CLOSING"
-// =========================================================
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";

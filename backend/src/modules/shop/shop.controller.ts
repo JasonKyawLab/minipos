@@ -15,9 +15,9 @@ export class ShopController {
 
   static updateShop = asyncHandler(async (req: Request, res: Response) => {
     const shopId = getParamAsString(req.params.shopId, "shopId");
-    const { name, currency } = req.body;
+    const { name, currency, shopType, taxRate, timezone } = req.body;
     const updated = await ShopService.updateShop({
-      shopId, requesterId: req.user!.id, name, currency,
+      shopId, requesterId: req.user!.id, name, currency, shopType, taxRate, timezone,
     });
     res.json(updated);
   });

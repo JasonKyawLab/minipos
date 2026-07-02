@@ -1,10 +1,5 @@
-// =========================================================
-// refund.routes.ts
-// Path: backend/src/modules/refund/refund.routes.ts
-// =========================================================
 // Nested under /api/shops/:shopId/orders/:orderId/refunds
 // mergeParams: true makes :shopId and :orderId available
-// =========================================================
 
 import { Router }           from "express";
 import { RefundController } from "./refund.controller.js";

@@ -1,6 +1,3 @@
-// =========================================================
-// pos-auth.repository.ts
-// Path: backend/src/modules/pos-auth/pos-auth.repository.ts
 //
 // BUG FIX: NULL + 1 = NULL in incrementTokenVersion
 //
@@ -15,7 +12,6 @@
 //   SET pos_token_version = COALESCE(pos_token_version, 0) + 1
 //   COALESCE converts NULL → 0 first, then adds 1.
 //   Result: NULL → 1, 0 → 1, 1 → 2, etc. ✓
-// =========================================================
 
 import { pool } from "../../db/pool.js";
 import { StaffListItem } from "./pos-auth.types.js";
@@ -283,5 +279,22 @@ export class PosAuthRepository {
     );
 
     return rows;
+  }
+
+  static async getSessionContext(shopId: string, userId: string) {
+    const { rows } = await pool.query(
+      `SELECT s.name      AS shop_name,
+              s.shop_type,
+              u.name      AS user_name
+       FROM   shops      s
+       JOIN   shop_users su ON su.shop_id  = s.id
+       JOIN   users      u  ON u.id        = su.user_id
+       WHERE  s.id          = $1
+         AND  su.user_id    = $2
+         AND  s.is_deleted  = false
+         AND  su.is_active  = true`,
+      [shopId, userId]
+    );
+    return rows[0] ?? null;
   }
 }

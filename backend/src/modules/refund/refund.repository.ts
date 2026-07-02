@@ -1,7 +1,3 @@
-// =========================================================
-// refund.repository.ts
-// Path: backend/src/modules/refund/refund.repository.ts
-// =========================================================
 // The most critical file in the refund module.
 //
 // Two atomic transactions:
@@ -40,7 +36,6 @@
 //   because product_item_id is nullable on order_items.
 //   The fix: fetch first with LEFT JOIN, then lock the
 //   product_items row in a separate SELECT FOR UPDATE.
-// =========================================================
 import { pool } from "../../db/pool.js";
 import { Refund, RefundItemInput, ListRefundsFilter } from "./refund.types.js";
 

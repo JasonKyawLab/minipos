@@ -1,6 +1,3 @@
-// =========================================================
-// pos-auth.middleware.ts
-// Path: backend/src/modules/pos-auth/pos-auth.middleware.ts
 //
 // BUG FIX: NULL tokenVersion comparison
 //
@@ -24,7 +21,6 @@
 //   Normalise the DB value before comparing:
 //     const dbVersion = rows[0].pos_token_version ?? 0;
 //   Now: 0 !== 0  → false  → token is valid  ✓
-// =========================================================
 
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";

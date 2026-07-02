@@ -1,34 +1,11 @@
 "use client";
-// =========================================================
-// app/(kitchen)/kitchen/[shopId]/page.tsx
-// Path: frontend/app/(kitchen)/kitchen/[shopId]/page.tsx
-//
-// DESIGN RULE: Layout, structure, and logic are IDENTICAL
-// to the POS login page (app/(pos)/pos/[shopId]/page.tsx).
-// The ONLY differences are colours and the word "tablet" vs
-// "device" in user-facing copy:
-//
-//   Background:       #0A0A0A   (POS: #0F2B4C navy)
-//   Submit button:    #D97706   (POS: #0D7A5F teal)
-//   Filled PIN dot:   #D97706   (POS: #0D7A5F teal)
-//   Avatar bg:        role-based (OWNER purple / MANAGER amber / CHEF teal)
-//
-// UX NOTE — "device locked to another mode" copy
-// ─────────────────────────────────────────────────────────
-// See the matching note in the POS page for full rationale.
-// Same mechanism here: ERR_DEVICE_LOCKED_TO_MODE means a stale
-// pos_token/kitchen_token/terminal_session cookie is on this
-// browser from a previous session. No technical detail is
-// shown to the kitchen staffer — just a single "Reset this
-// device" action that reuses the existing ModeGate "exit"
-// password flow, plus a note on who can act on it.
-// =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams }               from "next/navigation";
 import { DevicePendingScreen }                      from "@/components/terminal/DevicePendingScreen";
 import { ModeGate }                                 from "@/components/mode/ModeGate";
 import { getErrorMessage }                          from "@/utils/errorMessages";
+import { getOrCreateDeviceKey } from "@/utils/deviceKey";
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -59,21 +36,6 @@ const DEVICE_ERROR_CODES = new Set([
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-// ── Per-shop device key ────────────────────────────────────
-function getOrCreateDeviceKey(shopId: string): string {
-  if (typeof window === "undefined") return "";
-  const storageKey = `minipos_device_key_${shopId}`;
-  let key = localStorage.getItem(storageKey);
-  if (!key) {
-    key =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    localStorage.setItem(storageKey, key);
-  }
-  return key;
-}
-
 function getInitials(name: string): string {
   return name
     .split(" ")
@@ -89,9 +51,7 @@ function getRoleColour(role: KitchenRole): string {
   return "bg-[#0D7A5F]";                          // teal — CHEF
 }
 
-// ── Friendly copy for device-error states ─────────────────
-// Non-technical — written for kitchen staff, not developers.
-// No mention of cookies, terminal sessions, or browser internals.
+// Non-technical copy for kitchen staff — no mention of cookies or internals.
 function getFriendlyDeviceMessage(code: string | undefined): string {
   if (code === "ERR_DEVICE_LOCKED_TO_MODE") {
     return "This device is already set up for something else.";
@@ -117,15 +77,7 @@ export default function KitchenLoginPage() {
   const [pendingDeviceKey, setPendingDeviceKey]       = useState<string | null>(null);
   const [showOwnerSetupModal, setShowOwnerSetupModal] = useState(false);
 
-  // ── Auto-register unrecognised device ────────────────────
-  //
-  // Registers the device as PENDING, then shows DevicePendingScreen
-  // which polls every 5s until the owner approves it in Permissions.
-  //
-  // If registration itself is rejected (e.g. this browser is
-  // still locked to another mode via a stale cookie), nothing
-  // was created on the backend — so we do NOT show the pending
-  // screen. We surface a friendly, actionable error instead.
+  // Registers the device as PENDING. If registration fails (e.g. stale mode cookie), surfaces a friendly error instead of the pending screen.
   const handleAutoRegister = useCallback(async (triggerCode: string) => {
     const deviceKey = getOrCreateDeviceKey(shopId);
     try {
@@ -158,7 +110,6 @@ export default function KitchenLoginPage() {
     }
   }, [shopId]);
 
-  // ── Staff list fetch ──────────────────────────────────────
   const fetchStaff = useCallback(async () => {
     setScreen("LOADING");
     try {
@@ -188,9 +139,7 @@ export default function KitchenLoginPage() {
     }
   }, [shopId, handleAutoRegister]);
 
-  // ── Mount effect ──────────────────────────────────────────
-  // Check ?device_pending param FIRST — set by ModeGate after activation.
-  // If present, skip staff fetch and go straight to DevicePendingScreen.
+  // ?device_pending is set by ModeGate after activation — go straight to pending screen if present.
   useEffect(() => {
     const pendingKey = searchParams.get("device_pending");
     if (pendingKey) {
@@ -207,7 +156,6 @@ export default function KitchenLoginPage() {
     fetchStaff();
   }, [searchParams, fetchStaff, shopId]);
 
-  // ── Staff card selection ──────────────────────────────────
   function handleSelectStaff(member: KitchenStaffItem) {
     if (member.is_locked) {
       setPinError(`${member.name} is locked. Contact a manager to unlock.`);
@@ -238,7 +186,6 @@ export default function KitchenLoginPage() {
     setPinError("");
   }
 
-  // ── PIN submission ────────────────────────────────────────
   async function submitPin() {
     if (!selected || pin.length < 4) return;
     setSubmitting(true);
@@ -271,6 +218,13 @@ export default function KitchenLoginPage() {
         return;
       }
 
+      const body = await res.json().catch(() => ({}));
+      // kitchen_token is httpOnly — persist role/name/shopName in sessionStorage for the display page.
+      sessionStorage.setItem(`minipos_kitchen_role_${shopId}`,      body.role     ?? "CHEF");
+      sessionStorage.setItem(`minipos_kitchen_name_${shopId}`,      body.name     ?? selected.name);
+      sessionStorage.setItem(`minipos_kitchen_shop_name_${shopId}`, body.shopName ?? "");
+      sessionStorage.setItem(`minipos_kitchen_shift_start`, new Date().toISOString());
+
       // DO NOT replace this with router.push(). Full-page navigation
       // is required so the browser commits Set-Cookie before
       // middleware reads kitchen_token on the next request.
@@ -288,11 +242,7 @@ export default function KitchenLoginPage() {
 
   function handleExitConfirmed() {
     setShowExitGate(false);
-    // If we got here from the "Reset this device" action (a
-    // device-lock error, not a deliberate owner exit), clear
-    // the error state and retry registration immediately —
-    // the person here is kitchen staff standing at the device,
-    // not an owner who wants to leave the page.
+    // ERR_DEVICE_LOCKED_TO_MODE means staff hit "Reset this device" — retry registration rather than navigating away.
     if (deviceErrorCode === "ERR_DEVICE_LOCKED_TO_MODE") {
       setDeviceError("");
       setDeviceErrorCode(undefined);
@@ -417,10 +367,7 @@ export default function KitchenLoginPage() {
           Exit Mode
         </button>
 
-        {/* ── Device-locked error: takes over the screen ──────
-            When the device couldn't register at all, there is
-            no staff list to show meaningfully — show only the
-            reset action, not a half-populated staff grid. */}
+        {/* Device couldn't register — show only the reset action, not a half-populated staff grid. */}
         {deviceErrorCode === "ERR_DEVICE_LOCKED_TO_MODE" ? (
           <div className="bg-[#1A1A1A] border border-[#D97706]/40 rounded-xl px-6 py-6 max-w-sm text-center">
             <p className="text-[#FBBF24] text-[15px] font-medium mb-2">This device needs a quick reset</p>

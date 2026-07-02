@@ -1,8 +1,3 @@
-// =========================================================
-// payment.types.ts
-// Path: backend/src/modules/payment/payment.types.ts
-// =========================================================
-
 // ── Enums (mirror DB enums) ───────────────────────────────
 
 export type PaymentMethod = "CASH" | "COD";

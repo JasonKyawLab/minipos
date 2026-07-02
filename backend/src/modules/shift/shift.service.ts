@@ -6,7 +6,6 @@
 //
 // This enforces the product requirement that staff cannot
 // see other people's work history.
-// =========================================================
 
 import { ShiftRepository } from "./shift.repository.js";
 import { appError }        from "../../utils/appError.js";

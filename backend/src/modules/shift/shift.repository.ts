@@ -1,9 +1,7 @@
-// =========================================================
 // src/modules/shift/shift.repository.ts
 //
 // Raw SQL only. No business logic.
 // All joins and computed columns are handled directly here.
-// =========================================================
 
 import { pool } from "../../db/pool.js";
 

@@ -1,7 +1,3 @@
-// =========================================================
-// report.routes.ts
-// Path: backend/src/modules/report/report.routes.ts
-// =========================================================
 // All routes nested under /api/shops/:shopId/reports
 // mergeParams: true makes :shopId available in req.params
 //
@@ -13,7 +9,6 @@
 // All endpoints accept optional query params:
 //   ?from=YYYY-MM-DD&to=YYYY-MM-DD
 //   Defaults to last 30 days when omitted.
-// =========================================================
 
 import { Router }           from "express";
 import { ReportController } from "./report.controller.js";
@@ -45,5 +40,10 @@ router.get("/inventory",          ReportController.getInventorySummary);
 // GET /api/shops/:shopId/reports/refunds
 // Refund rate, total refunded, top refunded items
 router.get("/refunds",            ReportController.getRefundSummary);
+
+// GET /api/shops/:shopId/reports/peak-hours
+// Order count per hour of day in the shop's local timezone
+// Optional: ?timezone=Asia/Bangkok (defaults to UTC)
+router.get("/peak-hours",         ReportController.getPeakHours);
 
 export default router;

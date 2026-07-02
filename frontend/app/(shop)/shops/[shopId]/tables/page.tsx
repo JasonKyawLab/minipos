@@ -1,20 +1,4 @@
 "use client";
-// =========================================================
-// app/(shop)/shops/[shopId]/tables/page.tsx
-// Manage restaurant tables + QR codes. RESTAURANT shops only.
-//
-// Edit table:
-//   - "Edit" button opens EditTableModal pre-filled with
-//     the table's current table_number and capacity.
-//   - PATCH /api/shops/:shopId/tables/:tableId sends the
-//     updated fields. Backend accepts table_number, capacity,
-//     is_active (all optional, at least one required).
-//   - On success: list re-fetches, modal closes, toast shown.
-//
-// CHANGED: table list now uses the shared Table/TableHead/
-// Th/TableBody/Tr/Td components — the Actions column has 4-5
-// buttons per row, which clipped on narrower screens before.
-// =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useShop } from "@/context/ShopContext";
@@ -25,6 +9,7 @@ import type { RestaurantTable } from "@/types";
 import { EmptyState, Spinner } from "@/components/states";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
+import { ConfirmModal } from "@/components/ui/Modal";
 
 export default function TablesPage() {
   const { shopId, shopType, userRole } = useShop();
@@ -47,6 +32,8 @@ export default function TablesPage() {
 
   const [rotateTarget, setRotateTarget]     = useState<RestaurantTable | null>(null);
   const [rotateSaving, setRotateSaving]     = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; tableNumber: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -129,11 +116,12 @@ export default function TablesPage() {
     }
   }
 
-  async function handleDelete(tableId: string, tableNumber: string) {
-    if (!confirm(`Delete table ${tableNumber}?`)) return;
+  async function handleDelete() {
+    if (!deleteTarget) return;
     try {
-      await api.delete(`/api/shops/${shopId}/tables/${tableId}`);
+      await api.delete(`/api/shops/${shopId}/tables/${deleteTarget.id}`);
       toast.success("Table deleted.");
+      setDeleteTarget(null);
       load();
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
@@ -269,7 +257,7 @@ export default function TablesPage() {
                           Rotate QR
                         </button>
                         <button
-                          onClick={() => handleDelete(t.id, t.table_number)}
+                          onClick={() => setDeleteTarget({ id: t.id, tableNumber: t.table_number })}
                           className="text-[12px] text-[#A32D2D] hover:underline"
                         >
                           Delete
@@ -451,6 +439,16 @@ export default function TablesPage() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Delete table"
+        message={`Delete table ${deleteTarget?.tableNumber}? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+      />
 
     </div>
   );

@@ -1,4 +1,3 @@
-// Path: backend/src/modules/terminal/terminal.repository.ts
 // Purpose: All raw SQL for terminal session management.
 // No business logic here — just database operations.
 

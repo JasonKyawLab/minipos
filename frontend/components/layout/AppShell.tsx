@@ -1,18 +1,4 @@
 "use client";
-// =========================================================
-// components/layout/AppShell.tsx
-//
-// FIX: The previous version used a conditional early return
-// which caused "Rendered more hooks than during the previous
-// render" because Next.js Router calls hooks AFTER AppShell
-// in the tree. When AppShell switches between returning a
-// spinner vs returning children, the hook count seen by the
-// Router changes between renders.
-//
-// Solution: Always render children. Use CSS visibility to
-// hide them during the loading state instead of unmounting.
-// This keeps the React tree structure stable across renders.
-// =========================================================
 
 import React from 'react';
 import { useSessionGuard } from '@/context/SessionGuardContext';

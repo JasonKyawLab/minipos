@@ -8,7 +8,17 @@ import { getErrorMessage } from "@/utils/errorMessages";
 import toast from "react-hot-toast";
 import type { ShopType, Currency } from "@/types";
 import { Spinner } from "@/components/states";
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-[12px] text-[#5F5E5A] mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
 import { SkeletonText } from "@/components/ui/Skeleton";
+import { ConfirmModal } from "@/components/ui/Modal";
 
 const SHOP_TYPES: { value: ShopType; label: string }[] = [
   { value: "RETAIL",      label: "Retail" },
@@ -29,22 +39,11 @@ const TIMEZONES = [
   "America/New_York", "Europe/London", "UTC",
 ];
 
-// The exact string the user must type to confirm deletion.
-// Using shop name (not the word "DELETE") because:
-//   1. It forces the user to consciously read and retype the name
-//   2. Makes accidental deletion nearly impossible
-//   3. Consistent with the admin panel delete pattern already in the codebase
-const CONFIRM_STRING_HELPER = "the shop name shown above";
-
 export default function SettingsPage() {
   const { shopId, shopName, shopType, currency, userRole } = useShop();
   const isOwner = userRole === "OWNER";
   const router = useRouter();
 
-  // ── Form state initialised from ShopContext ────────────────
-  // ShopContext already has name, shopType, currency from the layout.
-  // We load the full shop record (tax_rate, timezone, pin_max_attempts)
-  // from the API separately — those fields are not in the context.
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
 
@@ -57,9 +56,13 @@ export default function SettingsPage() {
     pin_max_attempts: "5",
   });
 
+  // Tracks the shop type as last saved, so we know when the
+  // dropdown represents a real change worth confirming.
+  const [initialShopType, setInitialShopType] = useState<ShopType>(shopType as ShopType);
+
+  const [confirmShopTypeChange, setConfirmShopTypeChange] = useState(false);
+
   // ── Delete modal state ─────────────────────────────────────
-  // The confirmation string is the shop NAME (not the word "DELETE").
-  // We use shopName from context — always available, never null.
   const [showDeleteModal,  setShowDeleteModal]  = useState(false);
   const [deleteConfirm,    setDeleteConfirm]    = useState("");
   const [deleting,         setDeleting]         = useState(false);
@@ -77,10 +80,8 @@ export default function SettingsPage() {
         timezone:         data.timezone         ?? "Asia/Bangkok",
         pin_max_attempts: String(data.pin_max_attempts ?? 5),
       });
+      setInitialShopType(data.shop_type ?? shopType);
     } catch {
-      // GET /api/shops/:shopId may not exist yet — fall back to context values.
-      // The form is still functional with context data; only tax_rate,
-      // timezone, and pin_max_attempts will show defaults.
       setForm(prev => ({
         ...prev,
         name:      shopName,
@@ -98,16 +99,35 @@ export default function SettingsPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) { toast.error("Shop name is required."); return; }
+
+    if (form.shop_type !== initialShopType) {
+      setConfirmShopTypeChange(true);
+      return;
+    }
+
+    await doSave();
+  }
+
+  async function doSave() {
+    const shopTypeChanged = form.shop_type !== initialShopType;
     setSaving(true);
     try {
       await api.patch(`/api/shops/${shopId}`, {
-        name:             form.name.trim(),
-        currency:         form.currency,
-        tax_rate:         Number(form.tax_rate),
-        timezone:         form.timezone,
+        name:     form.name.trim(),
+        currency: form.currency,
+        shopType: form.shop_type,
+        taxRate:  Number(form.tax_rate),
+        timezone: form.timezone,
+      });
+
+      // pin_max_attempts has its own validated endpoint — not part
+      // of the generic shop update.
+      await api.patch(`/api/shops/${shopId}/pos-auth/settings`, {
         pin_max_attempts: Number(form.pin_max_attempts),
       });
+
       toast.success("Settings saved.");
+      if (shopTypeChanged) setInitialShopType(form.shop_type);
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
     } finally {
@@ -116,8 +136,6 @@ export default function SettingsPage() {
   }
 
   // ── Delete shop ────────────────────────────────────────────
-  // Confirmation string = shop name (same pattern as admin panel).
-  // We use shopName from context so this works even if the API fetch failed.
   async function handleDeleteShop() {
     if (deleteConfirm !== shopName) {
       toast.error("Shop name doesn't match. Please type it exactly as shown.");
@@ -130,12 +148,12 @@ export default function SettingsPage() {
       router.push("/dashboard");
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
-      setDeleting(false);  // Only reset on error; on success we navigate away
+      setDeleting(false);
     }
   }
 
   function openDeleteModal() {
-    setDeleteConfirm("");   // Always clear on open so old input never carries over
+    setDeleteConfirm("");
     setShowDeleteModal(true);
   }
 
@@ -144,17 +162,7 @@ export default function SettingsPage() {
     setDeleteConfirm("");
   }
 
-  // Whether the typed value exactly matches the shop name
   const confirmationMatches = deleteConfirm === shopName;
-
-  function Field({ label, children }: { label: string; children: React.ReactNode }) {
-    return (
-      <div>
-        <label className="block text-[12px] text-[#5F5E5A] mb-1">{label}</label>
-        {children}
-      </div>
-    );
-  }
 
   const inputCls = "w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] bg-white disabled:opacity-50 disabled:cursor-not-allowed";
 
@@ -169,7 +177,6 @@ export default function SettingsPage() {
       ) : (
         <form onSubmit={handleSave} className="space-y-4">
 
-          {/* ── General settings ── */}
           <div className="bg-white border border-[#D3D1C7] rounded-lg p-5 space-y-4">
             <h2 className="text-[15px] font-medium text-[#0F2B4C]">General</h2>
 
@@ -240,7 +247,6 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* ── POS settings ── */}
           <div className="bg-white border border-[#D3D1C7] rounded-lg p-5 space-y-4">
             <h2 className="text-[15px] font-medium text-[#0F2B4C]">POS Settings</h2>
             <Field label="Max PIN attempts before lockout">
@@ -270,7 +276,6 @@ export default function SettingsPage() {
         </form>
       )}
 
-      {/* ── Danger zone — owner only ── */}
       {isOwner && !loading && (
         <div className="mt-6 bg-[#FCEBEB] border border-[#A32D2D] rounded-lg p-5">
           <h2 className="text-[15px] font-medium text-[#A32D2D] mb-1">Danger Zone</h2>
@@ -286,12 +291,10 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ── Delete confirmation modal ── */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-md shadow-md animate-fade-in">
 
-            {/* Header */}
             <div className="flex items-start gap-3 mb-4">
               <div className="w-9 h-9 rounded-full bg-[#FCEBEB] flex items-center justify-center flex-shrink-0 mt-0.5">
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -313,7 +316,6 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Shop name preview */}
             <div className="bg-[#F1EFE8] rounded-lg px-4 py-3 mb-4">
               <p className="text-[11px] text-[#5F5E5A] uppercase tracking-wide mb-0.5">
                 Shop to delete
@@ -321,7 +323,6 @@ export default function SettingsPage() {
               <p className="text-[14px] font-semibold text-[#0F2B4C]">{shopName}</p>
             </div>
 
-            {/* Instruction */}
             <div className="mb-5">
               <p className="text-[13px] text-[#5F5E5A] mb-2">
                 To confirm, type{" "}
@@ -346,7 +347,6 @@ export default function SettingsPage() {
                 autoComplete="off"
                 spellCheck={false}
               />
-              {/* Inline feedback */}
               {deleteConfirm.length > 0 && !confirmationMatches && (
                 <p className="text-[11px] text-[#A32D2D] mt-1">
                   Doesn't match — type the shop name exactly as shown above.
@@ -359,7 +359,6 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Actions */}
             <div className="flex gap-2 justify-end">
               <button
                 onClick={closeDeleteModal}
@@ -373,15 +372,22 @@ export default function SettingsPage() {
                 disabled={deleting || !confirmationMatches}
                 className="flex items-center gap-2 px-4 h-9 text-[13px] font-medium text-white bg-[#A32D2D] rounded-lg disabled:opacity-50 hover:bg-opacity-90 transition"
               >
-                {deleting && (
-                  <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                )}
+                {deleting && <Spinner size={14} />}
                 Delete shop
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={confirmShopTypeChange}
+        onClose={() => setConfirmShopTypeChange(false)}
+        onConfirm={() => { setConfirmShopTypeChange(false); doSave(); }}
+        title="Change shop type"
+        message={`Change shop type from ${initialShopType} to ${form.shop_type}? Existing tables and kitchen stations won't be deleted, but they'll disappear from the dashboard until you switch back to ${initialShopType}.`}
+        confirmLabel="Change type"
+      />
     </div>
   );
 }

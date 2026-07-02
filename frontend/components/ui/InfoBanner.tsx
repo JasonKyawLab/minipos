@@ -1,34 +1,3 @@
-// =========================================================
-// components/ui/InfoBanner.tsx
-//
-// A permanently-visible collapsible help banner.
-//
-// CHANGE from previous version:
-//   Before: had a "×" dismiss button that wrote to localStorage
-//           and hid the banner forever with no way to bring it back.
-//   Now:    NO dismiss button. The banner is always present.
-//           It can be collapsed (minimised) to a single title
-//           row, or expanded to show full content.
-//           State is stored in localStorage so the preference
-//           persists across page loads — but the user can
-//           always expand it again by clicking the title.
-//
-// WHY permanent?
-//   These banners explain core concepts (Product vs Item,
-//   what a Modifier Group is). Once a user accidentally
-//   dismisses them there is no way to get the explanation
-//   back without reading docs. Making them collapsible
-//   gives the same "get it out of my way" UX without
-//   permanently destroying the information.
-//
-// USAGE:
-//   <InfoBanner
-//     storageKey="info_products"
-//     title="How Products work"
-//     bullets={["A Product is the menu name…"]}
-//     example='Product "Coffee" → Items: Espresso, Latte'
-//   />
-// =========================================================
 
 "use client";
 

@@ -1,8 +1,5 @@
-// =========================================================
-// kitchen.repository.ts
 // Path: backend/src
 // /modules/kitchen/kitchen.repository.ts
-// =========================================================
 
 import { pool } from "../../db/pool.js";
 import {
@@ -367,6 +364,43 @@ static async findTicketById(ticketId: string, shopId: string): Promise<KitchenTi
       `,
       [orderId]
     );
+  }
+
+  // Void order_items that belong to cancelled kitchen tickets.
+  // Caller is responsible for recalculating order totals afterwards.
+  static async voidItemsWithCancelledKitchenStatus(orderId: string): Promise<void> {
+    await pool.query(
+      `
+      UPDATE order_items
+      SET status = 'CANCELLED'
+      WHERE order_id = $1
+        AND kitchen_status = 'CANCELLED'
+        AND status = 'ACTIVE'
+      `,
+      [orderId]
+    );
+  }
+
+  static async cancelOrderIfCancellable(orderId: string, shopId: string): Promise<boolean> {
+    // Do not cancel the order if any kitchen ticket has already been marked DONE —
+    // that means food was served and the customer should still be charged.
+    const doneCheck = await pool.query(
+      `SELECT 1 FROM kitchen_tickets
+       WHERE order_id = $1 AND shop_id = $2 AND ticket_status = 'DONE'
+       LIMIT 1`,
+      [orderId, shopId]
+    );
+    if ((doneCheck.rowCount ?? 0) > 0) return false;
+
+    const result = await pool.query(
+      `UPDATE orders
+       SET status = 'CANCELLED', cancelled_at = now(), updated_at = now()
+       WHERE id = $1 AND shop_id = $2
+         AND status IN ('OPEN', 'CONFIRMED', 'CLOSING')
+       RETURNING id`,
+      [orderId, shopId]
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   static async updateItemKitchenStatus(params: {

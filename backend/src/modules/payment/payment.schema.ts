@@ -1,8 +1,3 @@
-// =========================================================
-// payment.schema.ts
-// Path: backend/src/modules/payment/payment.schema.ts
-// =========================================================
-
 import { z } from "zod";
 
 export const processPaymentSchema = z

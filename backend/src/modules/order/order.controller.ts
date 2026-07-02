@@ -44,7 +44,7 @@ export class OrderController {
   static getOrders = asyncHandler(async (req: Request<{ shopId: string }>, res: Response) => {
     const paginationParams = parsePaginationParams(req);
     const { shopId } = req.params;
-    const { status, orderType, from, to } = req.query;
+    const { status, orderType, from, to, search } = req.query;
 
     const filter: ListOrdersFilter = {
       shopId,
@@ -52,6 +52,7 @@ export class OrderController {
       orderType: orderType as OrderType | undefined,
       from: from as string | undefined,
       to: to as string | undefined,
+      search: search as string | undefined,
       limit: paginationParams.limit,
       offset: paginationParams.offset,
     };

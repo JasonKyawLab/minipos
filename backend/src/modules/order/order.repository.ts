@@ -1,7 +1,3 @@
-// =========================================================
-// order.repository.ts
-// Path: backend/src/modules/order/order.repository.ts
-// =========================================================
 // ALL raw SQL for orders and order items.
 // Service layer never touches pool directly.
 //
@@ -21,7 +17,6 @@
 //   the default was enforced have null in that column.
 //   Fix: wrap with COALESCE(o.discount_amount, 0) so null is
 //   treated as 0.
-// =========================================================
 
 import { pool } from "../../db/pool.js";
 import { appError } from "../../utils/appError.js";
@@ -240,6 +235,10 @@ export class OrderRepository {
     if (filter.to) {
       conditions.push(`o.created_at <= $${idx++}::timestamptz + INTERVAL '1 day'`);
       values.push(filter.to);
+    }
+    if (filter.search) {
+      conditions.push(`o.order_no ILIKE $${idx++}`);
+      values.push(`%${filter.search}%`);
     }
 
     // COUNT(*) OVER() gives us the total matching row count alongside

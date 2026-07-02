@@ -1,13 +1,8 @@
-// =========================================================
-// report.types.ts
-// Path: backend/src/modules/report/report.types.ts
-// =========================================================
 // All types for the report module.
 //
 // Design: every report accepts a DateRangeFilter so the
 // caller can scope results to any window. The service layer
 // defaults to "last 30 days" when from/to are omitted.
-// =========================================================
 
 // ── Shared filter ─────────────────────────────────────────
 export interface DateRangeFilter {
@@ -83,4 +78,12 @@ export interface TopRefundedItem {
   product_name: string;
   refund_count: number;
   refund_qty: number;
+}
+
+// ── Peak Hours ────────────────────────────────────────────
+// One row per hour of the day (0–23) showing order volume.
+export interface PeakHourRow {
+  hour: number;          // 0–23 in the shop's local timezone
+  order_count: number;
+  total_revenue: number;
 }

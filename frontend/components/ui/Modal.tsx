@@ -1,7 +1,4 @@
 "use client";
-// =========================================================
-// components/ui/Modal.tsx
-// =========================================================
 
 import React, { useEffect, useRef } from "react";
 import { clsx } from "clsx";

@@ -1,12 +1,8 @@
-// =========================================================
-// kitchen.types.ts
-// Path: backend/src/modules/kitchen/kitchen.types.ts
 //
 // FIX: Added round and is_addon to KitchenTicket.
 // These columns were added by migration 003_qr_flow_d.sql
 // but the TypeScript interface wasn't updated, causing
 // error 2339 in kitchen.repository.ts at ticket.round.
-// =========================================================
 
 export type KitchenStatus =
   | 'PENDING'

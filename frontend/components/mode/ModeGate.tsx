@@ -1,10 +1,4 @@
 "use client";
-// =========================================================
-// components/mode/ModeGate.tsx
-//
-// Full-screen password gate for entering/exiting POS or
-// Kitchen mode with explicit parameter isolation.
-// =========================================================
 
 import React, { useState, useRef, useEffect } from "react";
 import api from "@/lib/api";

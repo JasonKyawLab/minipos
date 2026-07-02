@@ -1,20 +1,7 @@
 "use client";
-// =========================================================
-// app/(shop)/shops/[shopId]/orders/page.tsx
-//
-// FIX: Added CLOSING to:
-//   1. Local type OrderStatus union
-//   2. STATUS_LABELS map
-//   3. STATUS_STYLES map
-//
-// CHANGED: table markup now uses the shared Table/TableHead/
-// Th/TableBody/Tr/Td components instead of raw <table> tags —
-// fixes content getting clipped (not scrollable) on narrower
-// screens, since Table.tsx wraps the table in overflow-x-auto
-// with a min-width instead of overflow-hidden.
-// =========================================================
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { usePathname }      from "next/navigation";
 import { useShop }          from "@/context/ShopContext";
 import api                  from "@/lib/api";
@@ -23,7 +10,7 @@ import { formatCurrency }   from "@/utils/formatCurrency";
 import { formatDateTime }   from "@/utils/formatDate";
 import toast                from "react-hot-toast";
 import { SkeletonTable }    from "@/components/ui/Skeleton";
-import { EmptyState }       from "@/components/states";
+import { EmptyState, Spinner } from "@/components/states";
 import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
 
 // ── Types ─────────────────────────────────────────────────
@@ -153,25 +140,33 @@ export default function OrdersPage() {
   const [dateTo,       setDateTo]       = useState(defTo);
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "">("");
   const [typeFilter,   setTypeFilter]   = useState<OrderType | "">("");
+  const [searchInput,  setSearchInput]  = useState("");
+  const [search,       setSearch]       = useState("");
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Detail modal (view only — no refund here) ─────────────
   const [detail,        setDetail]        = useState<OrderDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  const [refundAmount, setRefundAmount] = useState("");
-  const [refundReason, setRefundReason] = useState("");
-  const [refunding,    setRefunding]    = useState(false);
+  // ── Refund modal (separate, own trigger) ──────────────────
+  const [refundTarget, setRefundTarget] = useState<Order | null>(null);
+  const [refundMode, setRefundMode]     = useState<"FULL" | null>(null);
+  const [refundRestock, setRefundRestock] = useState(true);
+  const [refundReason, setRefundReason]   = useState("");
+  const [refunding, setRefunding]         = useState(false);
 
-const load = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string | number> = {
-        from: dateFrom,
-        to: dateTo,
-        page,
-        pageSize: limit,
-      };
-      if (statusFilter) params.status = statusFilter;
+      const params: Record<string, string | number> = { page, pageSize: limit };
+      // When searching by order number, drop date range — the order could be on any date.
+      if (!search) {
+        params.from = dateFrom;
+        params.to   = dateTo;
+      }
+      if (statusFilter) params.status     = statusFilter;
       if (typeFilter)   params.order_type = typeFilter;
+      if (search)       params.search     = search;
 
       const { data } = await api.get<{
         data: Order[];
@@ -186,9 +181,9 @@ const load = useCallback(async () => {
     } finally {
       setLoading(false);
     }
-  }, [shopId, dateFrom, dateTo, statusFilter, typeFilter, page, limit]);
+  }, [shopId, dateFrom, dateTo, statusFilter, typeFilter, search, page, limit]);
 
-  useEffect(() => { setPage(1); }, [dateFrom, dateTo, statusFilter, typeFilter]);
+  useEffect(() => { setPage(1); }, [dateFrom, dateTo, statusFilter, typeFilter, search]);
   useEffect(() => { load(); }, [load]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [pathname]);
@@ -205,11 +200,16 @@ const load = useCallback(async () => {
     };
   }, [load]);
 
+  function handleSearchChange(value: string) {
+    setSearchInput(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setSearch(value.trim()), 400);
+  }
+
+  // ── View detail (read-only) ────────────────────────────────
   async function openDetail(orderId: string) {
     setDetail(null);
     setLoadingDetail(true);
-    setRefundAmount("");
-    setRefundReason("");
     try {
       const { data: order } = await api.get<OrderDetail>(
         `/api/shops/${shopId}/orders/${orderId}`
@@ -225,22 +225,32 @@ const load = useCallback(async () => {
     }
   }
 
-  async function handleRefund() {
-    if (!detail) return;
-    const amount = parseFloat(refundAmount);
-    if (isNaN(amount) || amount <= 0) {
-      toast.error("Enter a valid refund amount.");
-      return;
-    }
+  // ── Refund modal ────────────────────────────────────────────
+  function openRefundModal(order: Order, e?: React.MouseEvent) {
+    e?.stopPropagation();
+    setRefundTarget(order);
+    setRefundMode(null);
+    setRefundRestock(true);
+    setRefundReason("");
+  }
+
+  function closeRefundModal() {
+    setRefundTarget(null);
+    setRefundMode(null);
+  }
+
+  async function handleConfirmFullRefund() {
+    if (!refundTarget) return;
     setRefunding(true);
     try {
-      await api.post(`/api/shops/${shopId}/orders/${detail.id}/refunds`, {
-        type:            "AMOUNT",
-        amount,
+      await api.post(`/api/shops/${shopId}/orders/${refundTarget.id}/refunds`, {
+        type:            "FULL",
+        restock:         refundRestock,
         reason:          refundReason || undefined,
         idempotency_key: crypto.randomUUID(),
       });
       toast.success("Refund processed.");
+      closeRefundModal();
       setDetail(null);
       load();
     } catch (err: any) {
@@ -270,9 +280,20 @@ const load = useCallback(async () => {
         </p>
       </div>
 
+      {/* Search bar */}
+      <div className="mb-3">
+        <input
+          type="text"
+          value={searchInput}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          placeholder="Search by order number…"
+          className="w-full max-w-sm h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg bg-white text-[#0F2B4C] placeholder:text-[#A3A19B] focus:outline-none focus:ring-2 focus:ring-[#0F2B4C]/20"
+        />
+      </div>
+
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex items-center gap-2">
+        <div className={`flex items-center gap-2 transition-opacity ${search ? "opacity-40 pointer-events-none" : ""}`}>
           <input
             type="date"
             value={dateFrom}
@@ -327,7 +348,7 @@ const load = useCallback(async () => {
         />
       ) : (
         <>
-          <Table className="min-w-[760px]">
+          <Table className="min-w-[820px]">
             <TableHead>
               <Th>Order #</Th>
               <Th>Date</Th>
@@ -336,7 +357,7 @@ const load = useCallback(async () => {
               <Th>Served by</Th>
               <Th>Status</Th>
               <Th align="right">Total</Th>
-              <Th align="right"></Th>
+              <Th align="right">Actions</Th>
             </TableHead>
             <TableBody>
               {orders.map((o) => (
@@ -366,8 +387,18 @@ const load = useCallback(async () => {
                   <Td align="right" className="font-medium text-[#0F2B4C]">
                     {formatCurrency(Number(o.total_amount), currency)}
                   </Td>
-                  <Td align="right" className="text-[12px] text-[#534AB7]">
-                    View →
+                  <Td align="right">
+                    <div className="flex items-center justify-end gap-3">
+                      {canRefund && o.status === "PAID" && (
+                        <button
+                          onClick={(e) => openRefundModal(o, e)}
+                          className="text-[12px] text-[#A32D2D] hover:underline whitespace-nowrap"
+                        >
+                          Refund
+                        </button>
+                      )}
+                      <span className="text-[12px] text-[#534AB7]">View →</span>
+                    </div>
                   </Td>
                 </Tr>
               ))}
@@ -398,8 +429,10 @@ const load = useCallback(async () => {
         </>
       )}
 
-      {/* Detail modal */}
-      {(loadingDetail || detail) && (
+      {/* ══════════════════════════════════════════════════
+          Detail panel — view only, no refund here
+      ══════════════════════════════════════════════════ */}
+      {(loadingDetail || detail) && createPortal(
         <div
           className="fixed inset-0 bg-black/40 z-50 flex items-center justify-end"
           onClick={(e) => {
@@ -604,41 +637,110 @@ const load = useCallback(async () => {
 
                 {canRefund && detail.status === "PAID" && (
                   <div className="border-t border-[#F1EFE8] pt-4">
-                    <p className="text-[11px] text-[#5F5E5A] font-medium uppercase tracking-wide mb-3">
-                      Process Refund
-                    </p>
-                    <div className="space-y-2">
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={refundAmount}
-                        onChange={(e) => setRefundAmount(e.target.value)}
-                        placeholder="Refund amount"
-                        className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F2B4C]/20"
-                      />
-                      <input
-                        type="text"
-                        value={refundReason}
-                        onChange={(e) => setRefundReason(e.target.value)}
-                        placeholder="Reason (optional)"
-                        className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F2B4C]/20"
-                      />
-                      <button
-                        onClick={handleRefund}
-                        disabled={refunding || !refundAmount}
-                        className="w-full h-9 bg-[#A32D2D] text-white text-[13px] font-medium rounded-lg disabled:opacity-40 hover:bg-[#8a2525] transition"
-                      >
-                        {refunding ? "Processing…" : "Issue Refund"}
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => openRefundModal(detail)}
+                      className="w-full h-9 bg-[#A32D2D] text-white text-[13px] font-medium rounded-lg hover:bg-[#8a2525] transition"
+                    >
+                      Refund this order
+                    </button>
                   </div>
                 )}
 
               </div>
             ) : null}
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          MODAL: Refund (separate from detail view)
+      ══════════════════════════════════════════════════ */}
+      {refundTarget && createPortal(
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg border border-[#D3D1C7] p-6 w-full max-w-sm shadow-md animate-fade-in">
+
+            <h3 className="text-[16px] font-medium text-[#0F2B4C] mb-1">Refund order</h3>
+            <p className="text-[13px] text-[#5F5E5A] mb-5">
+              <span className="font-mono font-medium text-[#0F2B4C]">{refundTarget.order_no}</span>
+              {" "}· {formatCurrency(Number(refundTarget.total_amount), currency)}
+            </p>
+
+            {refundMode === null && (
+              <div className="space-y-2">
+                <button
+                  onClick={() => setRefundMode("FULL")}
+                  className="w-full h-10 border border-[#A32D2D] text-[#A32D2D] text-[13px] font-medium rounded-lg hover:bg-[#FCEBEB] transition"
+                >
+                  Full refund
+                </button>
+                <button
+                  disabled
+                  title="Item-level partial refunds are coming in a future update."
+                  className="w-full h-10 border border-[#D3D1C7] text-[#D3D1C7] text-[13px] font-medium rounded-lg cursor-not-allowed"
+                >
+                  Partial refund <span className="text-[11px]">(coming soon)</span>
+                </button>
+
+                <button
+                  onClick={closeRefundModal}
+                  className="w-full h-9 text-[13px] text-[#5F5E5A] hover:underline mt-2"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {refundMode === "FULL" && (
+              <div className="space-y-3">
+                <div className="bg-[#FCEBEB] border border-[#A32D2D]/30 rounded-lg px-3 py-2.5 text-[12px] text-[#A32D2D]">
+                  This refunds the full order amount. This cannot be undone.
+                </div>
+
+                <div>
+                  <label className="block text-[12px] text-[#5F5E5A] mb-1">Reason (optional)</label>
+                  <input
+                    type="text"
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    placeholder="e.g. Customer complaint"
+                    className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F2B4C]/20"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 text-[13px] text-[#5F5E5A] px-0.5">
+                  <input
+                    type="checkbox"
+                    checked={refundRestock}
+                    onChange={(e) => setRefundRestock(e.target.checked)}
+                    className="w-4 h-4 accent-[#0D7A5F]"
+                  />
+                  Restock items
+                </label>
+
+                <div className="flex gap-2 justify-end pt-2">
+                  <button
+                    onClick={() => setRefundMode(null)}
+                    disabled={refunding}
+                    className="px-4 h-9 text-[13px] text-[#5F5E5A] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition disabled:opacity-50"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={handleConfirmFullRefund}
+                    disabled={refunding}
+                    className="flex items-center gap-2 px-4 h-9 text-[13px] font-medium text-white bg-[#A32D2D] rounded-lg disabled:opacity-50 hover:bg-opacity-90 transition"
+                  >
+                    {refunding && <Spinner size={14} />}
+                    Confirm refund
+                  </button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>,
+        document.body
       )}
 
     </div>

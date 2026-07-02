@@ -1,6 +1,3 @@
-// =========================================================
-// kitchen-auth.middleware.ts
-// Path: backend/src/modules/kitchen-auth/kitchen-auth.middleware.ts
 //
 // BUG FIX: NULL tokenVersion comparison (same root cause as
 // pos-auth.middleware.ts — see that file for full explanation).
@@ -15,7 +12,6 @@
 // FIX:
 //   const dbVersion = rows[0].kitchen_token_version ?? 0;
 //   Now: 0 !== 0  → false  → token is valid  ✓
-// =========================================================
 
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";

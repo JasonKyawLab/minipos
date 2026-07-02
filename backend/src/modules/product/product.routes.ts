@@ -1,10 +1,6 @@
-// =========================================================
-// product.routes.ts
-// Path: backend/src/modules/product/product.routes.ts
 //
 // CHANGES: Added category CRUD routes.
 //          All nested under /api/shops/:shopId/products.
-// =========================================================
 
 import { Router }             from "express";
 import { ProductController }  from "./product.controller.js";

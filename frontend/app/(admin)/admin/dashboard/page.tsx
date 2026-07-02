@@ -1,14 +1,4 @@
 "use client";
-// =========================================================
-// app/(admin)/admin/dashboard/page.tsx
-// Path: frontend/app/(admin)/admin/dashboard/page.tsx
-//
-// Minimal platform-admin overview: headline counts, a 30-day
-// signup trend, and a shop status breakdown. Deliberately kept
-// small — revenue/order analytics belong to the per-shop Reports
-// feature, not this platform-level view. This is about platform
-// health (growth, suspensions), not business performance.
-// =========================================================
 
 import React, { useEffect, useState } from "react";
 import api from "@/lib/api";

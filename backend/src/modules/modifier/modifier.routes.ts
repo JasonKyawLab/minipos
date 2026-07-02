@@ -1,10 +1,5 @@
-// =========================================================
-// modifier.routes.ts
-// Path: backend/src/modules/modifier/modifier.routes.ts
-// =========================================================
 // Nested under /api/shops/:shopId/modifiers
 // mergeParams: true makes :shopId available in req.params
-// =========================================================
 
 import { Router } from "express";
 import { ModifierController } from "./modifier.controller.js";

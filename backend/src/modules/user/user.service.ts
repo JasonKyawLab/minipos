@@ -1,8 +1,4 @@
-// =========================================================
-// user.service.ts
-// Path: backend/src/modules/user/user.service.ts
 // Line: Replace all error throws with appError
-// =========================================================
 
 import { UserRepository } from "./user.repository.js";
 import { toUserShopDTO } from "./user.dto.js";

@@ -1,6 +1,3 @@
-// =========================================================
-// socket.events.ts
-// Path: backend/src/modules/socket/socket.events.ts
 //
 // ADDITIONS for Flow D:
 //   QR_BILL_REQUESTED  — customer tapped "Request bill"
@@ -9,7 +6,6 @@
 //                        → customer's menu page goes read-only
 //   QR_TABLE_REOPENED  — cashier tapped "Reopen"
 //                        → customer can order again
-// =========================================================
 
 export const SOCKET_EVENTS = {
   // Order lifecycle

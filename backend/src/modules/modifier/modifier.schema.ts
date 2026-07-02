@@ -1,8 +1,3 @@
-// =========================================================
-// modifier.schema.ts
-// Path: backend/src/modules/modifier/modifier.schema.ts
-// =========================================================
-
 import { z } from "zod";
 
 // ── Modifier Group ─────────────────────────────────────────

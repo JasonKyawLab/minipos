@@ -1,8 +1,3 @@
-// =========================================================
-// order.types.ts
-// Path: backend/src/modules/order/order.types.ts
-// =========================================================
-
 // ── Enums (mirror DB enums) ───────────────────────────────
 
 export type OrderType =
@@ -116,6 +111,7 @@ export interface ListOrdersFilter {
   orderType?: OrderType;
   from?: string;   // ISO date string
   to?: string;     // ISO date string
+  search?: string; // partial order_no match
   limit?: number;
   offset?: number;
 }

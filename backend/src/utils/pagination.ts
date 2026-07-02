@@ -1,6 +1,4 @@
-// =========================================================
 // pagination.ts
-// Path: backend/src/utils/pagination.ts
 //
 // PURPOSE
 //   One shared shape for "Google-style page 1, 2, 3" pagination,
@@ -14,7 +12,6 @@
 //   the hundreds/low-thousands of rows, not millions. If a table
 //   like `orders` ever gets big enough for OFFSET to matter, this
 //   util is the one place we'd swap the strategy.
-// =========================================================
 
 import { Request } from "express";
 

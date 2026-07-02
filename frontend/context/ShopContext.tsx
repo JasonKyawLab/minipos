@@ -14,6 +14,7 @@ interface ShopContextValue {
   shopType: ShopType;
   currency: Currency;
   taxRate: number;
+  timezone: string;
   userRole: ShopRole;
 }
 

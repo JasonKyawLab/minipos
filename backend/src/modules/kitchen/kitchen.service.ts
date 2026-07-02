@@ -1,6 +1,7 @@
 import { AuditService }      from '../audit/audit.service.js';
 import { KitchenRepository } from './kitchen.repository.js';
 import { OrderRepository }   from '../order/order.repository.js';
+import { ShopRepository }    from '../shop/shop.repository.js';
 import {
   CreateKitchenStationInput, UpdateKitchenStationInput,
   KitchenStatus, KitchenTicketStatus, KitchenPriority,
@@ -8,7 +9,7 @@ import {
 import { appError }                                              from '../../utils/appError.js';
 import { assertShopRole }                                        from '../../utils/authorize.js';
 import { WRITE_ROLES, KITCHEN_ROLES }                             from '../../constants/roles.constants.js';
-import { emitToShop, emitToKitchenTerminals, emitToQrSession }  from '../socket/socket.js';
+import { emitToShop, emitToKitchenTerminals, emitToPosTerminals, emitToQrSession }  from '../socket/socket.js';
 import { SOCKET_EVENTS }                                         from '../socket/socket.events.js';
 
 const KITCHEN_STATUS_RANK: Record<KitchenStatus, number> = {
@@ -131,23 +132,50 @@ export class KitchenService {
 
     await KitchenRepository.cancelTicket(ticket.order_id, params.shopId);
 
+    // Also cancel the associated order so it no longer shows as OPEN/CONFIRMED
+    const orderCancelled = await KitchenRepository.cancelOrderIfCancellable(
+      ticket.order_id,
+      params.shopId
+    );
+
+    // If the order couldn't be fully cancelled (food was already served),
+    // void the cancelled items and recalculate the order total so POS shows
+    // the correct remaining amount.
+    if (!orderCancelled) {
+      await KitchenRepository.voidItemsWithCancelledKitchenStatus(ticket.order_id);
+      const shopInfo = await ShopRepository.findOperationalInfo(params.shopId);
+      await OrderRepository.recalculateOrderTotals(ticket.order_id, shopInfo?.taxRate ?? 0);
+    }
+
     await AuditService.log({
       shopId:   params.shopId,
       userId:   params.requesterId,
       action:   "KITCHEN_TICKET_VOIDED",
       entity:   "KITCHEN_TICKET",
       entityId: params.ticketId,
-      metadata: { orderId: ticket.order_id, orderNo: ticket.order_no },
+      metadata: { orderId: ticket.order_id, orderNo: ticket.order_no, orderCancelled },
     });
 
-    const payload = {
-      orderId: ticket.order_id,
-      orderNo: ticket.order_no,
+    const now = new Date().toISOString();
+
+    const kitchenPayload = {
+      orderId:       ticket.order_id,
+      orderNo:       ticket.order_no,
       ticket_status: "CANCELLED",
-      timestamp: new Date().toISOString(),
+      timestamp:     now,
     };
-    emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
-    emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, payload);
+    emitToShop(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, kitchenPayload);
+    emitToKitchenTerminals(params.shopId, SOCKET_EVENTS.KITCHEN_TICKET_UPDATED, kitchenPayload);
+
+    // Notify POS terminals so they can clear the order from their active view
+    emitToPosTerminals(params.shopId, SOCKET_EVENTS.ORDER_STATUS_CHANGED, {
+      orderId:   ticket.order_id,
+      orderNo:   ticket.order_no,
+      newStatus: orderCancelled ? "CANCELLED" : "PARTIAL_CANCEL",
+      oldStatus: "CONFIRMED",
+      source:    "KITCHEN",
+      timestamp: now,
+    });
 
     return { success: true };
   }

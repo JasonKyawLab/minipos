@@ -1,8 +1,3 @@
-// =========================================================
-// modifier.repository.ts
-// Path: backend/src/modules/modifier/modifier.repository.ts
-// =========================================================
-
 import { pool } from "../../db/pool.js";
 import {
   ModifierGroup,

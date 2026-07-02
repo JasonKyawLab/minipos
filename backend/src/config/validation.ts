@@ -1,10 +1,5 @@
-// =========================================================
-// validation.ts
-// Path: backend/src/config/validation.ts
-// =========================================================
 // Environment variables validation using Zod
 // This ensures all required env vars are present before app starts
-// =========================================================
 
 import { z } from "zod";
 import dotenv from "dotenv";

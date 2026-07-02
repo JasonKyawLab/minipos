@@ -1,11 +1,6 @@
-// =========================================================
-// table.repository.ts
-// Path: backend/src/modules/table/table.repository.ts
-// =========================================================
 // Raw SQL only. No business logic here.
 // QR token is generated with crypto.randomUUID() — no external
 // dependency, available natively in Node 14.17+.
-// =========================================================
 
 import { pool } from "../../db/pool.js";
 import { RestaurantTable, CreateTableInput, UpdateTableInput } from "./table.types.js";

@@ -1,45 +1,3 @@
-// =========================================================
-// app/(shop)/shops/[shopId]/products/page.tsx
-//
-// CHANGES:
-//   - Added track_stock toggle to Create Item modal.
-//     When OFF, "Initial stock" field is hidden (irrelevant).
-//   - Added track_stock toggle to Edit Item modal.
-//     openEditItem now reads item.track_stock from DB so the
-//     toggle is pre-filled correctly on open.
-//   - handleCreateItem sends track_stock + stock_qty only
-//     when tracking is enabled.
-//   - handleEditItem sends track_stock on every save.
-//   - Reset itemTrackStock to true when create modal closes.
-//
-//   - CHANGED: ProductsTab's two side-by-side panels (model
-//     list + item detail) now stack vertically below `lg`
-//     (1024px) instead of always sitting side-by-side. The
-//     260px left panel was fixed-width regardless of screen
-//     size, which squeezed the right panel before its own
-//     table even got a chance to render.
-//   - CHANGED: items table now uses the shared TableHead/Th/
-//     TableBody/Tr/Td components inside an overflow-x-auto
-//     wrapper — fixes Actions getting clipped on narrower
-//     screens. Not using the full Table component here since
-//     this table already lives inside its own card (the right
-//     panel), so wrapping it again would nest two cards.
-//
-//   - CHANGED (pagination): GET /products/models now returns
-//     { data, pagination } instead of a raw array, since the
-//     backend paginates the catalog (retail/online shops can
-//     have hundreds of SKUs). ProductsTab's loadModels now
-//     sends page/pageSize/search to the server instead of
-//     filtering client-side, and renders a Pagination control
-//     under the model list. ModifiersTab's buildLinkedMap also
-//     calls this same endpoint to build its "which products are
-//     linked to this modifier group" map — it needs the FULL
-//     catalog, not one page, so it requests the max page size
-//     (100) and unwraps `.data`. NOTE: if a shop ever exceeds
-//     100 products, the modifier-linking view will only see the
-//     first 100 — flagged inline below as a known limitation
-//     rather than silently breaking.
-// =========================================================
 
 "use client";
 
@@ -58,7 +16,7 @@ import type {
 } from "@/types";
 import { EmptyState }         from "@/components/states";
 import { SkeletonTable }      from "@/components/ui/Skeleton";
-import { Modal }              from "@/components/ui/Modal";
+import { Modal, ConfirmModal } from "@/components/ui/Modal";
 import { Button }             from "@/components/ui/Button";
 import { ActiveBadge }        from "@/components/ui/Badge";
 import { TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
@@ -106,10 +64,6 @@ function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
-// =========================================================
-// PAGE ROOT
-// =========================================================
-
 export default function ProductsPage() {
   const { shopId, currency, userRole } = useShop();
   const canWrite = ["OWNER", "MANAGER"].includes(userRole);
@@ -138,9 +92,6 @@ export default function ProductsPage() {
   );
 }
 
-// =========================================================
-// CATEGORIES TAB
-// =========================================================
 //
 // Full CRUD for product categories.
 // Each category has a name, an optional hex colour, and a
@@ -171,6 +122,7 @@ function CategoriesTab({ shopId, canWrite }: { shopId: string; canWrite: boolean
   const [editName, setEditName]     = useState("");
   const [editColor, setEditColor]   = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [deleteCat, setDeleteCat] = useState<ProductCategory | null>(null);
 
   const loadCategories = useCallback(async () => {
     setLoading(true);
@@ -229,11 +181,12 @@ function CategoriesTab({ shopId, canWrite }: { shopId: string; canWrite: boolean
     } finally { setEditSaving(false); }
   }
 
-  async function handleDelete(cat: ProductCategory) {
-    if (!confirm(`Delete "${cat.name}"? Products in this category will become Uncategorised.`)) return;
+  async function handleDelete() {
+    if (!deleteCat) return;
     try {
-      await api.delete(`/api/shops/${shopId}/products/categories/${cat.id}`);
+      await api.delete(`/api/shops/${shopId}/products/categories/${deleteCat.id}`);
       toast.success("Category deleted.");
+      setDeleteCat(null);
       loadCategories();
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
@@ -287,7 +240,7 @@ function CategoriesTab({ shopId, canWrite }: { shopId: string; canWrite: boolean
                     className="p-1.5 rounded text-[#9CA3AF] hover:text-[#0F2B4C]">
                     <PencilIcon />
                   </button>
-                  <button onClick={() => handleDelete(cat)} type="button"
+                  <button onClick={() => setDeleteCat(cat)} type="button"
                     className="p-1.5 rounded text-[#9CA3AF] hover:text-[#A32D2D]">
                     <TrashIcon />
                   </button>
@@ -368,13 +321,19 @@ function CategoriesTab({ shopId, canWrite }: { shopId: string; canWrite: boolean
           </div>
         </form>
       </Modal>
+
+      <ConfirmModal
+        open={!!deleteCat}
+        onClose={() => setDeleteCat(null)}
+        onConfirm={handleDelete}
+        title="Delete category"
+        message={`Delete "${deleteCat?.name}"? Products in this category will become Uncategorised.`}
+        confirmLabel="Delete"
+        danger
+      />
     </div>
   );
 }
-
-// =========================================================
-// PRODUCTS TAB
-// =========================================================
 
 function ProductsTab({ shopId, currency, canWrite }: {
   shopId: string; currency: string; canWrite: boolean;
@@ -406,6 +365,7 @@ function ProductsTab({ shopId, currency, canWrite }: {
   // ── Edit product ──────────────────────────────────────
   const [editModel, setEditModel]             = useState<ProductModel | null>(null);
   const [editModelName, setEditModelName]     = useState("");
+  const [deleteModel, setDeleteModel]         = useState<ProductModel | null>(null);
   const [editModelDesc, setEditModelDesc]     = useState("");
   const [editModelCatId, setEditModelCatId]   = useState("");
   const [editModelSaving, setEditModelSaving] = useState(false);
@@ -532,13 +492,18 @@ function ProductsTab({ shopId, currency, canWrite }: {
     } finally { setEditModelSaving(false); }
   }
 
-  async function handleDeleteModel(e: React.MouseEvent, model: ProductModel) {
+  function handleDeleteModel(e: React.MouseEvent, model: ProductModel) {
     e.stopPropagation();
-    if (!confirm(`Delete "${model.name}"?`)) return;
+    setDeleteModel(model);
+  }
+
+  async function confirmDeleteModel() {
+    if (!deleteModel) return;
     try {
-      await api.delete(`/api/shops/${shopId}/products/models/${model.id}`);
+      await api.delete(`/api/shops/${shopId}/products/models/${deleteModel.id}`);
       toast.success("Product deleted.");
-      if (selected?.id === model.id) { setSelected(null); setItems([]); }
+      if (selected?.id === deleteModel.id) { setSelected(null); setItems([]); }
+      setDeleteModel(null);
       loadModels();
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
@@ -1008,13 +973,19 @@ function ProductsTab({ shopId, currency, canWrite }: {
           </div>
         </form>
       </Modal>
+
+      <ConfirmModal
+        open={!!deleteModel}
+        onClose={() => setDeleteModel(null)}
+        onConfirm={confirmDeleteModel}
+        title="Delete product"
+        message={`Delete "${deleteModel?.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+      />
     </div>
   );
 }
-
-// =========================================================
-// MODIFIERS TAB
-// =========================================================
 
 function ModifiersTab({ shopId, canWrite }: { shopId: string; canWrite: boolean }) {
   const [groups, setGroups]       = useState<ModifierGroup[]>([]);

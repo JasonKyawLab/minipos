@@ -1,10 +1,6 @@
-// =========================================================
-// product.types.ts
-// Path: backend/src/modules/product/product.types.ts
 //
 // CHANGES: Added ProductCategory type and related DTOs.
 //          Added category_id to ProductModel.
-// =========================================================
 
 // ── Product Category ──────────────────────────────────────
 

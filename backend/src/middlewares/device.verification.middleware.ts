@@ -1,7 +1,3 @@
-// =========================================================
-// device.verification.middleware.ts
-// Path: backend/src/middlewares/device.verification.middleware.ts
-//
 // PURPOSE:
 //   Hard security gate applied to both PIN login routes:
 //     POST /api/shops/:shopId/pos-auth/login
@@ -50,7 +46,6 @@
 // WHAT IS ATTACHED TO req AFTER PASSING:
 //   req.verifiedDevice = { id, shopId, deviceName }
 //   Downstream controllers can use this for audit logging.
-// =========================================================
 
 import { Request, Response, NextFunction } from 'express';
 import { pool }                            from '../db/pool.js';

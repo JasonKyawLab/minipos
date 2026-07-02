@@ -91,4 +91,22 @@ export class ReportController {
 
     res.json(result);
   });
+
+  // GET /api/shops/:shopId/reports/peak-hours?from=&to=&timezone=
+  static getPeakHours = asyncHandler(async (req: Request, res: Response) => {
+    const shopId      = getParamAsString(req.params.shopId, "shopId");
+    const requesterId = req.user!.id;
+
+    const result = await ReportService.getPeakHours(
+      {
+        shopId,
+        from:     req.query.from      as string | undefined,
+        to:       req.query.to        as string | undefined,
+        timezone: req.query.timezone  as string | undefined,
+      },
+      requesterId
+    );
+
+    res.json(result);
+  });
 }

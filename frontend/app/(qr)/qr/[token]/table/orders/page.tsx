@@ -1,29 +1,10 @@
 "use client";
-// =========================================================
-// app/(qr)/qr/[token]/table/orders/page.tsx
-//
-// The "My Orders" / running tab page.
-// Customer sees all items ordered this sitting, grouped by
-// round. Shows combined total. Offers two actions:
-//   1. Add more items → back to menu
-//   2. Request bill   → locks table, notifies cashier
-//
-// States:
-//   OPEN    → normal view with both action buttons
-//   CLOSING → read-only "Cashier is on the way" screen
-//   PAID    → "All done, thank you!" screen
-//   null    → no active session, redirect to menu
-//
-// Socket events listened:
-//   qr:table_locked   → switch to CLOSING view instantly
-//   qr:table_reopened → switch back to OPEN view
-//   qr:order_status   → handle PAID transition
-// =========================================================
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { formatCurrency } from "@/utils/formatCurrency";
 import { getSocket }      from "@/lib/socket";
+import { Spinner }        from "@/components/states";
 import type { Currency }  from "@/types";
 
 // ── Types ─────────────────────────────────────────────────
@@ -276,7 +257,7 @@ export default function TableOrdersPage() {
         >
           {requesting ? (
             <>
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <Spinner size={16} />
               Sending request…
             </>
           ) : (

@@ -1,8 +1,3 @@
-// =========================================================
-// table.schema.ts
-// Path: backend/src/modules/table/table.schema.ts
-// =========================================================
-
 import { z } from "zod";
 
 export const createTableSchema = z.object({

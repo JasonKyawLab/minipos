@@ -1,4 +1,3 @@
-// =========================================================
 // Reads the X-Device-Key header and attaches the device
 // record to req.device.
 //
@@ -11,7 +10,6 @@
 // Usage:
 //   - Optional: attach device info if header present
 //   - Required: enforce device must be APPROVED
-// =========================================================
 
 import { Request, Response, NextFunction } from 'express';
 import { pool } from '../db/pool.js';

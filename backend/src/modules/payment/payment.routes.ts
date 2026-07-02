@@ -1,10 +1,5 @@
-// =========================================================
-// payment.routes.ts
-// Path: backend/src/modules/payment/payment.routes.ts
-// =========================================================
 // Nested under /api/shops/:shopId/orders/:orderId/payments
 // mergeParams: true makes :shopId and :orderId available
-// =========================================================
 
 import { Router }             from "express";
 import { PaymentController }  from "./payment.controller.js";

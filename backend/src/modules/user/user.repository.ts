@@ -152,6 +152,7 @@ export class UserRepository {
         s.name,
         s.shop_type,
         s.currency,
+        s.timezone,
         su.role AS shop_role
       FROM shop_users su
       JOIN shops s ON s.id = su.shop_id

@@ -1,33 +1,4 @@
 "use client";
-// =========================================================
-// app/(shop)/shops/[shopId]/permission/page.tsx
-//
-// CHANGE: Device key is now fully visible via an expandable
-// details panel that opens inline under each table row.
-//
-// WHY not show the full key in the table cell:
-//   A device_key is a UUID (36 chars). Showing it inline
-//   in the Device column would either overflow the cell or
-//   force the table to be very wide. Both are bad on a
-//   dashboard that needs to fit other columns comfortably.
-//
-// WHY an inline expand instead of a modal:
-//   The owner often needs to compare the device key shown
-//   on the pending screen against the key in this table.
-//   An inline panel keeps both the row context (name,
-//   status) and the full key visible at the same time.
-//   A modal hides the row and makes comparison harder.
-//
-// What the expanded panel shows:
-//   - Full device_key with a one-click copy button
-//   - IP address (where the device registered from)
-//   - Registered date (when it first appeared)
-//
-// CHANGED: DeviceTable now uses the shared Table/TableHead/
-// Th/TableBody/Tr/Td components — fixes Actions getting
-// clipped on narrower screens. The expanded detail row uses
-// Td's colSpan prop to span the full table width.
-// =========================================================
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useShop } from "@/context/ShopContext";
@@ -39,6 +10,7 @@ import toast from "react-hot-toast";
 import { EmptyState, Spinner } from "@/components/states";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
+import { ConfirmModal } from "@/components/ui/Modal";
 
 type DeviceStatus = "PENDING" | "APPROVED" | "REVOKED";
 
@@ -72,6 +44,8 @@ export default function PermissionsPage() {
   const [devices, setDevices]   = useState<ShopDevice[]>([]);
   const [loading, setLoading]   = useState(true);
 
+  const [revokeTarget, setRevokeTarget] = useState<ShopDevice | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ShopDevice | null>(null);
   const [renaming, setRenaming]         = useState<ShopDevice | null>(null);
   const [renameValue, setRenameValue]   = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
@@ -100,26 +74,28 @@ export default function PermissionsPage() {
     }
   }
 
-  async function handleRevoke(device: ShopDevice) {
-    if (!confirm(`Revoke access for "${device.device_name ?? device.id.slice(0, 8)}"? This will immediately block the device.`)) return;
+  function handleRevoke(device: ShopDevice) { setRevokeTarget(device); }
+
+  async function confirmRevoke() {
+    if (!revokeTarget) return;
     try {
-      await api.patch(`/api/shops/${shopId}/devices/${device.id}/revoke`);
+      await api.patch(`/api/shops/${shopId}/devices/${revokeTarget.id}/revoke`);
       toast.success("Device revoked.");
+      setRevokeTarget(null);
       load();
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
     }
   }
 
-  async function handleDelete(device: ShopDevice) {
-    const message =
-      device.status === "PENDING"
-        ? `Remove the device "${device.device_name ?? device.id.slice(0, 8)}"? It hasn't been approved, so this has no effect on access.`
-        : `Permanently remove this device record? Only revoked or pending devices can be deleted.`;
-    if (!confirm(message)) return;
+  function handleDelete(device: ShopDevice) { setDeleteTarget(device); }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
     try {
-      await api.delete(`/api/shops/${shopId}/devices/${device.id}`);
+      await api.delete(`/api/shops/${shopId}/devices/${deleteTarget.id}`);
       toast.success("Device removed.");
+      setDeleteTarget(null);
       load();
     } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.message));
@@ -255,6 +231,30 @@ export default function PermissionsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!revokeTarget}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={confirmRevoke}
+        title="Revoke device access"
+        message={`Revoke access for "${revokeTarget?.device_name ?? revokeTarget?.id.slice(0, 8)}"? This will immediately block the device.`}
+        confirmLabel="Revoke"
+        danger
+      />
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title={deleteTarget?.status === "PENDING" ? "Remove device" : "Delete device record"}
+        message={
+          deleteTarget?.status === "PENDING"
+            ? `Remove "${deleteTarget?.device_name ?? deleteTarget?.id.slice(0, 8)}"? It hasn't been approved, so this has no effect on access.`
+            : `Permanently remove this device record? Only revoked or pending devices can be deleted.`
+        }
+        confirmLabel="Remove"
+        danger
+      />
     </div>
   );
 }

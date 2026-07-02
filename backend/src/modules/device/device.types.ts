@@ -1,14 +1,9 @@
-// =========================================================
-// device.types.ts
-// Path: src/modules/device/device.types.ts
-// =========================================================
 // Types for the device registration and management module.
 //
 // DeviceStatus lifecycle:
 //   PENDING  → device registered itself, awaiting owner approval
 //   APPROVED → owner approved, device can activate modes
 //   REVOKED  → owner revoked, device cannot use the system
-// =========================================================
 
 export type DeviceStatus = 'PENDING' | 'APPROVED' | 'REVOKED';
 

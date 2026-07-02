@@ -30,19 +30,32 @@ export class ShopRepository {
     shopId: string;
     name?: string;
     currency?: string;
+    shopType?: string;
+    taxRate?: number;
+    timezone?: string;
   }) {
     const result = await pool.query(
       `
       UPDATE shops
       SET
-        name     = COALESCE($2, name),
-        currency = COALESCE($3, currency),
+        name       = COALESCE($2, name),
+        currency   = COALESCE($3, currency),
+        shop_type  = COALESCE($4, shop_type),
+        tax_rate   = COALESCE($5, tax_rate),
+        timezone   = COALESCE($6, timezone),
         updated_at = now()
       WHERE id = $1
         AND is_deleted = false
       RETURNING *
       `,
-      [params.shopId, params.name ?? null, params.currency ?? null]
+      [
+        params.shopId,
+        params.name ?? null,
+        params.currency ?? null,
+        params.shopType ?? null,
+        params.taxRate ?? null,
+        params.timezone ?? null,
+      ]
     );
     return result.rows[0] ?? null;
   }

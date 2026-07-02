@@ -196,7 +196,7 @@ export class KitchenAuthService {
       },
     });
 
-    return { token, role: kitchenRole };
+    return { token, role: kitchenRole, name: membership.name as string, shopName: membership.shop_name as string };
   }
 
   static async resetStaffLock(params: { shopId: string; requesterId: string; targetUserId: string }) {

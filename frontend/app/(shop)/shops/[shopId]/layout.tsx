@@ -12,6 +12,7 @@ interface ShopMemberData {
   shopType: ShopType;
   currency: Currency;
   taxRate:  number;
+  timezone: string;
   userRole: ShopRole;
 }
 
@@ -39,6 +40,7 @@ async function getShopContext(shopId: string): Promise<ShopMemberData | null> {
       shopName: string;
       shopType: ShopType;
       currency: Currency;
+      timezone: string;
       role:     ShopRole;
     }> = await res.json();
 
@@ -52,6 +54,7 @@ async function getShopContext(shopId: string): Promise<ShopMemberData | null> {
       shopType: shop.shopType,
       currency: shop.currency,
       taxRate:  0,     // fetched per-page if needed; layout doesn't need it
+      timezone: shop.timezone ?? "UTC",
       userRole: shop.role,
     };
   } catch (err) {

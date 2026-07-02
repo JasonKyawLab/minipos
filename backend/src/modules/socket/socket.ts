@@ -1,12 +1,9 @@
-// =========================================================
 // socket.ts
-// Path: backend/src/modules/socket/socket.ts
 //
 // CHANGES:
 //   - Added "join_terminal_session" event for explicit room join.
 //   - Debug logging for emitToTerminalRoom.
 //   - Exported validateTerminalSession.
-// =========================================================
 
 import { Server, Socket } from "socket.io";
 import { Server as HttpServer } from "http";
@@ -55,10 +52,6 @@ export async function validateTerminalSession(sessionToken: string) {
   );
   return rows[0] ?? null;
 }
-
-// =========================================================
-// INITIALIZATION
-// =========================================================
 
 export function initSocket(httpServer: HttpServer): Server {
   const corsOrigin = env.SOCKET_CORS_ORIGIN || env.CLIENT_ORIGIN;
@@ -272,10 +265,6 @@ export function initSocket(httpServer: HttpServer): Server {
   return io;
 }
 
-// =========================================================
-// HELPERS
-// =========================================================
-
 async function handleJoinShop(socket: Socket, shopId: string) {
   const requestId = socket.data.requestId;
   const userId    = socket.data.userId;
@@ -317,10 +306,6 @@ async function handleJoinShop(socket: Socket, shopId: string) {
     socket.emit("error", { message: "JOIN_FAILED" });
   }
 }
-
-// =========================================================
-// EMITTERS
-// =========================================================
 
 export function getIO(): Server {
   if (!io) throw new Error("Socket.IO not initialized. Call initSocket() first.");

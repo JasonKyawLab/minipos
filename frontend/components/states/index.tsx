@@ -1,6 +1,3 @@
-// =========================================================
-// components/states/LoadingSkeleton.tsx
-// =========================================================
 
 import React from "react";
 import { clsx } from "clsx";
@@ -69,10 +66,6 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
   );
 }
 
-// =========================================================
-// components/states/ErrorState.tsx
-// =========================================================
-
 interface ErrorStateProps {
   message?: string;
   onRetry?: () => void;
@@ -106,10 +99,6 @@ export function ErrorState({
     </div>
   );
 }
-
-// =========================================================
-// components/states/EmptyState.tsx
-// =========================================================
 
 interface EmptyStateProps {
   title: string;

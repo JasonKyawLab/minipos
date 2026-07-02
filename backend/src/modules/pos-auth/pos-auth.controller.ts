@@ -1,9 +1,9 @@
 import { Request, Response }  from "express";
 import { PosAuthService }     from "./pos-auth.service.js";
+import { PosAuthRepository }  from "./pos-auth.repository.js";
 import { getParamAsString }   from "../../utils/converter.js";
 import { asyncHandler }       from "../../utils/asyncHandler.js";
 import { env }                from "../../config/validation.js";
-import { pool }               from "../../db/pool.js";
 
 import { QrRepository }      from "../qr/qr.repository.js";
 import { OrderService }      from "../order/order.service.js";
@@ -251,31 +251,19 @@ export class PosAuthController {
   static getMe = asyncHandler(async (req: Request, res: Response) => {
     const session = req.posSession!;
 
-    const { rows } = await pool.query(
-      `SELECT s.name      AS shop_name,
-              s.shop_type,
-              u.name      AS user_name
-       FROM   shops      s
-       JOIN   shop_users su ON su.shop_id  = s.id
-       JOIN   users      u  ON u.id        = su.user_id
-       WHERE  s.id          = $1
-         AND  su.user_id    = $2
-         AND  s.is_deleted  = false
-         AND  su.is_active  = true`,
-      [session.shopId, session.userId]
-    );
+    const ctx = await PosAuthRepository.getSessionContext(session.shopId, session.userId);
 
-    if (rows.length === 0) {
+    if (!ctx) {
       return res.status(401).json({ message: "SESSION_INVALID" });
     }
 
     res.json({
       userId:   session.userId,
-      userName: rows[0].user_name,
+      userName: ctx.user_name,
       shopRole: session.shopRole,
       shopId:   session.shopId,
-      shopName: rows[0].shop_name,
-      shopType: rows[0].shop_type,
+      shopName: ctx.shop_name,
+      shopType: ctx.shop_type,
     });
   });
 

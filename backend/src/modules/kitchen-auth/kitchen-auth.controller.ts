@@ -96,7 +96,7 @@ export class KitchenAuthController {
 
     res.clearCookie("access_token");
 
-    res.json({ role: result.role });
+    res.json({ role: result.role, name: result.name, shopName: result.shopName });
   });
 
   // POST /api/shops/:shopId/kitchen-auth/logout

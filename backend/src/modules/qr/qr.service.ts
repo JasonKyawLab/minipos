@@ -1,5 +1,4 @@
 // backend/src/modules/qr/qr.service.ts
-// Path: backend/src/modules/qr/qr.service.ts
 //
 // FLOW D — Mixed QR Architecture
 //
@@ -20,7 +19,6 @@
 //     → OrderRepository.markOrderClosing() / markOrderOpen()
 //
 // No business logic changed. This file no longer imports `pool`.
-// =========================================================
 
 import { QrRepository }      from "./qr.repository.js";
 import { OrderRepository }   from "../order/order.repository.js";

@@ -1,8 +1,3 @@
-// =========================================================
-// device.schema.ts
-// Path: src/modules/device/device.schema.ts
-// =========================================================
-
 import { z } from 'zod';
 
 // Tablet sends this when it first boots and hits /register.

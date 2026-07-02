@@ -1,11 +1,6 @@
-// =========================================================
-// index.ts
-// Path: backend/src/index.ts
-// =========================================================
 // We switch from app.listen() to http.createServer(app).
 // This is required because Socket.IO needs the raw HTTP server,
 // not the Express app. The behavior is identical for HTTP routes.
-// =========================================================
 
 import http from "http";
 import app from "./app.js";

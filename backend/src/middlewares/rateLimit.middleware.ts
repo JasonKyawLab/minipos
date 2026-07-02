@@ -1,7 +1,3 @@
-// =========================================================
-// rateLimit.middleware.ts
-// Path: backend/src/middlewares/rateLimit.middleware.ts
-// =========================================================
 // Rate limiters are DISABLED (unlimited) in development and
 // test environments so they never interfere with local
 // development
@@ -15,7 +11,6 @@
 //
 // This means you never need to comment out or change any
 // rate limit import or usage — the environment decides.
-// =========================================================
 
 import rateLimit, { RateLimitRequestHandler } from "express-rate-limit";
 import { Request, Response, NextFunction } from "express";

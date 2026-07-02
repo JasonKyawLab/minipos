@@ -1,31 +1,10 @@
 "use client";
-// =========================================================
-// app/(qr)/qr/[token]/page.tsx
-//
-// Customer-facing public menu.
-// No login required — uses the table QR token to load
-// the menu and submit an order.
-//
-// Layout:
-//   - Sticky header: shop name + table number
-//   - Sticky category tab bar (horizontal scroll)
-//   - Products grouped by category with section headings
-//   - Each product card: name, description, variant rows
-//   - Customisation bottom sheet for modifiers
-//   - Fixed bottom bar: cart count + total + Place Order
-//   - Cart drawer (slides up) for review before placing
-//
-// Why category tabs here (not a sidebar)?
-//   This is a mobile page. A left sidebar like POS would
-//   eat 40% of the screen width. Horizontal tabs at the top
-//   are the standard mobile pattern (e.g. food delivery apps).
-//   Tapping a tab smooth-scrolls to that section.
-// =========================================================
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getErrorMessage } from "@/utils/errorMessages";
 import { formatCurrency } from "@/utils/formatCurrency";
+import { Spinner } from "@/components/states";
 import type { PublicMenuItem, PublicMenuItemVariant, PublicModifierGroup, Currency } from "@/types";
 
 // ── Local types ───────────────────────────────────────────
@@ -68,10 +47,6 @@ function makeCartKey(
     .join(",");
   return `${variantId}|${modStr}|${note}`;
 }
-
-// =========================================================
-// PAGE
-// =========================================================
 
 export default function QrMenuPage() {
   const { token } = useParams<{ token: string }>();
@@ -684,7 +659,7 @@ export default function QrMenuPage() {
             >
               {placing ? (
                 <>
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <Spinner size={16} />
                   Placing order…
                 </>
               ) : (
@@ -698,13 +673,9 @@ export default function QrMenuPage() {
   );
 }
 
-// =========================================================
-// PRODUCT CARD
-// =========================================================
 // Displays one product model.
 // - Single variant: tapping the card adds it directly.
 // - Multiple variants: each variant shown as a row button.
-// =========================================================
 
 interface ProductCardProps {
   product: PublicMenuItem;
@@ -790,12 +761,8 @@ function ProductCard({ product, currency, onSelectVariant }: ProductCardProps) {
   );
 }
 
-// =========================================================
-// BOTTOM SHEET
-// =========================================================
 // Reusable slide-up panel with backdrop.
 // Used for both the customisation sheet and the cart drawer.
-// =========================================================
 
 function BottomSheet({
   children,

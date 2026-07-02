@@ -1,15 +1,3 @@
-// =========================================================
-// types/index.ts — All shared TypeScript types
-//
-// Single source of truth for all API response shapes.
-// Every interface here mirrors the backend model exactly
-// so the frontend stays in sync without manual casting.
-//
-// RULE: When the backend adds or renames a field, update
-// this file first. TypeScript will then surface every
-// component that needs to be updated via compiler errors.
-// =========================================================
-
 // ── Auth / User ───────────────────────────────────────────
 
 export type UserRole   = "ADMIN" | "USER";
@@ -42,9 +30,9 @@ export interface Shop {
   timezone:         string;
   pin_max_attempts: number;
   is_deleted:       boolean;
-  is_suspended:        boolean;
-  suspended_reason:    string | null;
-  suspended_at:        string | null;
+  is_suspended:     boolean;
+  suspended_reason: string | null;
+  suspended_at:     string | null;
   owner_name:       string | null;
   owner_email:      string | null;
   created_at:       string;
@@ -56,6 +44,7 @@ export interface UserShop {
   shopName:  string;
   shopType:  ShopType;
   currency:  Currency;
+  timezone:  string;
   role:      ShopRole;
 }
 
@@ -175,14 +164,7 @@ export interface ModifierSnapshot {
   price_delta:        number;
 }
 
-// WHY _snapshot suffix:
-//   The DB stores item_name_snapshot, product_name_snapshot,
-//   unit_price_snapshot — not item_name / unit_price — because
-//   these are point-in-time copies of the values at the moment
-//   of sale. If a product is renamed or repriced later, the
-//   order history still shows what was sold and at what price.
-//   The frontend types must match the DB column names exactly
-//   because pg returns rows with the raw column names.
+// _snapshot fields are point-in-time copies captured at sale time — column names mirror the DB exactly.
 export interface OrderItem {
   id:                    string;
   order_id:              string;
@@ -204,6 +186,8 @@ export interface Order {
   order_no:        string;
   order_type:      OrderType;
   status:          OrderStatus;
+  bill_requested:    boolean;
+  bill_requested_at: string | null;
   table_id:        string | null;
   cashier_id:      string | null;
   subtotal:        number;
@@ -220,18 +204,11 @@ export interface Order {
   created_at:      string;
   updated_at:      string;
   items?:          OrderItem[];
-  // ── Joined fields (present on all list/detail responses) ──
-  cashier_name:    string | null;   // LEFT JOIN users
-  table_number:    string | null;   // LEFT JOIN restaurant_tables
+  cashier_name:    string | null;
+  table_number:    string | null;
 }
 
 // ── Payment ───────────────────────────────────────────────
-//
-// WHY Payment is a separate type from Order:
-//   Payments are fetched on a separate endpoint:
-//   GET /api/shops/:shopId/orders/:orderId/payments
-//   The order list endpoint does NOT embed payments —
-//   only the detail modal fetches them to keep the list fast.
 
 export type PaymentMethod = "CASH" | "COD";
 
@@ -243,8 +220,8 @@ export interface Payment {
   order_id:        string;
   method:          PaymentMethod;
   amount:          number;
-  received_amount: number | null;  // CASH only: what customer handed over
-  change_amount:   number | null;  // CASH only: change returned
+  received_amount: number | null;
+  change_amount:   number | null;
   status:          PaymentStatus;
   transaction_ref: string | null;
   note:            string | null;

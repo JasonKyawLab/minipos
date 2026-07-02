@@ -1,13 +1,4 @@
 "use client";
-// =========================================================
-// components/layout/Sidebar.tsx — Platform-level sidebar
-//
-// Push layout, not overlay: ONE <aside> that resizes its own
-// width (56px ↔ 220px) instead of a fixed-position panel
-// floating on top of the page. Since it's a normal flex child,
-// `main` (its sibling in the layout file) reflows automatically
-// as this resizes — nothing else needs to know about `expanded`.
-// =========================================================
 
 import React, { useState } from "react";
 import Link from "next/link";
