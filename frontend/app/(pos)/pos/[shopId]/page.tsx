@@ -43,6 +43,8 @@
 // active, vs. this password-gated flow for a genuinely live
 // session being interrupted.
 
+export const dynamic = "force-dynamic";
+
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams }               from "next/navigation";
 import posApi              from "@/lib/posApi";
