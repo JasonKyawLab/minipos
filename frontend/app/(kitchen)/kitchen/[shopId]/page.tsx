@@ -1,8 +1,6 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useParams, useSearchParams }               from "next/navigation";
 import { DevicePendingScreen }                      from "@/components/terminal/DevicePendingScreen";
 import { ModeGate }                                 from "@/components/mode/ModeGate";
@@ -62,6 +60,10 @@ function getFriendlyDeviceMessage(code: string | undefined): string {
 }
 
 export default function KitchenLoginPage() {
+  return <Suspense><KitchenLoginContent /></Suspense>;
+}
+
+function KitchenLoginContent() {
   const { shopId }   = useParams<{ shopId: string }>();
   const searchParams = useSearchParams();
 

@@ -43,9 +43,7 @@
 // active, vs. this password-gated flow for a genuinely live
 // session being interrupted.
 
-export const dynamic = "force-dynamic";
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useParams, useSearchParams }               from "next/navigation";
 import posApi              from "@/lib/posApi";
 import { getErrorMessage } from "@/utils/errorMessages";
@@ -115,6 +113,10 @@ function getFriendlyDeviceMessage(code: string | undefined): string {
 }
 
 export default function PosLoginPage() {
+  return <Suspense><PosLoginContent /></Suspense>;
+}
+
+function PosLoginContent() {
   const { shopId }   = useParams<{ shopId: string }>();
   const searchParams = useSearchParams();
 

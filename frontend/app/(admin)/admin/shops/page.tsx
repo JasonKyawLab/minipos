@@ -1,9 +1,7 @@
 // app/(admin)/admin/shops/page.tsx
 "use client";
 
-export const dynamic = "force-dynamic";
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import api from "@/lib/api";
 import { getErrorMessage } from "@/utils/errorMessages";
@@ -20,6 +18,14 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function AdminShopsPage() {
+  return (
+    <Suspense>
+      <AdminShopsContent />
+    </Suspense>
+  );
+}
+
+function AdminShopsContent() {
   const [shops, setShops]         = useState<Shop[]>([]);
   const [loading, setLoading]     = useState(true);
   const searchParams = useSearchParams();
