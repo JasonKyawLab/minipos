@@ -56,6 +56,7 @@ services:
       - backend
     environment:
       - API_URL=http://minipos-backend:3001
+      - PORT=3000
     networks:
       - public
 
