@@ -8,8 +8,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { isChecking, sessionType } = useSessionGuard();
   const pathname = usePathname();
 
-  const isLanding = pathname === '/';
-  const showSpinner = !isLanding && (isChecking || sessionType === 'UNKNOWN');
+  const isPublic = pathname === '/' || pathname === '/login';
+  const showSpinner = !isPublic && (isChecking || sessionType === 'UNKNOWN');
 
   return (
     <>
