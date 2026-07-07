@@ -13,7 +13,7 @@ const envSchema = z.object({
   
   // Server
   PORT: z.coerce.number().default(3000),
-  CLIENT_ORIGIN: z.string().url().default("http://localhost:3000"),
+  CLIENT_ORIGIN: z.string().default("http://localhost:3000"),
   
   // Database
   POSTGRES_HOST: z.string().default("postgres"),
@@ -38,7 +38,7 @@ const envSchema = z.object({
 
   // Login limiting
   LOGIN_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000), // 15 minutes
-  LOGIN_LIMIT_MAX_REQUESTS: z.coerce.number().default(5), // 5 failed attempts per 15 minutes
+  LOGIN_LIMIT_MAX_REQUESTS: z.coerce.number().default(30), // 30 failed attempts per 15 minutes
 
   // Refund limiting
   REFUND_LIMIT_WINDOW_MS: z.coerce.number().default(60 * 60 * 1000), // 1 hour
