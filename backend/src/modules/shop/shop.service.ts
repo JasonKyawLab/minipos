@@ -29,6 +29,10 @@ const NON_KITCHEN_ROLES = ["CASHIER"] as const;
 
 export class ShopService {
 
+  static async getShop(shopId: string) {
+    return ShopRepository.getById(shopId);
+  }
+
   static async createShop(params: {
     ownerId: string; name: string;
     shopType: "RETAIL" | "RESTAURANT" | "ONLINE_SHOP";

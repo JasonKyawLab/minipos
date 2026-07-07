@@ -1,12 +1,15 @@
 "use client";
 
 import React from 'react';
+import { usePathname } from 'next/navigation';
 import { useSessionGuard } from '@/context/SessionGuardContext';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { isChecking, sessionType } = useSessionGuard();
+  const pathname = usePathname();
 
-  const showSpinner = isChecking || sessionType === 'UNKNOWN';
+  const isLanding = pathname === '/';
+  const showSpinner = !isLanding && (isChecking || sessionType === 'UNKNOWN');
 
   return (
     <>

@@ -20,6 +20,7 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireRole("USER", "ADMIN"));
 
+router.get("/:shopId",   ShopController.getShop);
 router.post("/",         validate(createShopSchema), ShopController.createShop);
 router.patch("/:shopId", validate(updateShopSchema), ShopController.updateShop);
 router.delete("/:shopId",                            ShopController.deleteShop);

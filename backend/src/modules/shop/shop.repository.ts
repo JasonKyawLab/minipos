@@ -13,6 +13,14 @@ type AssignableRole = "MANAGER" | "CASHIER" | "CHEF";
 
 export class ShopRepository {
 
+  static async getById(shopId: string): Promise<Shop | null> {
+    const result = await pool.query<Shop>(
+      `SELECT * FROM shops WHERE id = $1 AND is_deleted = false`,
+      [shopId]
+    );
+    return result.rows[0] ?? null;
+  }
+
   static async createShop(input: CreateShopInput): Promise<Shop> {
     const { ownerId, name, shopType, currency } = input;
     const result = await pool.query<Shop>(
