@@ -6,7 +6,7 @@ import { asyncHandler }       from "../../utils/asyncHandler.js";
 export class ShopController {
 
   static getShop = asyncHandler(async (req: Request, res: Response) => {
-    const shopId = getParamAsString(req, "shopId");
+    const shopId = getParamAsString(req.params.shopId, "shopId");
     const shop = await ShopService.getShop(shopId);
     if (!shop) return res.status(404).json({ message: "Shop not found" });
     res.json(shop);
