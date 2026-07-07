@@ -22,10 +22,10 @@ api.interceptors.response.use(
     const status  = error.response?.status;
     const path    = typeof window !== "undefined" ? window.location.pathname : "";
 
-    // Only redirect on 401 for platform routes
-    // Terminal routes handle their own 401s in posApi/kitchenApi
+    // Only redirect on 401 for platform routes.
+    // Terminal and QR routes handle their own 401s.
     const isTerminalPath =
-      path.startsWith("/pos/") || path.startsWith("/kitchen/");
+      path.startsWith("/pos/") || path.startsWith("/kitchen/") || path.startsWith("/qr");
 
     if (status === 401 && !isTerminalPath && typeof window !== "undefined") {
       if (path !== "/login") {
