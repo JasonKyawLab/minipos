@@ -55,8 +55,12 @@ app.set('trust proxy', 1);
 // ── Core middleware ──────────────────────────────────────
 app.use(cookieParser());
 app.use(requestIdMiddleware);
+const allowedOrigins = env.CLIENT_ORIGIN.split(',').map(o => o.trim());
 app.use(cors({
-  origin:      env.CLIENT_ORIGIN,
+  origin:      (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) cb(null, true);
+    else cb(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 app.use(express.json());
