@@ -629,9 +629,12 @@ export default function PosTerminalPage() {
                 error={menu.error}
                 currency={currency}
                 onItemClick={(product) => {
-                  if (product.items.length === 1 && product.modifier_groups.length === 0) {
-                    addToCart(product, product.items[0], [], "");
+                  if (product.items.length === 1) {
+                    // Single variant — open modifier/note sheet directly (allows note even if no modifiers)
+                    setSheetProduct(product);
+                    setSheetVariant(product.items[0]);
                   } else {
+                    // Multiple variants — open variant picker first
                     setPickerProduct(product);
                   }
                 }}

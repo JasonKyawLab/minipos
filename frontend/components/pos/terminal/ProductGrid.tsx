@@ -50,11 +50,16 @@ export function ProductGrid({ items, loading, error, currency, onItemClick }: Pr
             <p className="text-white text-[16px] font-semibold leading-snug line-clamp-2">
               {product.product_name}
             </p>
-            <p className="text-white/50 text-[14px] mt-auto font-medium">
-              {product.items.length === 1
-                ? formatCurrency(product.items[0].price, currency)
-                : `From ${formatCurrency(Math.min(...product.items.map((v) => v.price)), currency)}`}
-            </p>
+            <div className="flex items-center justify-between mt-auto">
+              <p className="text-white/50 text-[14px] font-medium">
+                {product.items.length === 1
+                  ? formatCurrency(product.items[0].price, currency)
+                  : `From ${formatCurrency(Math.min(...product.items.map((v) => v.price)), currency)}`}
+              </p>
+              {(product.items.length > 1 || product.modifier_groups.length > 0) && (
+                <span className="text-[10px] text-white/30 font-medium">Options</span>
+              )}
+            </div>
           </button>
         ))}
       </div>
