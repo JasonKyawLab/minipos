@@ -225,16 +225,7 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
   }, []); // stable reference — no deps needed because we use refs
 
   // ── Initial mount: show spinner while checking ────────────
-  // Skip the check on public routes — they never need a session to render,
-  // and running checkSession on / or /login introduces a potential race
-  // between the NONE redirect guard and public-page rendering in Safari.
   useEffect(() => {
-    const p = pathnameRef.current || (typeof window !== 'undefined' ? window.location.pathname : '') || '/';
-    const isPublic = p === '/' || p === '/login' || p.startsWith('/qr') || p === '/landing';
-    if (isPublic) {
-      setState(prev => ({ ...prev, sessionType: 'NONE', isChecking: false }));
-      return;
-    }
     checkSession(true);
   }, [checkSession]);
 
