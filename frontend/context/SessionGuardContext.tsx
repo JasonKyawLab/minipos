@@ -132,8 +132,8 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
           terminalShopId: null,
         });
 
-        const p = window.location.pathname;
-        console.log('[SessionGuard] !res.ok — pathname:', p, 'status:', res.status);
+        // Normalize: Safari returns '' for https://example.com (no trailing slash)
+        const p = window.location.pathname || '/';
         const onProtectedPage = p !== '/' &&
           !p.startsWith('/login') &&
           !p.startsWith('/qr') &&
@@ -210,8 +210,7 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
           terminalShopId: null,
         });
 
-        const p = window.location.pathname;
-        console.log('[SessionGuard] NONE — pathname:', p);
+        const p = window.location.pathname || '/';
         const onProtectedPage = p !== '/' &&
           !p.startsWith('/login') &&
           !p.startsWith('/qr') &&
