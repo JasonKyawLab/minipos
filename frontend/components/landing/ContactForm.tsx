@@ -87,12 +87,6 @@ export function ContactForm() {
       >
         {sending ? "Sending…" : "Send message"}
       </button>
-      <p className="text-center text-[12px] text-[#5F5E5A]">
-        Or email us directly at{" "}
-        <a href="mailto:minipos.site@gmail.com" className="text-[#0D7A5F] hover:underline">
-          minipos.site@gmail.com
-        </a>
-      </p>
     </form>
   );
 }
