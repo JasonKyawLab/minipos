@@ -139,7 +139,7 @@ export function ShopSidebar() {
           {expanded ? (
             <div className="w-full px-3 flex items-center justify-between">
               <div className="min-w-0">
-                <Image src="/logo-icon.png" alt="MiniPOS" width={20} height={20} className="object-contain mb-0.5" />
+                <Image src="/logo.png" alt="MiniPOS" width={90} height={24} className="object-contain mb-0.5" />
                 <p className="text-[14px] font-semibold text-brand-navy leading-tight truncate">{shopName}</p>
               </div>
               <button
