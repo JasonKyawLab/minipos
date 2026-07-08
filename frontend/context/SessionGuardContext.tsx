@@ -132,15 +132,16 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
           terminalShopId: null,
         });
 
-        // Normalize: Safari returns '' for https://example.com (no trailing slash)
-        const p = window.location.pathname || '/';
-        const onProtectedPage = p !== '/' &&
+        // Use Next.js pathname (from ref) as primary — more reliable than
+        // window.location.pathname in Safari which can return '' for root.
+        const p = pathnameRef.current || window.location.pathname || '/';
+        sessionStorage.setItem('_sg_debug', JSON.stringify({ branch: 'notok', p, href: window.location.href }));
+        const onProtectedPage = p !== '/' && p !== '' &&
           !p.startsWith('/login') &&
           !p.startsWith('/qr') &&
           !p.startsWith('/landing');
 
         if (onProtectedPage) {
-          console.log('[SessionGuard] redirecting to /login from', p);
           routerRef.current.replace('/login');
         }
         return;
@@ -210,8 +211,9 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
           terminalShopId: null,
         });
 
-        const p = window.location.pathname || '/';
-        const onProtectedPage = p !== '/' &&
+        const p = pathnameRef.current || window.location.pathname || '/';
+        sessionStorage.setItem('_sg_debug', JSON.stringify({ branch: 'none', p, href: window.location.href }));
+        const onProtectedPage = p !== '/' && p !== '' &&
           !p.startsWith('/login') &&
           !p.startsWith('/qr') &&
           !p.startsWith('/landing');
