@@ -43,12 +43,13 @@ export function PaymentModal({
   if (!open) return null;
 
   const received    = parseFloat(receivedAmount);
+  const totalCents  = Math.round(total * 100);        // avoid float precision bugs
   const validAmount = !isNaN(received) && received > 0;
   const change      = validAmount ? received - total : null;
-  const isShort     = validAmount && received < total;
+  const isShort     = validAmount && Math.round(received * 100) < totalCents;
 
   const quickAmounts = [
-    total,
+    Math.round(total * 100) / 100,                    // exact rounded total
     ...QUICK_DENOMS.filter((d) => d > total).slice(0, 3),
   ].slice(0, 4);
 
@@ -68,7 +69,7 @@ export function PaymentModal({
   const canConfirm =
     !paying &&
     (payMethod === "COD" ||
-      (payMethod === "CASH" && validAmount && received >= total));
+      (payMethod === "CASH" && validAmount && Math.round(received * 100) >= totalCents));
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
