@@ -8,6 +8,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: { default: "MiniPOS", template: "%s | MiniPOS" },
   description: "Modern point-of-sale system for small businesses",
+  icons: { icon: "/favicon.ico" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
