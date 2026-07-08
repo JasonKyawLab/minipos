@@ -39,11 +39,13 @@ api.interceptors.response.use(
     }
 
     // Only redirect on 401 for platform routes.
-    // Terminal and QR routes handle their own 401s.
+    // Terminal, QR, and public routes handle their own 401s (or don't need auth at all).
     const isTerminalPath =
       path.startsWith("/pos/") || path.startsWith("/kitchen/") || path.startsWith("/qr");
+    const isPublicPath =
+      path === "/" || path === "" || path === "/landing";
 
-    if (status === 401 && !isTerminalPath && typeof window !== "undefined") {
+    if (status === 401 && !isTerminalPath && !isPublicPath && typeof window !== "undefined") {
       if (path !== "/login") {
         // Surface a specific message on the login page for the cases
         // where the session was killed for a known reason (account
