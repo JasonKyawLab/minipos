@@ -265,6 +265,7 @@ export class PosAuthController {
       shopName: ctx.shop_name,
       shopType: ctx.shop_type,
       currency: ctx.currency ?? 'THB',
+      taxRate:  parseFloat(ctx.tax_rate ?? '0'),
     });
   });
 

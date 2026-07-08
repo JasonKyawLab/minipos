@@ -64,6 +64,7 @@ export default function PosTerminalPage() {
 
   const isRestaurant = session?.shopType === "RESTAURANT";
   const currency     = session?.currency ?? "THB";
+  const taxRate      = session?.taxRate  ?? 0;
 
   // ── Restaurant mode ────────────────────────────────────
   const [restaurantMode, setRestaurantMode] = useState<RestaurantMode>("takeaway");
@@ -553,7 +554,10 @@ export default function PosTerminalPage() {
   const payingOrder        = order.activeOrder ?? order.tableOrder;
   const isDineInMenuMode   = order.orderCtx?.orderType === "DINE_IN" && restaurantMode === "takeaway";
   const isTakeawayOrRetail = order.orderCtx?.orderType === "TAKEAWAY" || order.orderCtx?.orderType === "RETAIL" || !isRestaurant;
-  const payModalTotal      = payingOrder?.total_amount ?? cart.reduce((s, l) => s + l.lineTotal, 0);
+  const cartSubtotal       = cart.reduce((s, l) => s + l.lineTotal, 0);
+  const payModalSubtotal   = payingOrder ? (payingOrder.total_amount / (1 + taxRate / 100)) : cartSubtotal;
+  const payModalTaxAmount  = payingOrder ? (payingOrder.total_amount - payModalSubtotal) : cartSubtotal * (taxRate / 100);
+  const payModalTotal      = payingOrder?.total_amount ?? cartSubtotal * (1 + taxRate / 100);
   const payModalLabel      = payingOrder ? `Order #${payingOrder.order_no}` : "New Order";
 
   function closePayModal() {
@@ -703,6 +707,8 @@ export default function PosTerminalPage() {
       <PaymentModal
         open={showPayModal}
         orderLabel={payModalLabel}
+        subtotal={payModalSubtotal}
+        taxAmount={payModalTaxAmount}
         total={payModalTotal}
         payMethod={payMethod}
         receivedAmount={receivedAmount}

@@ -8,6 +8,8 @@ import type { Currency } from "@/types";
 interface Props {
   open:           boolean;
   orderLabel:     string;
+  subtotal:       number;
+  taxAmount:      number;
   total:          number;
   payMethod:      "CASH" | "COD";
   receivedAmount: string;
@@ -25,6 +27,8 @@ const QUICK_DENOMS = [20, 50, 100, 200, 500, 1000];
 export function PaymentModal({
   open,
   orderLabel,
+  subtotal,
+  taxAmount,
   total,
   payMethod,
   receivedAmount,
@@ -73,6 +77,11 @@ export function PaymentModal({
           <div>
             <p className="text-white/40 text-[11px] uppercase tracking-widest mb-0.5">{orderLabel}</p>
             <p className="text-white font-bold text-[22px]">{formatCurrency(total, currency)}</p>
+            {taxAmount > 0 && (
+              <p className="text-white/40 text-[11px] mt-0.5">
+                Subtotal {formatCurrency(subtotal, currency)} + Tax {formatCurrency(taxAmount, currency)}
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="text-white/30 hover:text-white transition text-[18px]">✕</button>
         </div>

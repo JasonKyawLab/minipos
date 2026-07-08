@@ -21,6 +21,7 @@ interface PosSessionData {
   shopName: string;
   shopType: ShopType;
   currency: Currency;
+  taxRate:  number;
 }
 
 interface PosContextValue {
