@@ -36,10 +36,17 @@ export default function LandingPage() {
           <h1 className="text-[40px] font-semibold text-[#0F2B4C] leading-tight mb-4">
             The POS system that grows with you
           </h1>
-          <p className="text-[16px] text-[#5F5E5A] mb-8 leading-relaxed">
+          <p className="text-[16px] text-[#5F5E5A] mb-6 leading-relaxed">
             Start small, think big. MiniPOS fits your shop today and scales as you expand —
             from a single counter to a chain of stores.
           </p>
+          <div className="flex flex-wrap justify-center gap-3 mb-8">
+            {["Skip the hardware costs", "Any device, any browser", "Ready in minutes, not days"].map((t) => (
+              <span key={t} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#E1F5EE] text-[#0D7A5F] text-[12px] font-medium rounded-full border border-[#9FE1CB]">
+                <span>✓</span> {t}
+              </span>
+            ))}
+          </div>
           <div className="flex gap-3 justify-center flex-wrap">
             <Link href="/login" className="px-6 py-2.5 text-[14px] font-medium text-white bg-[#0D7A5F] rounded-lg hover:bg-[#0a6b52] transition">
               Get started free
