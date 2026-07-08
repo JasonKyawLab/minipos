@@ -11,7 +11,7 @@ import React, {
   useCallback,
   type ReactNode,
 } from "react";
-import type { ShopRole, ShopType } from "@/types";
+import type { ShopRole, ShopType, Currency } from "@/types";
 
 interface PosSessionData {
   userId:   string;
@@ -20,6 +20,7 @@ interface PosSessionData {
   shopId:   string;
   shopName: string;
   shopType: ShopType;
+  currency: Currency;
 }
 
 interface PosContextValue {

@@ -63,6 +63,7 @@ export default function PosTerminalPage() {
   }, []);
 
   const isRestaurant = session?.shopType === "RESTAURANT";
+  const currency     = session?.currency ?? "THB";
 
   // ── Restaurant mode ────────────────────────────────────
   const [restaurantMode, setRestaurantMode] = useState<RestaurantMode>("takeaway");
@@ -590,6 +591,7 @@ export default function PosTerminalPage() {
 
         <BillRequestBanner
           requests={billRequests}
+          currency={currency}
           onPay={handleBillPay}
           onReopen={handleReopen}
           onDismiss={dismissBillRequest}
@@ -609,6 +611,7 @@ export default function PosTerminalPage() {
             <FloorView
               tableStatuses={tableStatuses.data}
               loading={tableStatuses.loading}
+              currency={currency}
               onRefresh={tableStatuses.load}
               onBillPay={handleBillPay}
               onTableClick={openTableModal}
@@ -624,6 +627,7 @@ export default function PosTerminalPage() {
                 items={menu.categorisedMenu[menu.activeCategory] ?? []}
                 loading={menu.loading}
                 error={menu.error}
+                currency={currency}
                 onItemClick={(product) => {
                   if (product.items.length === 1 && product.modifier_groups.length === 0) {
                     addToCart(product, product.items[0], [], "");
@@ -647,6 +651,7 @@ export default function PosTerminalPage() {
               isDineInMenuMode={isDineInMenuMode}
               placing={placing}
               cancelling={cancelling}
+              currency={currency}
               onUpdateQty={(key, delta) => dispatchCart({ type: "UPDATE_QTY", key, delta })}
               onPlaceOrder={placeOrder}
               onCollectPayment={() => setShowPayModal(true)}
@@ -662,6 +667,7 @@ export default function PosTerminalPage() {
         order={modalOrder}
         items={modalItems}
         loading={modalLoading}
+        currency={currency}
         onClose={() => { setSelectedTable(null); }}
         onAddItems={handleModalAddItems}
         onPay={handleModalPay}
@@ -669,6 +675,7 @@ export default function PosTerminalPage() {
 
       <VariantPickerModal
         product={pickerProduct}
+        currency={currency}
         onClose={() => setPickerProduct(null)}
         onDirectAdd={(product, variant) => addToCart(product, variant, [], "")}
         onOpenModifiers={(product, variant) => {
@@ -683,6 +690,7 @@ export default function PosTerminalPage() {
         variant={sheetVariant}
         selectedMods={selectedMods}
         note={sheetNote}
+        currency={currency}
         onClose={() => { setSheetProduct(null); setSheetVariant(null); setSelectedMods({}); setSheetNote(""); }}
         onModToggle={handleModToggle}
         onNoteChange={setSheetNote}
@@ -697,6 +705,7 @@ export default function PosTerminalPage() {
         receivedAmount={receivedAmount}
         payError={payError}
         paying={paying}
+        currency={currency}
         onClose={closePayModal}
         onMethodChange={(m) => { setPayMethod(m); setPayError(""); setReceivedAmount(""); }}
         onAmountChange={(v) => { setReceivedAmount(v); setPayError(""); }}
@@ -705,6 +714,7 @@ export default function PosTerminalPage() {
 
       <ReceiptModal
         receipt={receipt}
+        currency={currency}
         onNewOrder={() => { setReceipt(null); tableStatuses.load(); }}
       />
 

@@ -3,15 +3,17 @@
 import React from "react";
 import { formatCurrency } from "@/utils/formatCurrency";
 import { Spinner } from "@/components/states";
+import type { Currency } from "@/types";
 
 interface Props {
   open:           boolean;
-  orderLabel:     string;    // e.g. "Order #001" or "New Order"
+  orderLabel:     string;
   total:          number;
   payMethod:      "CASH" | "COD";
   receivedAmount: string;
   payError:       string;
   paying:         boolean;
+  currency:       Currency;
   onClose:        () => void;
   onMethodChange: (method: "CASH" | "COD") => void;
   onAmountChange: (amount: string) => void;
@@ -28,6 +30,7 @@ export function PaymentModal({
   receivedAmount,
   payError,
   paying,
+  currency,
   onClose,
   onMethodChange,
   onAmountChange,
@@ -69,7 +72,7 @@ export function PaymentModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <div>
             <p className="text-white/40 text-[11px] uppercase tracking-widest mb-0.5">{orderLabel}</p>
-            <p className="text-white font-bold text-[22px]">{formatCurrency(total)}</p>
+            <p className="text-white font-bold text-[22px]">{formatCurrency(total, currency)}</p>
           </div>
           <button onClick={onClose} className="text-white/30 hover:text-white transition text-[18px]">✕</button>
         </div>
@@ -98,16 +101,16 @@ export function PaymentModal({
               <div className="bg-white/8 border border-white/15 rounded-xl px-4 py-3 text-right">
                 <p className="text-white/30 text-[11px] mb-0.5">Amount received</p>
                 <p className="text-white text-[24px] font-bold tracking-wide">
-                  {receivedAmount ? formatCurrency(parseFloat(receivedAmount) || 0) : "—"}
+                  {receivedAmount ? formatCurrency(parseFloat(receivedAmount) || 0, currency) : "—"}
                 </p>
                 {change !== null && change >= 0 && (
                   <p className="text-[#0D7A5F] text-[13px] font-semibold mt-1">
-                    Change: {formatCurrency(change)}
+                    Change: {formatCurrency(change, currency)}
                   </p>
                 )}
                 {isShort && (
                   <p className="text-[#FF9B9B] text-[12px] mt-1">
-                    Short by {formatCurrency(total - received)}
+                    Short by {formatCurrency(total - received, currency)}
                   </p>
                 )}
               </div>
@@ -124,7 +127,7 @@ export function PaymentModal({
                         : "bg-white/8 border-white/10 text-white/60 hover:bg-white/15 hover:text-white"
                     }`}
                   >
-                    {amount === total ? "Exact" : formatCurrency(amount)}
+                    {amount === total ? "Exact" : formatCurrency(amount, currency)}
                   </button>
                 ))}
               </div>

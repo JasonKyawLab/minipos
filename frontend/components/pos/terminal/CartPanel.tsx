@@ -4,6 +4,7 @@ import React from "react";
 import { formatCurrency } from "@/utils/formatCurrency";
 import { Spinner } from "@/components/states";
 import type { CartLine, ConfirmedItem, ActiveOrder, OrderContext } from "@/types/pos";
+import type { Currency } from "@/types";
 
 interface Props {
   cart:             CartLine[];
@@ -16,6 +17,7 @@ interface Props {
   isDineInMenuMode: boolean;
   placing:          boolean;
   cancelling:       boolean;
+  currency:         Currency;
   onUpdateQty:      (key: string, delta: number) => void;
   onPlaceOrder:     () => void;
   onCollectPayment: () => void;
@@ -34,6 +36,7 @@ export function CartPanel({
   isDineInMenuMode,
   placing,
   cancelling,
+  currency,
   onUpdateQty,
   onPlaceOrder,
   onCollectPayment,
@@ -113,7 +116,7 @@ export function CartPanel({
                         <p className="text-white/20 text-[12px] mt-0.5 italic truncate">{item.item_note}</p>
                       )}
                       <p className="text-white/30 text-[13px] mt-1 font-medium">
-                        {formatCurrency(item.subtotal)}
+                        {formatCurrency(item.subtotal, currency)}
                       </p>
                     </div>
                     <span className="text-white/30 text-[14px] font-mono shrink-0 mt-0.5">×{item.qty}</span>
@@ -123,7 +126,7 @@ export function CartPanel({
             </div>
             <div className="flex items-center justify-between mt-3 mb-1 px-1">
               <p className="text-[12px] text-white/20">Sent to kitchen</p>
-              <p className="text-[13px] text-white/30 font-medium">{formatCurrency(confirmedSubtotal)}</p>
+              <p className="text-[13px] text-white/30 font-medium">{formatCurrency(confirmedSubtotal, currency)}</p>
             </div>
             <div className="flex items-center gap-2 my-3">
               <div className="flex-1 h-px bg-white/8" />
@@ -159,7 +162,7 @@ export function CartPanel({
                         </p>
                       )}
                       <p className="text-white/50 text-[13px] mt-1 font-medium">
-                        {formatCurrency(line.lineTotal)}
+                        {formatCurrency(line.lineTotal, currency)}
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
@@ -193,7 +196,7 @@ export function CartPanel({
           <p className="text-white/40 text-[14px]">
             {hasConfirmedItems ? "Total" : `Subtotal (${cartCount} item${cartCount !== 1 ? "s" : ""})`}
           </p>
-          <p className="text-white text-[20px] font-bold">{formatCurrency(displayTotal)}</p>
+          <p className="text-white text-[20px] font-bold">{formatCurrency(displayTotal, currency)}</p>
         </div>
 
         {/* DINE_IN: table already has an order */}
@@ -264,7 +267,7 @@ export function CartPanel({
                 <p className="text-[#93C5FD] text-[13px] font-medium">
                   #{activeOrder.order_no} — awaiting payment
                 </p>
-                <p className="text-white/30 text-[12px]">{formatCurrency(activeOrder.total_amount)}</p>
+                <p className="text-white/30 text-[12px]">{formatCurrency(activeOrder.total_amount, currency)}</p>
               </div>
             </div>
             <button

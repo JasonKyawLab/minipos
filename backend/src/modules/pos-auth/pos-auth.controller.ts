@@ -264,6 +264,7 @@ export class PosAuthController {
       shopId:   session.shopId,
       shopName: ctx.shop_name,
       shopType: ctx.shop_type,
+      currency: ctx.currency ?? 'THB',
     });
   });
 

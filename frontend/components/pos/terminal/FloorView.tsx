@@ -4,14 +4,14 @@ import React from "react";
 import { formatCurrency } from "@/utils/formatCurrency";
 import { Spinner } from "@/components/states";
 import type { TableStatus, BillRequest } from "@/types/pos";
+import type { Currency } from "@/types";
 
 interface Props {
   tableStatuses: TableStatus[];
   loading:       boolean;
+  currency:      Currency;
   onRefresh:     () => void;
-  /** Called when a bill-requested table card is clicked (jump straight to payment) */
   onBillPay:     (req: BillRequest) => void;
-  /** Called when an available / occupied table card is clicked */
   onTableClick:  (table: TableStatus) => void;
 }
 
@@ -21,7 +21,7 @@ const LEGEND = [
   { dot: "bg-[#D97706]", label: "Bill requested" },
 ];
 
-export function FloorView({ tableStatuses, loading, onRefresh, onBillPay, onTableClick }: Props) {
+export function FloorView({ tableStatuses, loading, currency, onRefresh, onBillPay, onTableClick }: Props) {
   return (
     <main className="flex-1 overflow-y-auto p-5">
       <div className="flex items-center justify-between mb-5">
@@ -109,7 +109,7 @@ export function FloorView({ tableStatuses, loading, onRefresh, onBillPay, onTabl
                 </div>
                 {isBillRequested && totalAmount != null && (
                   <p className="text-[15px] font-bold text-[#D97706] mt-0.5">
-                    {formatCurrency(totalAmount)}
+                    {formatCurrency(totalAmount, currency)}
                   </p>
                 )}
               </button>

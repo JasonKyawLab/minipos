@@ -3,15 +3,17 @@
 import React from "react";
 import { formatCurrency } from "@/utils/formatCurrency";
 import type { PublicMenuItem } from "@/types/pos";
+import type { Currency } from "@/types";
 
 interface Props {
   items:   PublicMenuItem[];
   loading: boolean;
   error:   string;
+  currency: Currency;
   onItemClick: (product: PublicMenuItem) => void;
 }
 
-export function ProductGrid({ items, loading, error, onItemClick }: Props) {
+export function ProductGrid({ items, loading, error, currency, onItemClick }: Props) {
   if (loading) {
     return (
       <main className="flex-1 overflow-y-auto p-4 flex items-center justify-center">
@@ -50,8 +52,8 @@ export function ProductGrid({ items, loading, error, onItemClick }: Props) {
             </p>
             <p className="text-white/50 text-[14px] mt-auto font-medium">
               {product.items.length === 1
-                ? formatCurrency(product.items[0].price)
-                : `From ${formatCurrency(Math.min(...product.items.map((v) => v.price)))}`}
+                ? formatCurrency(product.items[0].price, currency)
+                : `From ${formatCurrency(Math.min(...product.items.map((v) => v.price)), currency)}`}
             </p>
           </button>
         ))}

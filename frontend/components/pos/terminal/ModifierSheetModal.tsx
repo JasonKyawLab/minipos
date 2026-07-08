@@ -3,12 +3,14 @@
 import React from "react";
 import { formatCurrency } from "@/utils/formatCurrency";
 import type { PublicMenuItem, PublicMenuItemVariant, PublicModifierGroup } from "@/types/pos";
+import type { Currency } from "@/types";
 
 interface Props {
   product:      PublicMenuItem | null;
   variant:      PublicMenuItemVariant | null;
   selectedMods: Record<string, string[]>;
   note:         string;
+  currency:     Currency;
   onClose:      () => void;
   onModToggle:  (group: PublicModifierGroup, optionId: string) => void;
   onNoteChange: (note: string) => void;
@@ -27,6 +29,7 @@ export function ModifierSheetModal({
   variant,
   selectedMods,
   note,
+  currency,
   onClose,
   onModToggle,
   onNoteChange,
@@ -43,7 +46,7 @@ export function ModifierSheetModal({
           <div>
             <p className="text-white font-semibold text-[15px]">{product.product_name}</p>
             <p className="text-white/40 text-[12px]">
-              {variant.name} — {formatCurrency(variant.price)}
+              {variant.name} — {formatCurrency(variant.price, currency)}
             </p>
           </div>
           <button
@@ -77,7 +80,7 @@ export function ModifierSheetModal({
                       <span>{opt.name}</span>
                       {opt.price_delta !== 0 && (
                         <span className="text-white/40 text-[12px]">
-                          +{formatCurrency(opt.price_delta)}
+                          +{formatCurrency(opt.price_delta, currency)}
                         </span>
                       )}
                     </button>

@@ -285,6 +285,7 @@ export class PosAuthRepository {
     const { rows } = await pool.query(
       `SELECT s.name      AS shop_name,
               s.shop_type,
+              s.currency,
               u.name      AS user_name
        FROM   shops      s
        JOIN   shop_users su ON su.shop_id  = s.id

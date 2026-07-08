@@ -3,17 +3,17 @@
 import React from "react";
 import { formatCurrency } from "@/utils/formatCurrency";
 import type { PublicMenuItem, PublicMenuItemVariant } from "@/types/pos";
+import type { Currency } from "@/types";
 
 interface Props {
   product:         PublicMenuItem | null;
+  currency:        Currency;
   onClose:         () => void;
-  /** Called when a variant is chosen and the product has no modifiers */
   onDirectAdd:     (product: PublicMenuItem, variant: PublicMenuItemVariant) => void;
-  /** Called when a variant is chosen and the product has modifiers */
   onOpenModifiers: (product: PublicMenuItem, variant: PublicMenuItemVariant) => void;
 }
 
-export function VariantPickerModal({ product, onClose, onDirectAdd, onOpenModifiers }: Props) {
+export function VariantPickerModal({ product, currency, onClose, onDirectAdd, onOpenModifiers }: Props) {
   if (!product) return null;
 
   return (
@@ -48,7 +48,7 @@ export function VariantPickerModal({ product, onClose, onDirectAdd, onOpenModifi
             >
               <span className="text-white text-[13px]">{variant.name}</span>
               <span className="text-white/60 text-[13px]">
-                {variant.is_sold_out ? "Sold out" : formatCurrency(variant.price)}
+                {variant.is_sold_out ? "Sold out" : formatCurrency(variant.price, currency)}
               </span>
             </button>
           ))}

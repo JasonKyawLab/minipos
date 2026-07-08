@@ -3,13 +3,15 @@
 import React from "react";
 import { formatCurrency } from "@/utils/formatCurrency";
 import type { Receipt } from "@/types/pos";
+import type { Currency } from "@/types";
 
 interface Props {
   receipt:    Receipt | null;
+  currency:   Currency;
   onNewOrder: () => void;
 }
 
-export function ReceiptModal({ receipt, onNewOrder }: Props) {
+export function ReceiptModal({ receipt, currency, onNewOrder }: Props) {
   if (!receipt) return null;
 
   return (
@@ -28,7 +30,7 @@ export function ReceiptModal({ receipt, onNewOrder }: Props) {
             </svg>
           </div>
           <p className="text-white/70 text-[12px] uppercase tracking-widest mb-1">Payment successful</p>
-          <p className="text-white text-[28px] font-bold">{formatCurrency(receipt.total_amount)}</p>
+          <p className="text-white text-[28px] font-bold">{formatCurrency(receipt.total_amount, currency)}</p>
         </div>
 
         <div className="px-6 py-5 space-y-3">
@@ -43,7 +45,7 @@ export function ReceiptModal({ receipt, onNewOrder }: Props) {
           {receipt.change_amount !== null && receipt.change_amount > 0 && (
             <div className="flex justify-between text-[13px]">
               <span className="text-[#5F5E5A]">Change</span>
-              <span className="font-bold text-[#0D7A5F]">{formatCurrency(receipt.change_amount)}</span>
+              <span className="font-bold text-[#0D7A5F]">{formatCurrency(receipt.change_amount, currency)}</span>
             </div>
           )}
           <button

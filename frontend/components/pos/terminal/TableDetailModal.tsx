@@ -4,18 +4,20 @@ import React from "react";
 import { formatCurrency } from "@/utils/formatCurrency";
 import { Spinner } from "@/components/states";
 import type { TableStatus, ActiveOrder, ConfirmedItem } from "@/types/pos";
+import type { Currency } from "@/types";
 
 interface Props {
   table:        TableStatus | null;
   order:        ActiveOrder | null;
   items:        ConfirmedItem[];
   loading:      boolean;
+  currency:     Currency;
   onClose:      () => void;
   onAddItems:   () => void;
   onPay:        () => void;
 }
 
-export function TableDetailModal({ table, order, items, loading, onClose, onAddItems, onPay }: Props) {
+export function TableDetailModal({ table, order, items, loading, currency, onClose, onAddItems, onPay }: Props) {
   if (!table) return null;
 
   return (
@@ -73,7 +75,7 @@ export function TableDetailModal({ table, order, items, loading, onClose, onAddI
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-white/50 text-[12px]">×{item.qty}</p>
-                      <p className="text-white/70 text-[13px] font-medium">{formatCurrency(item.subtotal)}</p>
+                      <p className="text-white/70 text-[13px] font-medium">{formatCurrency(item.subtotal, currency)}</p>
                     </div>
                   </div>
                 ))}
@@ -81,7 +83,7 @@ export function TableDetailModal({ table, order, items, loading, onClose, onAddI
               <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/10">
                 <p className="text-white/40 text-[13px]">Total</p>
                 <p className="text-white text-[18px] font-bold">
-                  {formatCurrency(order?.total_amount ?? 0)}
+                  {formatCurrency(order?.total_amount ?? 0, currency)}
                 </p>
               </div>
             </>

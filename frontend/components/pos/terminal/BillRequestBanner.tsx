@@ -3,15 +3,17 @@
 import React from "react";
 import { formatCurrency } from "@/utils/formatCurrency";
 import type { BillRequest } from "@/types/pos";
+import type { Currency } from "@/types";
 
 interface Props {
   requests:  BillRequest[];
+  currency:  Currency;
   onPay:     (req: BillRequest) => void;
   onReopen:  (orderId: string) => void;
   onDismiss: (orderId: string) => void;
 }
 
-export function BillRequestBanner({ requests, onPay, onReopen, onDismiss }: Props) {
+export function BillRequestBanner({ requests, currency, onPay, onReopen, onDismiss }: Props) {
   if (requests.length === 0) return null;
 
   return (
@@ -26,7 +28,7 @@ export function BillRequestBanner({ requests, onPay, onReopen, onDismiss }: Prop
             <p className="text-[14px] font-semibold text-[#D97706] leading-tight">
               {req.tableNumber ? `Table ${req.tableNumber}` : req.orderNo} wants to pay
             </p>
-            <p className="text-[12px] text-white/30 mt-0.5">{formatCurrency(req.totalAmount)}</p>
+            <p className="text-[12px] text-white/30 mt-0.5">{formatCurrency(req.totalAmount, currency)}</p>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
