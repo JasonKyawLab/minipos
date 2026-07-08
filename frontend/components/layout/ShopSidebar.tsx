@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link                         from "next/link";
+import Image                        from "next/image";
 import { usePathname, useRouter }   from "next/navigation";
 import { clsx }                     from "clsx";
 import { useAuth }                  from "@/context/AuthContext";
@@ -138,7 +139,7 @@ export function ShopSidebar() {
           {expanded ? (
             <div className="w-full px-3 flex items-center justify-between">
               <div className="min-w-0">
-                <p className="text-[10px] text-ui-grey uppercase tracking-wide leading-none">MiniPOS</p>
+                <Image src="/logo-icon.png" alt="MiniPOS" width={20} height={20} className="object-contain mb-0.5" />
                 <p className="text-[14px] font-semibold text-brand-navy leading-tight truncate">{shopName}</p>
               </div>
               <button
