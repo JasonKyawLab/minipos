@@ -128,7 +128,7 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
 
       if (!res.ok) {
         // Session is gone — redirect to /login if on a protected page.
-        const currentPathname = pathnameRef.current;
+        const currentPathname = window.location.pathname;
         const isPublic = PUBLIC_EXACT.includes(currentPathname) || PUBLIC_PATHS.some(p => currentPathname.startsWith(p));
 
         setState({
@@ -150,7 +150,7 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
       }
 
       const data = await res.json();
-      const currentPathname = pathnameRef.current;
+      const currentPathname = window.location.pathname;
       const currentRouter   = routerRef.current;
 
       if (data.type === 'TERMINAL') {
@@ -214,7 +214,9 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
         });
 
         // Same redirect guard as the !res.ok branch above.
-        const isPublic = PUBLIC_EXACT.includes(currentPathname) || PUBLIC_PATHS.some(p => currentPathname.startsWith(p));
+        // Re-read window.location.pathname: by the time the fetch resolves the
+        // user may have navigated, and pathnameRef may lag by one render.
+        const isPublic = PUBLIC_EXACT.includes(window.location.pathname) || PUBLIC_PATHS.some(p => window.location.pathname.startsWith(p));
         if (!isPublic) {
           currentRouter.replace('/login');
         }
