@@ -89,8 +89,6 @@ interface SessionGuardContextValue extends SessionGuardState {
 const SessionGuardContext = createContext<SessionGuardContextValue | null>(null);
 
 const TERMINAL_PATHS  = ['/pos', '/kitchen'];
-const PUBLIC_PATHS    = ['/login', '/qr', '/landing'];
-const PUBLIC_EXACT    = ['/'];  // exact match only — startsWith('/') matches everything
 
 export function SessionGuardProvider({ children }: { children: ReactNode }) {
   const router   = useRouter();
@@ -127,10 +125,6 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
       );
 
       if (!res.ok) {
-        // Session is gone — redirect to /login if on a protected page.
-        const currentPathname = window.location.pathname;
-        const isPublic = PUBLIC_EXACT.includes(currentPathname) || PUBLIC_PATHS.some(p => currentPathname.startsWith(p));
-
         setState({
           sessionType:    'NONE',
           isChecking:     false,
@@ -138,12 +132,16 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
           terminalShopId: null,
         });
 
-        // ── BUG FIX: Redirect guard ──────────────────────────
-        // If the session is gone but we are on a protected page
-        // (i.e. restored from bfcache after logout), redirect to
-        // /login immediately. Without this, the page renders with
-        // stale component state, makes 401 API calls, and crashes.
-        if (!isPublic) {
+        // Only redirect to /login when on a truly protected page.
+        // Read window.location.pathname directly — always reflects the
+        // real current URL, unlike pathnameRef which updates via useEffect.
+        const p = window.location.pathname;
+        const onProtectedPage = p !== '/' &&
+          !p.startsWith('/login') &&
+          !p.startsWith('/qr') &&
+          !p.startsWith('/landing');
+
+        if (onProtectedPage) {
           routerRef.current.replace('/login');
         }
         return;
@@ -214,10 +212,12 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
         });
 
         // Same redirect guard as the !res.ok branch above.
-        // Re-read window.location.pathname: by the time the fetch resolves the
-        // user may have navigated, and pathnameRef may lag by one render.
-        const isPublic = PUBLIC_EXACT.includes(window.location.pathname) || PUBLIC_PATHS.some(p => window.location.pathname.startsWith(p));
-        if (!isPublic) {
+        const p = window.location.pathname;
+        const onProtectedPage = p !== '/' &&
+          !p.startsWith('/login') &&
+          !p.startsWith('/qr') &&
+          !p.startsWith('/landing');
+        if (onProtectedPage) {
           currentRouter.replace('/login');
         }
       }
