@@ -110,7 +110,7 @@ const refresh = useCallback(async () => {
         // Clear state and redirect without triggering a 401.
         setUser(null);
         if (!window.location.pathname.startsWith("/login")) {
-          window.location.href = "/login";
+          window.location.href = "/";
         }
       }
 
