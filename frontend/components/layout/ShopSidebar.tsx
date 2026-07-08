@@ -134,14 +134,12 @@ export function ShopSidebar() {
           expanded ? "w-[220px]" : "w-14"
         )}
       >
-        {/* Top: hamburger (collapsed) / shop name + close (expanded) */}
-        <div className="h-12 flex items-center border-b border-ui-greyBorder shrink-0">
-          {expanded ? (
-            <div className="w-full px-3 flex items-center justify-between">
-              <div className="min-w-0">
-                <Image src="/logo.png" alt="MiniPOS" width={90} height={24} className="object-contain mb-0.5" />
-                <p className="text-[14px] font-semibold text-brand-navy leading-tight truncate">{shopName}</p>
-              </div>
+        {/* Top: hamburger (collapsed) / logo + shop name + close (expanded) */}
+        {expanded ? (
+          <div className="border-b border-ui-greyBorder shrink-0">
+            {/* Logo row */}
+            <div className="px-3 pt-3 pb-2 flex items-center justify-between border-b border-ui-greyBorder">
+              <Image src="/logo.png" alt="MiniPOS" width={110} height={30} className="object-contain" />
               <button
                 onClick={() => setExpanded(false)}
                 aria-label="Close menu"
@@ -152,7 +150,13 @@ export function ShopSidebar() {
                 </svg>
               </button>
             </div>
-          ) : (
+            {/* Shop name row */}
+            <div className="px-3 py-2">
+              <p className="text-[13px] font-semibold text-brand-navy leading-tight truncate">{shopName}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="h-12 flex items-center border-b border-ui-greyBorder shrink-0">
             <button
               onClick={() => setExpanded(true)}
               aria-label="Open menu"
@@ -162,8 +166,8 @@ export function ShopSidebar() {
                 <path d="M3 5h12M3 9h12M3 13h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               </svg>
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Role */}
         <div className={clsx("px-4 py-2 border-b border-ui-greyBorder shrink-0", !expanded && "flex justify-center px-0")}>
