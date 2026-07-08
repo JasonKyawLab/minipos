@@ -88,7 +88,9 @@ interface SessionGuardContextValue extends SessionGuardState {
 
 const SessionGuardContext = createContext<SessionGuardContextValue | null>(null);
 
-const TERMINAL_PATHS  = ['/pos', '/kitchen'];
+const TERMINAL_PATHS   = ['/pos', '/kitchen'];
+// Mirror exactly what the middleware protects — only redirect from these.
+const PROTECTED_PATHS  = ['/dashboard', '/shops', '/admin', '/profile'];
 
 export function SessionGuardProvider({ children }: { children: ReactNode }) {
   const router   = useRouter();
@@ -132,15 +134,8 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
           terminalShopId: null,
         });
 
-        // Use Next.js pathname (from ref) as primary — more reliable than
-        // window.location.pathname in Safari which can return '' for root.
         const p = pathnameRef.current || window.location.pathname || '/';
-        sessionStorage.setItem('_sg_debug', JSON.stringify({ branch: 'notok', p, href: window.location.href }));
-        const onProtectedPage = p !== '/' && p !== '' &&
-          !p.startsWith('/login') &&
-          !p.startsWith('/qr') &&
-          !p.startsWith('/landing');
-
+        const onProtectedPage = PROTECTED_PATHS.some(pp => p.startsWith(pp));
         if (onProtectedPage) {
           routerRef.current.replace('/login');
         }
@@ -212,11 +207,7 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
         });
 
         const p = pathnameRef.current || window.location.pathname || '/';
-        sessionStorage.setItem('_sg_debug', JSON.stringify({ branch: 'none', p, href: window.location.href }));
-        const onProtectedPage = p !== '/' && p !== '' &&
-          !p.startsWith('/login') &&
-          !p.startsWith('/qr') &&
-          !p.startsWith('/landing');
+        const onProtectedPage = PROTECTED_PATHS.some(pp => p.startsWith(pp));
         if (onProtectedPage) {
           console.log('[SessionGuard] redirecting to /login from', p);
           currentRouter.replace('/login');
