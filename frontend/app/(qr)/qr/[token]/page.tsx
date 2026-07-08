@@ -74,16 +74,21 @@ export default function QrMenuPage() {
   const [selectedMods, setSelectedMods]   = useState<Record<string, string[]>>({});
   const [itemNote, setItemNote]           = useState("");
 
-  // ── Fetch menu ────────────────────────────────────────
+  // ── Existing table session (orders placed at counter) ────
+  const [hasSession, setHasSession] = useState(false);
+
+  // ── Fetch menu + check for existing session ───────────
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/qr/${token}/menu`
-        );
-        if (!res.ok) throw new Error((await res.json()).message ?? "NOT_FOUND");
-        const data: TableInfo = await res.json();
+        const [menuRes, sessionRes] = await Promise.all([
+          fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/qr/${token}/menu`),
+          fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/qr/${token}/table/session`),
+        ]);
+        if (!menuRes.ok) throw new Error((await menuRes.json()).message ?? "NOT_FOUND");
+        const data: TableInfo = await menuRes.json();
         setInfo(data);
+        if (sessionRes.ok) setHasSession(true);
       } catch (err: any) {
         setError(err.message ?? "Table not found.");
       } finally {
@@ -318,7 +323,10 @@ export default function QrMenuPage() {
         throw new Error(data.message ?? "ORDER_FAILED");
       }
 
-      const { order_id } = await res.json();
+      await res.json();
+      setCart([]);
+      setShowCart(false);
+      setHasSession(true);
       router.push(`/qr/${token}/table/orders`);
     } catch (err: any) {
       alert(getErrorMessage(err.message));
@@ -367,6 +375,23 @@ export default function QrMenuPage() {
           Table {info.table_number}
         </h1>
       </div>
+
+      {/* ── Existing order banner ── */}
+      {hasSession && (
+        <button
+          onClick={() => router.push(`/qr/${token}/table/orders`)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-[#0D7A5F] text-white"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-[18px]">🧾</span>
+            <div className="text-left">
+              <p className="text-[13px] font-semibold">You have an active order</p>
+              <p className="text-[11px] text-white/70">Tap to view or request the bill</p>
+            </div>
+          </div>
+          <span className="text-white/70 text-[18px]">›</span>
+        </button>
+      )}
 
       {/* ── Sticky category tab bar ── */}
       {sections.length > 1 && (
