@@ -132,16 +132,15 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
           terminalShopId: null,
         });
 
-        // Only redirect to /login when on a truly protected page.
-        // Read window.location.pathname directly — always reflects the
-        // real current URL, unlike pathnameRef which updates via useEffect.
         const p = window.location.pathname;
+        console.log('[SessionGuard] !res.ok — pathname:', p, 'status:', res.status);
         const onProtectedPage = p !== '/' &&
           !p.startsWith('/login') &&
           !p.startsWith('/qr') &&
           !p.startsWith('/landing');
 
         if (onProtectedPage) {
+          console.log('[SessionGuard] redirecting to /login from', p);
           routerRef.current.replace('/login');
         }
         return;
@@ -211,13 +210,14 @@ export function SessionGuardProvider({ children }: { children: ReactNode }) {
           terminalShopId: null,
         });
 
-        // Same redirect guard as the !res.ok branch above.
         const p = window.location.pathname;
+        console.log('[SessionGuard] NONE — pathname:', p);
         const onProtectedPage = p !== '/' &&
           !p.startsWith('/login') &&
           !p.startsWith('/qr') &&
           !p.startsWith('/landing');
         if (onProtectedPage) {
+          console.log('[SessionGuard] redirecting to /login from', p);
           currentRouter.replace('/login');
         }
       }
