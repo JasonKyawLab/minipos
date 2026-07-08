@@ -28,9 +28,13 @@ const envSchema = z.object({
   // Socket.IO
   SOCKET_CORS_ORIGIN: z.string().url().optional(),
   
-  // Rate limiting
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000), // 15 minutes
-  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),  // 100 requests per window
+  // Rate limiting — unauthenticated requests (keyed by IP)
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),  // 15 minutes
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),           // 100 req/15min per IP
+
+  // Rate limiting — authenticated requests (keyed by token)
+  AUTH_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(2000),     // 2000 req/15min per device
+  AUTH_RATE_LIMIT_RUNAWAY: z.coerce.number().default(5000),          // circuit breaker — catches buggy devices
 
   // Strict limiting
   STRICT_LIMIT_WINDOW_MS: z.coerce.number().default(5 * 60 * 1000), // 5 minutes

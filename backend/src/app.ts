@@ -34,6 +34,7 @@ import {
 } from "./middlewares/modeGuard.middleware.js";
 import {
   apiLimiter,
+  runawayLimiter,
   loginLimiter,
   refundLimiter,
 } from "./middlewares/rateLimit.middleware.js";
@@ -68,7 +69,8 @@ app.use(attachDevice);
 app.use(attachTerminalSession);
 
 // ── Rate limiting ────────────────────────────────────────
-app.use("/api/", apiLimiter);
+app.use("/api/", runawayLimiter); // hard ceiling — catches runaway devices before tiered check
+app.use("/api/", apiLimiter);     // tiered: 100/15min (IP) or 2000/15min (per token)
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/shops/:shopId/orders/:orderId/refunds", refundLimiter);
 

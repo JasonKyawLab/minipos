@@ -1,4 +1,5 @@
 import axios from "axios";
+import toast from "react-hot-toast";
 import { getErrorMessage } from "@/utils/errorMessages";
 
 const api = axios.create({
@@ -21,6 +22,21 @@ api.interceptors.response.use(
   (error) => {
     const status  = error.response?.status;
     const path    = typeof window !== "undefined" ? window.location.pathname : "";
+
+    if (status === 429) {
+      const retryAfter = error.response?.headers?.["retry-after"];
+      let message = "Too many requests — please wait before trying again.";
+      if (retryAfter) {
+        const secs = parseInt(retryAfter, 10);
+        const mins = Math.floor(secs / 60);
+        const rem  = secs % 60;
+        message = mins > 0
+          ? `Too many requests — try again in ${mins}m ${rem}s`
+          : `Too many requests — try again in ${rem}s`;
+      }
+      toast.error(message, { duration: 6000 });
+      return Promise.reject(error);
+    }
 
     // Only redirect on 401 for platform routes.
     // Terminal and QR routes handle their own 401s.
