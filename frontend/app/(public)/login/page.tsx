@@ -7,6 +7,7 @@ import api from "@/lib/api";
 import { getErrorMessage } from "@/utils/errorMessages";
 import { Spinner } from "@/components/states";
 import toast from "react-hot-toast";
+import Image from "next/image";
 
 type Tab = "LOGIN" | "REGISTER";
 
@@ -131,14 +132,8 @@ function LoginContent() {
       <div className="w-full max-w-[400px]">
 
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[#0F2B4C] mb-3">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path d="M3 9l9-7 9 7v11a1 1 0 01-1 1H4a1 1 0 01-1-1V9z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
-              <path d="M9 22V12h6v10" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <h1 className="text-[22px] font-semibold text-[#0F2B4C]">MiniPOS</h1>
-          <p className="text-[13px] text-[#5F5E5A] mt-0.5">Point of sale for small businesses</p>
+          <Image src="/logo-stacked.png" alt="MiniPOS" width={120} height={80} className="object-contain mx-auto mb-2" />
+          <p className="text-[13px] text-[#5F5E5A]">Point of sale for small businesses</p>
         </div>
 
         <div className="bg-white rounded-lg border border-[#D3D1C7] shadow-sm overflow-hidden">

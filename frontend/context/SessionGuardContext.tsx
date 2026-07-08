@@ -89,7 +89,7 @@ interface SessionGuardContextValue extends SessionGuardState {
 const SessionGuardContext = createContext<SessionGuardContextValue | null>(null);
 
 const TERMINAL_PATHS = ['/pos', '/kitchen'];
-const PUBLIC_PATHS   = ['/login', '/qr'];
+const PUBLIC_PATHS   = ['/login', '/qr', '/landing', '/'];
 
 export function SessionGuardProvider({ children }: { children: ReactNode }) {
   const router   = useRouter();
