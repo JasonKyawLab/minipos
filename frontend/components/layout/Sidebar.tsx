@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { useAuth } from "@/context/AuthContext";
@@ -62,7 +63,7 @@ export function Sidebar() {
       <div className="h-12 flex items-center border-b border-ui-greyBorder shrink-0">
         {expanded ? (
           <div className="w-full px-3 flex items-center justify-between">
-            <span className="text-[15px] font-semibold text-brand-navy whitespace-nowrap">MiniPOS</span>
+            <Image src="/logo.png" alt="MiniPOS" width={100} height={28} className="object-contain" />
             <button
               onClick={() => setExpanded(false)}
               aria-label="Close menu"
