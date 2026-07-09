@@ -53,59 +53,6 @@ MiniPOS is a web-based POS platform where one account can manage multiple shops.
 
 ---
 
-## Running Locally
-
-### With Docker (recommended)
-
-```bash
-git clone https://github.com/JasonKyawLab/minipos.git
-cd minipos
-cp .env.example .env   # fill in your values
-docker compose up -d --build
-```
-
-| Service | URL |
-|---|---|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:3001 |
-
-### Without Docker
-
-```bash
-# Backend
-cd backend && npm install && npm run dev
-
-# Frontend (new terminal)
-cd frontend && npm install && npm run dev
-```
-
-Requires PostgreSQL running locally and a `.env` file configured.
-
----
-
-## Project Structure
-
-```
-minipos/
-├── backend/            # Express API
-│   └── src/
-│       ├── modules/    # auth, orders, products, shifts, reports ...
-│       ├── middlewares/
-│       └── db/
-├── frontend/           # Next.js App Router
-│   └── app/
-│       ├── (landing)/  # Public landing page
-│       ├── (platform)/ # Owner/manager dashboard
-│       ├── (shop)/     # Per-shop management
-│       ├── (pos)/      # POS terminal
-│       ├── (kitchen)/  # Kitchen display
-│       └── (qr)/       # QR table ordering
-└── database/
-    └── init/           # SQL schema
-```
-
----
-
 ## License
 
 **© 2026 Kyaw Zaw Linn. All rights reserved.**
