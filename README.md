@@ -4,6 +4,11 @@
 
 🔗 **Live demo:** [minipos.site](https://minipos.site)
 
+> ⚠️ **Copyright © 2026 Kyaw Zaw Linn. All rights reserved.**
+> This source code is made available for viewing and portfolio purposes only.
+> No part of this code may be used, copied, modified, or deployed without explicit written permission from the author.
+> Contact: kyawzawlinn.dev@gmail.com
+
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
 ![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)
 ![Node.js](https://img.shields.io/badge/Node.js-20-brightgreen?logo=node.js)
