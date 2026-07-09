@@ -9,6 +9,7 @@ export const metadata: Metadata = {
   title: { default: "MiniPOS", template: "%s | MiniPOS" },
   description: "Modern point-of-sale system for small businesses",
   icons: { icon: "/favicon.ico", apple: "/favicon.ico" },
+  verification: { google: "5pRe9lQ1C6oBBYhXIotv3jEUN2J5GwLRAaFBN_VPlOE" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
