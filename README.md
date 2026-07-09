@@ -49,7 +49,11 @@ MiniPOS is a web-based POS platform where one account can manage multiple shops.
 
 ## Screenshots
 
-> Coming soon
+<img width="1728" height="1117" alt="kitchen_mode" src="https://github.com/user-attachments/assets/45e06179-a311-4c90-821a-eaed71f422fa" />
+<img width="1728" height="1117" alt="pos_mode" src="https://github.com/user-attachments/assets/3530f71c-138e-4d19-b29e-534f93b41e5d" />
+<img width="1728" height="1117" alt="dashboard" src="https://github.com/user-attachments/assets/4c1e5d6b-1fd1-487d-99d3-eee85ae6d65b" />
+<img width="694" height="1064" alt="order" src="https://github.com/user-attachments/assets/4d425697-dfc1-4423-b5b3-aa8f87887d30" />
+
 
 ---
 
