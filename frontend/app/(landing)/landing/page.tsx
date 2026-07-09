@@ -6,6 +6,15 @@ export const metadata = {
   title: "MiniPOS — The POS system that grows with you",
   description:
     "Start small, think big. MiniPOS fits your shop today and scales as you expand. Built for restaurants, retail shops, and online stores.",
+  openGraph: {
+    title: "MiniPOS — The POS system that grows with you",
+    description: "Start small, think big. MiniPOS fits your shop today and scales as you expand.",
+    url: "https://minipos.site",
+    siteName: "MiniPOS",
+    images: [{ url: "https://minipos.site/logo.png", width: 512, height: 512 }],
+    type: "website",
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function LandingPage() {
@@ -17,10 +26,10 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
           <Image src="/logo.png" alt="MiniPOS" width={120} height={40} className="object-contain" />
           <div className="flex items-center gap-2">
-            <Link href="/login" className="px-4 py-1.5 text-[13px] font-medium text-[#0F2B4C] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition">
+            <Link href="/login" prefetch={false} className="px-4 py-1.5 text-[13px] font-medium text-[#0F2B4C] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition">
               Sign in
             </Link>
-            <Link href="/login" className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#0D7A5F] rounded-lg hover:bg-[#0a6b52] transition">
+            <Link href="/login" prefetch={false} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#0D7A5F] rounded-lg hover:bg-[#0a6b52] transition">
               Get started free
             </Link>
           </div>
@@ -48,7 +57,7 @@ export default function LandingPage() {
             ))}
           </div>
           <div className="flex gap-3 justify-center flex-wrap">
-            <Link href="/login" className="px-6 py-2.5 text-[14px] font-medium text-white bg-[#0D7A5F] rounded-lg hover:bg-[#0a6b52] transition">
+            <Link href="/login" prefetch={false} className="px-6 py-2.5 text-[14px] font-medium text-white bg-[#0D7A5F] rounded-lg hover:bg-[#0a6b52] transition">
               Get started free
             </Link>
             <a href="#how-it-works" className="px-6 py-2.5 text-[14px] font-medium text-[#0F2B4C] border border-[#D3D1C7] rounded-lg hover:bg-[#F1EFE8] transition">
@@ -173,7 +182,7 @@ export default function LandingPage() {
           <p className="text-[15px] text-white/70 mb-8">
             Join businesses already using MiniPOS to sell smarter — from corner shops to growing chains.
           </p>
-          <Link href="/login" className="inline-block px-8 py-3 text-[14px] font-medium text-[#0F2B4C] bg-white rounded-lg hover:bg-[#F1EFE8] transition">
+          <Link href="/login" prefetch={false} className="inline-block px-8 py-3 text-[14px] font-medium text-[#0F2B4C] bg-white rounded-lg hover:bg-[#F1EFE8] transition">
             Create free account
           </Link>
         </div>
