@@ -1,4 +1,4 @@
-import db from "../../db/pool.js";
+import { db } from "../../db/queries.js";
 import crypto from "crypto";
 
 export class PasswordResetRepository {
