@@ -3,7 +3,8 @@ import { UserRepository } from "../user/user.repository.js";
 import { comparePassword, hashPassword } from "../../utils/password.js";
 import { AuditService } from "../audit/audit.service.js";
 import { PasswordResetRepository } from "./password-reset.repository.js";
-import { sendPasswordResetEmail } from "../../utils/email.js";
+import { EmailVerificationRepository } from "./email-verification.repository.js";
+import { sendVerificationEmail, sendPasswordResetEmail } from "../../utils/email.js";
 import { User } from "../user/user.model.js";
 import { appError } from "../../utils/appError.js";
 import { env } from "../../config/validation.js";
@@ -32,6 +33,10 @@ export class AuthService {
         metadata: { reason: "INVALID_PASSWORD" },
       });
       throw new appError("INVALID_CREDENTIALS", 401);
+    }
+
+    if (!user.email_verified) {
+      throw new appError("EMAIL_NOT_VERIFIED", 403);
     }
 
     if (!env.JWT_SECRET) {
@@ -94,7 +99,35 @@ export class AuthService {
       entityId: newUser.id,
     });
 
+    const verifyToken = await EmailVerificationRepository.createToken(newUser.id);
+    const verifyUrl   = `${env.APP_URL}/verify-email?token=${verifyToken}`;
+    await sendVerificationEmail(newUser.email, newUser.name, verifyUrl);
+
     return { restored: false };
+  }
+
+  static async verifyEmail(token: string) {
+    const record = await EmailVerificationRepository.findValidToken(token);
+    if (!record) throw new appError("INVALID_OR_EXPIRED_VERIFICATION_TOKEN", 400);
+
+    await EmailVerificationRepository.markUserVerified(record.user_id);
+    await EmailVerificationRepository.markUsed(token);
+
+    await AuditService.log({
+      userId: record.user_id,
+      action: "EMAIL_VERIFIED",
+      entity: "USER",
+      entityId: record.user_id,
+    });
+  }
+
+  static async resendVerification(email: string) {
+    const user = await UserRepository.findByEmail(email.toLowerCase());
+    if (!user || user.is_deleted || user.email_verified) return;
+
+    const verifyToken = await EmailVerificationRepository.createToken(user.id);
+    const verifyUrl   = `${env.APP_URL}/verify-email?token=${verifyToken}`;
+    await sendVerificationEmail(user.email, user.name, verifyUrl);
   }
 
   static async changePassword(
@@ -166,6 +199,8 @@ export class AuthService {
     const user = await UserRepository.findByEmail(email.toLowerCase());
     // Always return success to prevent user enumeration
     if (!user || user.is_deleted) return;
+    // Block password reset for admin accounts — must be changed directly on server
+    if (user.role === "ADMIN") return;
 
     const token    = await PasswordResetRepository.createToken(user.id);
     const resetUrl = `${env.APP_URL}/reset-password?token=${token}`;

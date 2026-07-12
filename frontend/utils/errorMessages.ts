@@ -9,6 +9,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   TOKEN_REVOKED:             "Your session was revoked. Please log in again.",
   INVALID_CURRENT_PASSWORD:  "Current password is incorrect.",
   PASSWORD_MUST_BE_DIFFERENT:        "New password must be different from current password.",
+  EMAIL_NOT_VERIFIED:                "Please verify your email before signing in.",
   INVALID_OR_EXPIRED_RESET_TOKEN:   "This reset link is invalid or has expired. Please request a new one.",
   SHOP_SUSPENDED:            "This shop has been suspended. Please contact support.",
   ACCOUNT_SUSPENDED:         "Your account has been suspended. Please contact support.",

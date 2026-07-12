@@ -19,6 +19,32 @@ function wrap(body: string) {
     </div>`;
 }
 
+export async function sendVerificationEmail(to: string, name: string, verifyUrl: string) {
+  if (!env.RESEND_API_KEY || !env.RESEND_FROM) return;
+
+  await resend.emails.send({
+    from:    env.RESEND_FROM,
+    to,
+    subject: "Verify your MiniPOS email",
+    text:    `Hi ${name},\n\nPlease verify your email by clicking the link below (valid for 24 hours):\n\n${verifyUrl}\n\n— MiniPOS Team`,
+    html: wrap(`
+      <h2 style="color:#0F2B4C;margin:0 0 12px;">Verify your email</h2>
+      <p style="color:#5F5E5A;font-size:14px;line-height:1.6;margin:0 0 24px;">
+        Hi ${name}, thanks for signing up! Click the button below to verify your email address.
+        The link expires in <strong>24 hours</strong>.
+      </p>
+      <div style="text-align:center;margin:0 0 24px;">
+        <a href="${verifyUrl}"
+           style="display:inline-block;padding:12px 28px;background:#0D7A5F;color:#fff;font-size:14px;font-weight:600;border-radius:8px;text-decoration:none;">
+          Verify email
+        </a>
+      </div>
+      <p style="font-size:13px;color:#888;margin:0;">
+        If you didn't create a MiniPOS account, you can safely ignore this email.
+      </p>`),
+  });
+}
+
 export async function sendPasswordResetEmail(to: string, name: string, resetUrl: string) {
   if (!env.RESEND_API_KEY || !env.RESEND_FROM) return;
 

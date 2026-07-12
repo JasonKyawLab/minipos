@@ -130,6 +130,24 @@ router.get('/session-type', async (req, res) => {
   }
 });
 
+router.get("/verify-email", async (req, res) => {
+  try {
+    await AuthService.verifyEmail(req.query.token as string);
+    res.json({ success: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.post("/resend-verification", requireBody(["email"]), async (req, res) => {
+  try {
+    await AuthService.resendVerification(req.body.email);
+    res.json({ success: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
 router.post("/forgot-password", requireBody(["email"]), async (req, res) => {
   try {
     await AuthService.forgotPassword(req.body.email);

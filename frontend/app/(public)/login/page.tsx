@@ -23,10 +23,13 @@ function LoginContent() {
 
   const [tab, setTab] = useState<Tab>("LOGIN");
 
-  const [loginEmail, setLoginEmail]       = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginLoading, setLoginLoading]   = useState(false);
-  const [loginError, setLoginError]       = useState("");
+  const [loginEmail, setLoginEmail]             = useState("");
+  const [loginPassword, setLoginPassword]       = useState("");
+  const [loginLoading, setLoginLoading]         = useState(false);
+  const [loginError, setLoginError]             = useState("");
+  const [loginUnverified, setLoginUnverified]   = useState(false);
+  const [resendLoading, setResendLoading]       = useState(false);
+  const [resendSent, setResendSent]             = useState(false);
 
   const [regName, setRegName]               = useState("");
   const [regEmail, setRegEmail]             = useState("");
@@ -67,9 +70,19 @@ function LoginContent() {
     );
   }
 
+  async function handleResendVerification() {
+    setResendLoading(true);
+    try {
+      await api.post("/api/auth/resend-verification", { email: loginEmail.trim().toLowerCase() });
+      setResendSent(true);
+    } finally {
+      setResendLoading(false);
+    }
+  }
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    setLoginError("");
+    setLoginError(""); setLoginUnverified(false); setResendSent(false);
 
     if (!loginEmail.trim()) { setLoginError("Email is required."); return; }
     if (!loginPassword)     { setLoginError("Password is required."); return; }
@@ -88,7 +101,11 @@ function LoginContent() {
 
     } catch (err: any) {
       const code = err.response?.data?.message;
-      setLoginError(getErrorMessage(code));
+      if (code === "EMAIL_NOT_VERIFIED") {
+        setLoginUnverified(true);
+      } else {
+        setLoginError(getErrorMessage(code));
+      }
       setLoginLoading(false);
     }
     // Note: don't set loginLoading(false) on success —
@@ -118,7 +135,7 @@ function LoginContent() {
       setRegSuccess(
         data.restored
           ? "Your account was restored. Please log in."
-          : "Account created! You can now log in."
+          : "Account created! Please check your email to verify your account."
       );
       setTab("LOGIN");
       setRegName(""); setRegEmail(""); setRegPassword(""); setRegConfirm("");
@@ -171,6 +188,19 @@ function LoginContent() {
                 {loginError && (
                   <div className="p-3 rounded-lg bg-[#FCEBEB] border border-[#A32D2D]/30">
                     <p className="text-[13px] text-[#A32D2D]">{loginError}</p>
+                  </div>
+                )}
+                {loginUnverified && (
+                  <div className="p-3 rounded-lg bg-[#FAEEDA] border border-[#C87D2A]/30">
+                    <p className="text-[13px] text-[#7A4A0A] mb-2">Please verify your email before signing in. Check your inbox.</p>
+                    {resendSent ? (
+                      <p className="text-[12px] text-[#0D7A5F]">Verification email resent!</p>
+                    ) : (
+                      <button type="button" onClick={handleResendVerification} disabled={resendLoading}
+                        className="text-[12px] text-[#0D7A5F] underline disabled:opacity-50">
+                        {resendLoading ? "Sending…" : "Resend verification email"}
+                      </button>
+                    )}
                   </div>
                 )}
                 <div className="space-y-1">
