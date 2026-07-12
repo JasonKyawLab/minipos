@@ -43,7 +43,9 @@ api.interceptors.response.use(
     const isTerminalPath =
       path.startsWith("/pos/") || path.startsWith("/kitchen/") || path.startsWith("/qr");
     const isPublicPath =
-      path === "/" || path === "" || path === "/landing";
+      path === "/" || path === "" || path === "/landing" ||
+      path === "/forgot-password" || path.startsWith("/reset-password") ||
+      path.startsWith("/verify-email");
 
     if (status === 401 && !isTerminalPath && !isPublicPath && typeof window !== "undefined") {
       if (path !== "/login") {
