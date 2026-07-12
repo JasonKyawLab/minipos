@@ -2,6 +2,8 @@ import jwt, { JwtPayload } from "jsonwebtoken";
 import { UserRepository } from "../user/user.repository.js";
 import { comparePassword, hashPassword } from "../../utils/password.js";
 import { AuditService } from "../audit/audit.service.js";
+import { PasswordResetRepository } from "./password-reset.repository.js";
+import { sendPasswordResetEmail } from "../../utils/email.js";
 import { User } from "../user/user.model.js";
 import { appError } from "../../utils/appError.js";
 import { env } from "../../config/validation.js";
@@ -158,6 +160,43 @@ export class AuthService {
       env.JWT_SECRET,
       { expiresIn: "1d" }
     );
+  }
+
+  static async forgotPassword(email: string) {
+    const user = await UserRepository.findByEmail(email.toLowerCase());
+    // Always return success to prevent user enumeration
+    if (!user || user.is_deleted) return;
+
+    const token    = await PasswordResetRepository.createToken(user.id);
+    const resetUrl = `${env.APP_URL}/reset-password?token=${token}`;
+
+    await sendPasswordResetEmail(user.email, user.name, resetUrl);
+
+    await AuditService.log({
+      userId: user.id,
+      action: "PASSWORD_RESET_REQUESTED",
+      entity: "USER",
+      entityId: user.id,
+    });
+  }
+
+  static async resetPassword(token: string, newPassword: string) {
+    const record = await PasswordResetRepository.findValidToken(token);
+    if (!record) throw new appError("INVALID_OR_EXPIRED_RESET_TOKEN", 400);
+
+    const samePassword = await comparePassword(newPassword, (await UserRepository.findById(record.user_id))!.password_hash);
+    if (samePassword) throw new appError("PASSWORD_MUST_BE_DIFFERENT", 400);
+
+    const newHash = await hashPassword(newPassword);
+    await UserRepository.updatePassword(record.user_id, newHash);
+    await PasswordResetRepository.markUsed(token);
+
+    await AuditService.log({
+      userId: record.user_id,
+      action: "PASSWORD_RESET_SUCCESS",
+      entity: "USER",
+      entityId: record.user_id,
+    });
   }
 
   static async issueTokenForUser(userId: string): Promise<string> {

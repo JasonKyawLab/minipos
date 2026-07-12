@@ -48,6 +48,10 @@ const envSchema = z.object({
   REFUND_LIMIT_WINDOW_MS: z.coerce.number().default(60 * 60 * 1000), // 1 hour
   REFUND_LIMIT_MAX_REQUESTS: z.coerce.number().default(10), // 10 refunds per hour
 
+  // Email (Resend)
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM: z.string().optional(),
+  APP_URL: z.string().default("https://minipos.site"),
 });
 
 // Parse and validate

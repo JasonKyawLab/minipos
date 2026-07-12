@@ -8,7 +8,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   INVALID_TOKEN:             "Invalid session. Please log in again.",
   TOKEN_REVOKED:             "Your session was revoked. Please log in again.",
   INVALID_CURRENT_PASSWORD:  "Current password is incorrect.",
-  PASSWORD_MUST_BE_DIFFERENT:"New password must be different from current password.",
+  PASSWORD_MUST_BE_DIFFERENT:        "New password must be different from current password.",
+  INVALID_OR_EXPIRED_RESET_TOKEN:   "This reset link is invalid or has expired. Please request a new one.",
   SHOP_SUSPENDED:            "This shop has been suspended. Please contact support.",
   ACCOUNT_SUSPENDED:         "Your account has been suspended. Please contact support.",
   // ── Permissions ───────────────────────────────────────────

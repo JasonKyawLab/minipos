@@ -27,12 +27,13 @@ function LoginContent() {
   const [loginLoading, setLoginLoading]   = useState(false);
   const [loginError, setLoginError]       = useState("");
 
-  const [regName, setRegName]         = useState("");
-  const [regEmail, setRegEmail]       = useState("");
-  const [regPassword, setRegPassword] = useState("");
-  const [regLoading, setRegLoading]   = useState(false);
-  const [regError, setRegError]       = useState("");
-  const [regSuccess, setRegSuccess]   = useState("");
+  const [regName, setRegName]               = useState("");
+  const [regEmail, setRegEmail]             = useState("");
+  const [regPassword, setRegPassword]       = useState("");
+  const [regConfirm, setRegConfirm]         = useState("");
+  const [regLoading, setRegLoading]         = useState(false);
+  const [regError, setRegError]             = useState("");
+  const [regSuccess, setRegSuccess]         = useState("");
 
   // ── Redirect if already authenticated ──────────────────
   // MUST be in useEffect — never call router.replace() during render.
@@ -97,9 +98,10 @@ function LoginContent() {
     e.preventDefault();
     setRegError(""); setRegSuccess("");
 
-    if (!regName.trim())        { setRegError("Name is required."); return; }
-    if (!regEmail.trim())       { setRegError("Email is required."); return; }
-    if (regPassword.length < 6) { setRegError("Password must be at least 6 characters."); return; }
+    if (!regName.trim())              { setRegError("Name is required."); return; }
+    if (!regEmail.trim())             { setRegError("Email is required."); return; }
+    if (regPassword.length < 6)       { setRegError("Password must be at least 6 characters."); return; }
+    if (regPassword !== regConfirm)   { setRegError("Passwords do not match."); return; }
 
     setRegLoading(true);
     try {
@@ -118,7 +120,7 @@ function LoginContent() {
           : "Account created! You can now log in."
       );
       setTab("LOGIN");
-      setRegName(""); setRegEmail(""); setRegPassword("");
+      setRegName(""); setRegEmail(""); setRegPassword(""); setRegConfirm("");
     } catch (err: any) {
       const code = err.response?.data?.message;
       setRegError(getErrorMessage(code));
@@ -183,7 +185,12 @@ function LoginContent() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-[13px] font-medium text-[#1A1A1A]">Password</label>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[13px] font-medium text-[#1A1A1A]">Password</label>
+                    <Link href="/forgot-password" className="text-[12px] text-[#0D7A5F] hover:underline">
+                      Forgot password?
+                    </Link>
+                  </div>
                   <input
                     type="password"
                     value={loginPassword}
@@ -240,6 +247,16 @@ function LoginContent() {
                     onChange={(e) => setRegPassword(e.target.value)}
                     className="w-full h-9 px-3 text-[14px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] focus:ring-offset-1"
                     placeholder="Min. 6 characters"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[13px] font-medium text-[#1A1A1A]">Confirm password</label>
+                  <input
+                    type="password"
+                    value={regConfirm}
+                    onChange={(e) => setRegConfirm(e.target.value)}
+                    className="w-full h-9 px-3 text-[14px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] focus:ring-offset-1"
+                    placeholder="Repeat your password"
                   />
                 </div>
                 <button

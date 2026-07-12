@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { AuthController } from "./auth.controller.js";
+import { AuthService } from "./auth.service.js";
 import { requireAuth } from "./auth.middleware.js";
 import { requireRole } from "./role.middleware.js";
 import { requireBody } from "../../middlewares/validate.middleware.js";
@@ -8,7 +9,7 @@ import { handleError } from "../../utils/handleError.js";
 import { appError } from "../../utils/appError.js";
 import { env } from "../../config/index.js";
 import { JwtPayload } from "./auth.types.js";
-import jwt                  from "jsonwebtoken"; 
+import jwt from "jsonwebtoken";
 
 const router = Router();
 
@@ -126,6 +127,24 @@ router.get('/session-type', async (req, res) => {
 
   } catch {
     return res.json({ type: 'NONE' });
+  }
+});
+
+router.post("/forgot-password", requireBody(["email"]), async (req, res) => {
+  try {
+    await AuthService.forgotPassword(req.body.email);
+    res.json({ success: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.post("/reset-password", requireBody(["token", "password"]), async (req, res) => {
+  try {
+    await AuthService.resetPassword(req.body.token, req.body.password);
+    res.json({ success: true });
+  } catch (err) {
+    return handleError(res, err);
   }
 });
 
