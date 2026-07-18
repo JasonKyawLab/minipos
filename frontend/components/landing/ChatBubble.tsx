@@ -7,6 +7,45 @@ interface Faq       { id: number; question: string; answer: string; }
 interface Category  { name: string; faqs: Faq[]; }
 interface Message   { role: "user" | "bot"; text: string; pending?: boolean; }
 
+function BotText({ text }: { text: string }) {
+  const lines = text.split("\n");
+  return (
+    <div className="space-y-1">
+      {lines.map((line, i) => {
+        const bullet = line.match(/^[\-\*]\s+(.*)/);
+        if (bullet) {
+          return (
+            <div key={i} className="flex gap-1.5">
+              <span className="mt-[3px] w-1.5 h-1.5 rounded-full bg-[#0D7A5F] shrink-0" />
+              <span dangerouslySetInnerHTML={{ __html: renderInline(bullet[1]) }} />
+            </div>
+          );
+        }
+        const numbered = line.match(/^(\d+)\.\s+(.*)/);
+        if (numbered) {
+          return (
+            <div key={i} className="flex gap-1.5">
+              <span className="shrink-0 font-medium">{numbered[1]}.</span>
+              <span dangerouslySetInnerHTML={{ __html: renderInline(numbered[2]) }} />
+            </div>
+          );
+        }
+        if (!line.trim()) return <div key={i} className="h-1" />;
+        return <p key={i} dangerouslySetInnerHTML={{ __html: renderInline(line) }} />;
+      })}
+    </div>
+  );
+}
+
+function renderInline(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>");
+}
+
 const SESSION_ID = typeof crypto !== "undefined"
   ? crypto.randomUUID()
   : Math.random().toString(36).slice(2);
@@ -81,8 +120,8 @@ export function ChatBubble() {
     <>
       {open && (
         <div
-          className="fixed bottom-20 right-4 sm:right-6 z-50 w-[calc(100vw-32px)] sm:w-[360px] bg-white rounded-2xl shadow-2xl border border-[#D3D1C7] flex flex-col overflow-hidden"
-          style={{ maxHeight: "540px" }}
+          className="fixed bottom-20 right-4 sm:right-6 z-50 w-[calc(100vw-32px)] sm:w-[420px] bg-white rounded-2xl shadow-2xl border border-[#D3D1C7] flex flex-col overflow-hidden"
+          style={{ maxHeight: "620px" }}
         >
           {/* Header */}
           <div className="bg-[#0F2B4C] px-4 py-3 flex items-center justify-between shrink-0">
@@ -148,7 +187,7 @@ export function ChatBubble() {
               <div className="p-4 space-y-3">
                 {messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[80%] px-3 py-2 rounded-xl text-[13px] leading-relaxed whitespace-pre-wrap ${
+                    <div className={`max-w-[80%] px-3 py-2 rounded-xl text-[13px] leading-relaxed ${msg.role === "user" ? "whitespace-pre-wrap" : ""} ${
                       msg.role === "user"
                         ? "bg-[#0D7A5F] text-white rounded-br-sm"
                         : "bg-white border border-[#E5E5E5] text-[#1A1A1A] rounded-bl-sm"
@@ -159,7 +198,7 @@ export function ChatBubble() {
                           <span className="w-1.5 h-1.5 bg-[#aaa] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                           <span className="w-1.5 h-1.5 bg-[#aaa] rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                         </span>
-                      ) : msg.text}
+                      ) : msg.role === "bot" ? <BotText text={msg.text} /> : msg.text}
                     </div>
                   </div>
                 ))}
