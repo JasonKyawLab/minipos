@@ -7,36 +7,6 @@ interface Faq       { id: number; question: string; answer: string; }
 interface Category  { name: string; faqs: Faq[]; }
 interface Message   { role: "user" | "bot"; text: string; pending?: boolean; }
 
-function BotText({ text }: { text: string }) {
-  const lines = text.split("\n");
-  return (
-    <div className="space-y-1">
-      {lines.map((line, i) => {
-        const bullet = line.match(/^[\-\*]\s+(.*)/);
-        if (bullet) {
-          return (
-            <div key={i} className="flex gap-1.5">
-              <span className="mt-[3px] w-1.5 h-1.5 rounded-full bg-[#0D7A5F] shrink-0" />
-              <span dangerouslySetInnerHTML={{ __html: renderInline(bullet[1]) }} />
-            </div>
-          );
-        }
-        const numbered = line.match(/^(\d+)\.\s+(.*)/);
-        if (numbered) {
-          return (
-            <div key={i} className="flex gap-1.5">
-              <span className="shrink-0 font-medium">{numbered[1]}.</span>
-              <span dangerouslySetInnerHTML={{ __html: renderInline(numbered[2]) }} />
-            </div>
-          );
-        }
-        if (!line.trim()) return <div key={i} className="h-1" />;
-        return <p key={i} dangerouslySetInnerHTML={{ __html: renderInline(line) }} />;
-      })}
-    </div>
-  );
-}
-
 function renderInline(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -46,21 +16,54 @@ function renderInline(text: string): string {
     .replace(/\*(.+?)\*/g, "<em>$1</em>");
 }
 
+function BotText({ text }: { text: string }) {
+  const lines = text.split(/\r?\n/);
+  const nodes: React.ReactNode[] = [];
+
+  lines.forEach((line, i) => {
+    const bullet = line.match(/^[\-\*]\s+(.*)/);
+    const numbered = line.match(/^(\d+)\.\s+(.*)/);
+    const content = bullet ? bullet[1].trim() : numbered ? numbered[2].trim() : "";
+
+    if (bullet && content) {
+      nodes.push(
+        <div key={i} className="flex gap-1.5 items-start">
+          <span className="mt-[5px] w-1.5 h-1.5 rounded-full bg-[#0D7A5F] shrink-0" />
+          <span dangerouslySetInnerHTML={{ __html: renderInline(content) }} />
+        </div>
+      );
+    } else if (numbered && content) {
+      nodes.push(
+        <div key={i} className="flex gap-1.5 items-start">
+          <span className="shrink-0 font-medium text-[#0D7A5F]">{numbered[1]}.</span>
+          <span dangerouslySetInnerHTML={{ __html: renderInline(content) }} />
+        </div>
+      );
+    } else if (!line.trim()) {
+      nodes.push(<div key={i} className="h-1.5" />);
+    } else {
+      nodes.push(<p key={i} dangerouslySetInnerHTML={{ __html: renderInline(line) }} />);
+    }
+  });
+
+  return <div className="space-y-0.5">{nodes}</div>;
+}
+
 const SESSION_ID = typeof crypto !== "undefined"
   ? crypto.randomUUID()
   : Math.random().toString(36).slice(2);
 
 export function ChatBubble() {
-  const [open,       setOpen]       = useState(false);
-  const [input,      setInput]      = useState("");
-  const [messages,   setMessages]   = useState<Message[]>([]);
-  const [loading,    setLoading]    = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [open,           setOpen]           = useState(false);
+  const [input,          setInput]          = useState("");
+  const [messages,       setMessages]       = useState<Message[]>([]);
+  const [loading,        setLoading]        = useState(false);
+  const [categories,     setCategories]     = useState<Category[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [showFaqPanel,   setShowFaqPanel]   = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
 
-  // Load FAQs once on mount
   useEffect(() => {
     api.get<{ categories: Category[] }>("/api/chat/faqs")
       .then(({ data }) => setCategories(data.categories ?? []))
@@ -79,6 +82,7 @@ export function ChatBubble() {
     if (!text.trim() || loading) return;
     setInput("");
     setActiveCategory(null);
+    setShowFaqPanel(false);
     setMessages(prev => [...prev, { role: "user", text }, { role: "bot", text: "", pending: true }]);
     setLoading(true);
 
@@ -113,7 +117,7 @@ export function ChatBubble() {
     sendMessage(input);
   }
 
-  const showFaqs = messages.length === 0;
+  const hasMessages    = messages.length > 0;
   const selectedCategory = categories.find(c => c.name === activeCategory);
 
   return (
@@ -129,23 +133,34 @@ export function ChatBubble() {
               <div className="w-2 h-2 rounded-full bg-[#0D7A5F]" />
               <span className="text-[13px] font-semibold text-white">MiniPOS Support</span>
             </div>
-            <button onClick={() => setOpen(false)} className="text-white/60 hover:text-white text-lg leading-none">×</button>
+            <div className="flex items-center gap-3">
+              {hasMessages && (
+                <button
+                  onClick={() => { setShowFaqPanel(p => !p); setActiveCategory(null); }}
+                  className="text-white/70 hover:text-white text-[11px] font-medium border border-white/20 rounded-lg px-2 py-1 transition"
+                >
+                  {showFaqPanel ? "Back to chat" : "Browse FAQs"}
+                </button>
+              )}
+              <button onClick={() => setOpen(false)} className="text-white/60 hover:text-white text-lg leading-none">×</button>
+            </div>
           </div>
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto bg-[#F9F8F5]">
 
-            {/* Welcome + FAQ browse (only when no messages yet) */}
-            {showFaqs && (
+            {/* FAQ panel — shown when no messages OR user clicked "Browse FAQs" */}
+            {(!hasMessages || showFaqPanel) && (
               <div className="p-4">
-                <div className="text-center mb-4">
-                  <p className="text-[22px] mb-1">👋</p>
-                  <p className="text-[13px] font-semibold text-[#0F2B4C]">Hi there!</p>
-                  <p className="text-[12px] text-[#5F5E5A] mt-0.5">Ask anything or browse common questions below.</p>
-                </div>
+                {!hasMessages && (
+                  <div className="text-center mb-4">
+                    <p className="text-[22px] mb-1">👋</p>
+                    <p className="text-[13px] font-semibold text-[#0F2B4C]">Hi there!</p>
+                    <p className="text-[12px] text-[#5F5E5A] mt-0.5">Ask anything or browse common questions below.</p>
+                  </div>
+                )}
 
                 {!activeCategory ? (
-                  /* Category list */
                   <div className="space-y-2">
                     {categories.map(cat => (
                       <button
@@ -159,7 +174,6 @@ export function ChatBubble() {
                     ))}
                   </div>
                 ) : (
-                  /* Questions in selected category */
                   <div className="space-y-2">
                     <button
                       onClick={() => setActiveCategory(null)}
@@ -183,13 +197,13 @@ export function ChatBubble() {
             )}
 
             {/* Messages */}
-            {messages.length > 0 && (
+            {hasMessages && !showFaqPanel && (
               <div className="p-4 space-y-3">
                 {messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[80%] px-3 py-2 rounded-xl text-[13px] leading-relaxed ${msg.role === "user" ? "whitespace-pre-wrap" : ""} ${
+                    <div className={`max-w-[80%] px-3 py-2 rounded-xl text-[13px] leading-relaxed ${
                       msg.role === "user"
-                        ? "bg-[#0D7A5F] text-white rounded-br-sm"
+                        ? "bg-[#0D7A5F] text-white rounded-br-sm whitespace-pre-wrap"
                         : "bg-white border border-[#E5E5E5] text-[#1A1A1A] rounded-bl-sm"
                     }`}>
                       {msg.pending ? (
