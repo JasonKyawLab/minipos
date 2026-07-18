@@ -56,6 +56,7 @@ const envSchema = z.object({
   // AskDesk AI chat proxy
   ASKDESK_URL: z.string().default("https://askdesk-guxk.onrender.com"),
   ASKDESK_API_KEY: z.string().optional(),
+  ASKDESK_ADMIN_KEY: z.string().optional(),
 });
 
 // Parse and validate
