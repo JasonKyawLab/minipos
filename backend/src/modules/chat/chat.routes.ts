@@ -31,6 +31,18 @@ router.post("/ask", chatLimiter, async (req, res) => {
   }
 });
 
+router.get("/faqs", async (_req, res) => {
+  try {
+    const response = await fetch(`${ASKDESK_URL}/api/v1/faqs`, {
+      headers: { "X-API-Key": ASKDESK_KEY! },
+    });
+    const data = await response.json();
+    return res.json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
 router.get("/replies", chatLimiter, async (req, res) => {
   try {
     const { session_id, since } = req.query;
