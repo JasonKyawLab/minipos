@@ -52,6 +52,10 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM: z.string().optional(),
   APP_URL: z.string().default("https://minipos.site"),
+
+  // AskDesk AI chat proxy
+  ASKDESK_URL: z.string().default("https://askdesk-guxk.onrender.com"),
+  ASKDESK_API_KEY: z.string().optional(),
 });
 
 // Parse and validate

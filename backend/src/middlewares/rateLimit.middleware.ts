@@ -100,3 +100,14 @@ export const refundLimiter = makeLimiter({
   standardHeaders: true,
   legacyHeaders:   false,
 });
+
+// ── Chat / AI limiter ─────────────────────────────────────
+// Protects Gemini quota — 10 messages per 5 min per IP.
+export const chatLimiter = makeLimiter({
+  windowMs: 5 * 60 * 1000,
+  max:      10,
+  keyGenerator: (req) => req.ip ?? "unknown",
+  message:  { message: "Too many messages, please slow down." },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});

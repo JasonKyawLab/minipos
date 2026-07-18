@@ -21,6 +21,7 @@ import deviceModeRoutes  from "./modules/device-mode/device-mode.routes.js";
 import deviceRoutes      from "./modules/device/device.routes.js";
 import shiftRoutes       from "./modules/shift/shift.routes.js";
 import terminalRoutes    from "./modules/terminal/terminal.routes.js";
+import chatRoutes        from "./modules/chat/chat.routes.js";
 import { ShopController } from "./modules/shop/shop.controller.js";
 import { requireAuth }    from "./modules/auth/auth.middleware.js";
 import { validate }       from "./middlewares/validate.middleware.js";
@@ -104,6 +105,7 @@ app.get("/health/socket", (_req, res) => {
 // Public: login, register, logout, /me, /session-type.
 // No mode block — terminal devices must reach /session-type.
 app.use("/api/auth", authRoutes);
+app.use("/api/chat", chatRoutes);
 
 // ── Platform-only routes ─────────────────────────────────
 app.use("/api/users",  blockTerminalOnPlatformRoutes, userRoutes);

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { ContactForm } from "@/components/landing/ContactForm";
+import { ChatBubble } from "@/components/landing/ChatBubble";
 
 export const metadata = {
   title: "MiniPOS — The POS system that grows with you",
@@ -187,6 +188,8 @@ export default function LandingPage() {
           </Link>
         </div>
       </section>
+
+      <ChatBubble />
 
       {/* ── Footer ──────────────────────────────────────── */}
       <footer className="bg-[#0F2B4C] border-t border-white/10 px-6 py-5">
