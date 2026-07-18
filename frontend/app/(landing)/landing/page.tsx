@@ -22,6 +22,12 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#F1EFE8] font-sans">
 
+      {/* ── Beta banner ─────────────────────────────────── */}
+      <div className="bg-[#0F2B4C] text-white text-center px-4 py-2 text-[12px]">
+        <span className="font-semibold text-[#6EE7C2] mr-1.5">BETA</span>
+        MiniPOS is free while we build — features may change.
+      </div>
+
       {/* ── Nav ─────────────────────────────────────────── */}
       <nav className="sticky top-0 z-50 bg-white border-b border-[#D3D1C7]">
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
