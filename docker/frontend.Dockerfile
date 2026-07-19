@@ -30,6 +30,7 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static    ./.next/static
 
 # Run as non-root for security
+RUN mkdir -p .next/cache && chown -R node:node .next
 USER node
 
 EXPOSE 3000

@@ -150,6 +150,11 @@ const ERROR_MESSAGES: Record<string, string> = {
   NOTHING_TO_UPDATE: "Please make at least one change before saving.",
   FETCH_FAILED:      "Failed to load data. Please check your connection.",
   LOGIN_FAILED:      "Login failed. Please try again.",
+
+  PLAN_SHOP_LIMIT_REACHED:    "You've reached the shop limit for your plan.",
+  PLAN_PRODUCT_LIMIT_REACHED: "You've reached the product limit for your plan.",
+  PLAN_STAFF_LIMIT_REACHED:   "You've reached the staff limit for your plan.",
+  PLAN_TABLE_LIMIT_REACHED:   "You've reached the table limit for your plan.",
 };
 
 /**

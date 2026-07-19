@@ -4,6 +4,8 @@ import { CreateTableInput, UpdateTableInput } from "./table.types.js";
 import { appError } from "../../utils/appError.js";
 import { assertShopRole } from "../../utils/authorize.js";
 import { WRITE_ROLES, READ_ROLES } from "../../constants/roles.constants.js";
+import { PlanService }     from "../plan/plan.service.js";
+import { ShopRepository }  from "../shop/shop.repository.js";
 
 export class TableService {
 
@@ -14,6 +16,9 @@ export class TableService {
     capacity?: number;
   }) {
     await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
+
+    const shop = await ShopRepository.getById(params.shopId);
+    if (shop) await PlanService.checkTableLimit(params.shopId, shop.owner_id);
 
     // Duplicate table number check — DB has UNIQUE(shop_id, table_number)
     // but checking here gives a cleaner error message than a DB constraint error

@@ -76,6 +76,10 @@ export type KnownErrorCode =
   | "TICKET_NOT_FOUND"
   | "USER_ALREADY_ACTIVE"
   | "USER_EXISTS"
-  | "USER_NOT_FOUND";
+  | "USER_NOT_FOUND"
+  | "PLAN_SHOP_LIMIT_REACHED"
+  | "PLAN_PRODUCT_LIMIT_REACHED"
+  | "PLAN_STAFF_LIMIT_REACHED"
+  | "PLAN_TABLE_LIMIT_REACHED";
 
 export type ErrorCode = KnownErrorCode | (string & {});

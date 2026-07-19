@@ -15,6 +15,7 @@ import { ShopRepository }  from "./shop.repository.js";
 import { UserRepository }  from "../user/user.repository.js";
 import { comparePassword } from "../../utils/password.js";
 import { appError }        from "../../utils/appError.js";
+import { PlanService }     from "../plan/plan.service.js";
 
 const MODE_ROLES = ["OWNER", "MANAGER"] as const;
 
@@ -38,6 +39,7 @@ export class ShopService {
     shopType: "RETAIL" | "RESTAURANT" | "ONLINE_SHOP";
     currency: "USD" | "SGD" | "THB" | "MMK" | "EUR";
   }) {
+    await PlanService.checkShopLimit(params.ownerId);
     const shop = await ShopRepository.createShop(params);
     await ShopRepository.addUserToShop({
       shop_id: shop.id,
@@ -115,6 +117,9 @@ export class ShopService {
     if (!actor || !actor.is_active || !["OWNER", "MANAGER"].includes(actor.role)) {
       throw new appError("NOT_AUTHORIZED", 403);
     }
+
+    const shopInfo = await ShopRepository.getById(params.shopId);
+    if (shopInfo) await PlanService.checkStaffLimit(params.shopId, shopInfo.owner_id);
 
     // MANAGERs cannot assign the MANAGER role — only OWNERs can
     if (actor.role === "MANAGER" && params.role === "MANAGER") {

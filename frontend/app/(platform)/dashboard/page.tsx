@@ -12,16 +12,28 @@ import { ShopTypeBadge } from "@/components/ui/Badge";
 import { formatCurrency } from "@/utils/formatCurrency";
 import toast from "react-hot-toast";
 
+interface PlanUsage {
+  plan: string;
+  shops: { used: number; max: number };
+  limits: { max_shops: number } | null;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
-  const [shops, setShops]       = useState<UserShop[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
+  const [shops,       setShops]       = useState<UserShop[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [showCreate,  setShowCreate]  = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [usage,       setUsage]       = useState<PlanUsage | null>(null);
 
   async function loadShops() {
     try {
-      const { data } = await api.get<UserShop[]>("/api/users/me/shops");
-      setShops(data);
+      const [shopsRes, usageRes] = await Promise.all([
+        api.get<UserShop[]>("/api/users/me/shops"),
+        api.get<PlanUsage>("/api/plan/usage"),
+      ]);
+      setShops(shopsRes.data);
+      setUsage(usageRes.data);
     } catch {
       toast.error("Failed to load shops.");
     } finally {
@@ -30,6 +42,16 @@ export default function DashboardPage() {
   }
 
   useEffect(() => { loadShops(); }, []);
+
+  function handleAddShop() {
+    if (usage && usage.shops.used >= usage.shops.max) {
+      setShowUpgrade(true);
+    } else {
+      setShowCreate(true);
+    }
+  }
+
+  const atLimit = usage ? usage.shops.used >= usage.shops.max : false;
 
   if (loading) return <PageSkeleton />;
 
@@ -41,12 +63,38 @@ export default function DashboardPage() {
           <h1 className="text-[22px] font-semibold text-brand-navy">My Shops</h1>
           <p className="text-[13px] text-ui-grey mt-0.5">
             {shops.length} {shops.length === 1 ? "shop" : "shops"}
+            {usage && (
+              <span className="ml-2 text-[12px] text-ui-grey opacity-70">
+                · {usage.shops.used}/{usage.shops.max} used ({usage.plan})
+              </span>
+            )}
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)} icon={<PlusIcon />}>
+        <Button onClick={handleAddShop} icon={<PlusIcon />}>
           New Shop
         </Button>
       </div>
+
+      {/* Near/at limit banner */}
+      {usage && usage.shops.used >= usage.shops.max && (
+        <div className="mb-5 flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+          <span className="text-amber-600 text-[18px]">⚠️</span>
+          <div className="flex-1">
+            <p className="text-[13px] font-medium text-amber-800">
+              You've reached your shop limit ({usage.shops.used}/{usage.shops.max} shops on the {usage.plan} plan).
+            </p>
+            <p className="text-[12px] text-amber-700 mt-0.5">
+              Your existing shops continue working normally. Upgrade to create more.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowUpgrade(true)}
+            className="text-[12px] font-semibold text-amber-700 border border-amber-300 rounded-lg px-3 py-1.5 hover:bg-amber-100 transition shrink-0"
+          >
+            Upgrade
+          </button>
+        </div>
+      )}
 
       {/* Shop grid */}
       {shops.length === 0 ? (
@@ -54,7 +102,7 @@ export default function DashboardPage() {
           title="No shops yet"
           description="Create your first shop to start managing orders and products."
           action={
-            <Button onClick={() => setShowCreate(true)} icon={<PlusIcon />}>
+            <Button onClick={handleAddShop} icon={<PlusIcon />}>
               Create your first shop
             </Button>
           }
@@ -69,15 +117,21 @@ export default function DashboardPage() {
             />
           ))}
 
-          {/* Add new shop card */}
+          {/* Add new shop card — greyed out when at limit */}
           <button
-            onClick={() => setShowCreate(true)}
-            className="border-2 border-dashed border-ui-greyBorder rounded-lg p-6 flex flex-col items-center justify-center gap-2 text-ui-grey hover:border-brand-teal hover:text-brand-teal transition-colors group"
+            onClick={handleAddShop}
+            className={`border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center gap-2 transition-colors group ${
+              atLimit
+                ? "border-ui-greyBorder text-ui-grey opacity-50 cursor-not-allowed"
+                : "border-ui-greyBorder text-ui-grey hover:border-brand-teal hover:text-brand-teal"
+            }`}
           >
             <div className="w-10 h-10 rounded-full border-2 border-current flex items-center justify-center">
-              <PlusIcon />
+              {atLimit ? <LockIcon /> : <PlusIcon />}
             </div>
-            <span className="text-[13px] font-medium">Add new shop</span>
+            <span className="text-[13px] font-medium">
+              {atLimit ? `Limit reached (${usage?.shops.used}/${usage?.shops.max})` : "Add new shop"}
+            </span>
           </button>
         </div>
       )}
@@ -87,6 +141,14 @@ export default function DashboardPage() {
         open={showCreate}
         onClose={() => setShowCreate(false)}
         onCreated={() => { setShowCreate(false); loadShops(); }}
+        onLimitReached={() => { setShowCreate(false); setShowUpgrade(true); }}
+      />
+
+      {/* Upgrade plan modal */}
+      <UpgradeModal
+        open={showUpgrade}
+        onClose={() => setShowUpgrade(false)}
+        usage={usage}
       />
     </div>
   );
@@ -98,45 +160,76 @@ function ShopCard({ shop, onClick }: { shop: UserShop; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="bg-white rounded-lg border border-ui-greyBorder p-5 text-left hover:border-brand-teal hover:shadow-md transition-all group"
+      className="bg-white border border-ui-greyBorder rounded-lg p-5 text-left hover:border-brand-teal hover:shadow-sm transition-all group"
     >
       <div className="flex items-start justify-between mb-3">
-        <div className="w-10 h-10 rounded-lg bg-brand-navy flex items-center justify-center">
-          <span className="text-white text-[15px] font-semibold">
-            {shop.shopName.charAt(0).toUpperCase()}
-          </span>
-        </div>
+        <h3 className="text-[15px] font-semibold text-brand-navy group-hover:text-brand-teal transition-colors truncate">
+          {shop.shopName}
+        </h3>
         <ShopTypeBadge type={shop.shopType} />
       </div>
-
-      <p className="text-[15px] font-semibold text-brand-navy group-hover:text-brand-teal transition-colors truncate">
-        {shop.shopName}
+      <p className="text-[12px] text-ui-grey">
+        {formatCurrency(0, shop.currency)} · {shop.role}
       </p>
-      <p className="text-[12px] text-ui-grey mt-1">{shop.currency} · {shop.role}</p>
-
-      <div className="mt-4 pt-3 border-t border-ui-greyBorder flex items-center justify-between">
-        <span className="text-[12px] text-ui-grey">Open shop →</span>
-      </div>
     </button>
+  );
+}
+
+// ── Upgrade modal ─────────────────────────────────────────
+
+function UpgradeModal({ open, onClose, usage }: { open: boolean; onClose: () => void; usage: PlanUsage | null }) {
+  return (
+    <Modal open={open} onClose={onClose} title="Upgrade Your Plan">
+      <div className="space-y-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-[13px] text-amber-800">
+          You're on the <strong>{usage?.plan ?? "free"}</strong> plan ({usage?.shops.used}/{usage?.shops.max} shops used).
+          Your existing shops are <strong>not affected</strong> — they continue working normally.
+        </div>
+
+        <div className="border border-[#D3D1C7] rounded-lg divide-y divide-[#D3D1C7]">
+          {[
+            { plan: "Free",  price: "$0/mo",  shops: "3 shops",  products: "200 products/shop", current: usage?.plan === "free" },
+            { plan: "Pro",   price: "$19/mo", shops: "20 shops", products: "1,000 products/shop", current: usage?.plan === "pro"  },
+          ].map(tier => (
+            <div key={tier.plan} className={`p-4 flex items-center justify-between ${tier.current ? "bg-[#F9F8F5]" : ""}`}>
+              <div>
+                <p className="text-[13px] font-semibold text-[#0F2B4C]">
+                  {tier.plan} {tier.current && <span className="text-[11px] font-normal text-[#0D7A5F] ml-1">current</span>}
+                </p>
+                <p className="text-[12px] text-[#5F5E5A] mt-0.5">{tier.shops} · {tier.products}</p>
+              </div>
+              <p className="text-[13px] font-semibold text-[#0F2B4C]">{tier.price}</p>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-[12px] text-[#5F5E5A]">
+          Pro plan coming soon. Contact us at <a href="mailto:support@minipos.site" className="text-[#0D7A5F] underline">support@minipos.site</a> to get early access.
+        </p>
+
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
 // ── Create shop modal ─────────────────────────────────────
 
 function CreateShopModal({
-  open,
-  onClose,
-  onCreated,
+  open, onClose, onCreated, onLimitReached,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  onLimitReached: () => void;
 }) {
-  const [name, setName]         = useState("");
+  const [name,     setName]     = useState("");
   const [shopType, setShopType] = useState<ShopType>("RETAIL");
   const [currency, setCurrency] = useState<Currency>("THB");
-  const [loading, setLoading]   = useState(false);
-  const [errors, setErrors]     = useState<Record<string, string>>({});
+  const [loading,  setLoading]  = useState(false);
+  const [errors,   setErrors]   = useState<Record<string, string>>({});
 
   function validate() {
     const e: Record<string, string> = {};
@@ -158,7 +251,11 @@ function CreateShopModal({
       onCreated();
     } catch (err: unknown) {
       const code = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(getErrorMessage(code));
+      if (code === "PLAN_SHOP_LIMIT_REACHED") {
+        onLimitReached();
+      } else {
+        toast.error(getErrorMessage(code));
+      }
     } finally {
       setLoading(false);
     }
@@ -233,6 +330,15 @@ function PlusIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
   );
 }

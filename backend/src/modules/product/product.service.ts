@@ -3,6 +3,8 @@ import { ProductRepository }  from "./product.repository.js";
 import { emitToShop }         from "../socket/socket.js";
 import { assertShopRole, assertShopMember } from "../../utils/authorize.js";
 import { WRITE_ROLES, READ_ROLES } from "../../constants/roles.constants.js";
+import { PlanService }        from "../plan/plan.service.js";
+import { ShopRepository }     from "../shop/shop.repository.js";
 import { PaginationParams, buildPaginatedResult } from "../../utils/pagination.js";
 import {
   CreateProductCategoryInput,
@@ -137,6 +139,9 @@ export class ProductService {
     category_id?: string;
   }) {
     await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
+
+    const shop = await ShopRepository.getById(params.shopId);
+    if (shop) await PlanService.checkProductLimit(params.shopId, shop.owner_id);
 
     const model = await ProductRepository.createModel({
       shopId:      params.shopId,

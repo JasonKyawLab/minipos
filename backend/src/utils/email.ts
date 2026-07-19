@@ -1,7 +1,9 @@
 import { Resend } from "resend";
 import { env } from "../config/validation.js";
 
-const resend = new Resend(env.RESEND_API_KEY);
+function getResend() {
+  return new Resend(env.RESEND_API_KEY!);
+}
 
 const LOGO = `<img src="${env.APP_URL}/logo.png" alt="MiniPOS" width="140" style="display:inline-block;" />`;
 const FOOTER = `
@@ -22,7 +24,7 @@ function wrap(body: string) {
 export async function sendVerificationEmail(to: string, name: string, verifyUrl: string) {
   if (!env.RESEND_API_KEY || !env.RESEND_FROM) return;
 
-  await resend.emails.send({
+  await getResend().emails.send({
     from:    env.RESEND_FROM,
     to,
     subject: "Verify your MiniPOS email",
@@ -48,7 +50,7 @@ export async function sendVerificationEmail(to: string, name: string, verifyUrl:
 export async function sendPasswordResetEmail(to: string, name: string, resetUrl: string) {
   if (!env.RESEND_API_KEY || !env.RESEND_FROM) return;
 
-  await resend.emails.send({
+  await getResend().emails.send({
     from:    env.RESEND_FROM,
     to,
     subject: "Reset your MiniPOS password",
