@@ -43,6 +43,7 @@ router.delete("/categories/:categoryId",             ProductController.deleteCat
 // ==========================================================
 
 router.post("/models",   validate(createModelSchema), ProductController.createModel);
+router.get("/models/check-name",                       ProductController.checkModelName);
 router.get("/models",                                  ProductController.getModels);
 router.get("/models/:modelId",                         ProductController.getModelById);
 router.patch("/models/:modelId", validate(updateModelSchema), ProductController.updateModel);

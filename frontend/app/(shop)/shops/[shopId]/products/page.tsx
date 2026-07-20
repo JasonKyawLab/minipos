@@ -17,6 +17,7 @@ import type {
 import { EmptyState }         from "@/components/states";
 import { SkeletonTable }      from "@/components/ui/Skeleton";
 import { Modal, ConfirmModal } from "@/components/ui/Modal";
+import { PlanLimitModal } from "@/components/ui/PlanLimitModal";
 import { Button }             from "@/components/ui/Button";
 import { ActiveBadge }        from "@/components/ui/Badge";
 import { TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
@@ -356,19 +357,24 @@ function ProductsTab({ shopId, currency, canWrite }: {
   const [meta, setMeta]  = useState<PaginationMeta | null>(null);
 
   // ── Create product ────────────────────────────────────
-  const [showCreateModel, setShowCreateModel] = useState(false);
-  const [modelName, setModelName]             = useState("");
-  const [modelDesc, setModelDesc]             = useState("");
-  const [modelCatId, setModelCatId]           = useState("");
-  const [modelSaving, setModelSaving]         = useState(false);
+  const [showCreateModel, setShowCreateModel]   = useState(false);
+  const [modelName, setModelName]               = useState("");
+  const [modelDesc, setModelDesc]               = useState("");
+  const [modelCatId, setModelCatId]             = useState("");
+  const [modelSaving, setModelSaving]           = useState(false);
+  const [modelNameDupe, setModelNameDupe]       = useState(false);
+  const [modelDescError, setModelDescError]     = useState("");
+  const [showProductLimit, setShowProductLimit] = useState(false);
 
   // ── Edit product ──────────────────────────────────────
-  const [editModel, setEditModel]             = useState<ProductModel | null>(null);
-  const [editModelName, setEditModelName]     = useState("");
-  const [deleteModel, setDeleteModel]         = useState<ProductModel | null>(null);
-  const [editModelDesc, setEditModelDesc]     = useState("");
-  const [editModelCatId, setEditModelCatId]   = useState("");
-  const [editModelSaving, setEditModelSaving] = useState(false);
+  const [editModel, setEditModel]               = useState<ProductModel | null>(null);
+  const [editModelName, setEditModelName]       = useState("");
+  const [deleteModel, setDeleteModel]           = useState<ProductModel | null>(null);
+  const [editModelDesc, setEditModelDesc]       = useState("");
+  const [editModelCatId, setEditModelCatId]     = useState("");
+  const [editModelSaving, setEditModelSaving]   = useState(false);
+  const [editModelNameDupe, setEditModelNameDupe] = useState(false);
+  const [editModelDescError, setEditModelDescError] = useState("");
 
   // ── Create item ───────────────────────────────────────
   // itemTrackStock defaults true — most shops start with
@@ -436,6 +442,35 @@ function ProductsTab({ shopId, currency, canWrite }: {
   // one page of results.
   useEffect(() => { setPage(1); }, [search]);
 
+  // Debounced duplicate-name checks
+  useEffect(() => {
+    if (!showCreateModel || !modelName.trim()) { setModelNameDupe(false); return; }
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get<{ exists: boolean }>(
+          `/api/shops/${shopId}/products/models/check-name`,
+          { params: { name: modelName.trim() } }
+        );
+        setModelNameDupe(data.exists);
+      } catch { setModelNameDupe(false); }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [modelName, showCreateModel, shopId]);
+
+  useEffect(() => {
+    if (!editModel || !editModelName.trim()) { setEditModelNameDupe(false); return; }
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get<{ exists: boolean }>(
+          `/api/shops/${shopId}/products/models/check-name`,
+          { params: { name: editModelName.trim(), excludeId: editModel.id } }
+        );
+        setEditModelNameDupe(data.exists);
+      } catch { setEditModelNameDupe(false); }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [editModelName, editModel, shopId]);
+
   function selectModel(model: ProductModel) { setSelected(model); loadItems(model); }
 
   // ── Product model handlers ────────────────────────────
@@ -443,6 +478,7 @@ function ProductsTab({ shopId, currency, canWrite }: {
   async function handleCreateModel(e: React.FormEvent) {
     e.preventDefault();
     if (!modelName.trim()) { toast.error("Name is required."); return; }
+    if (modelNameDupe && !modelDesc.trim()) { setModelDescError("Add a description to tell this product apart from the existing one with the same name."); return; }
     setModelSaving(true);
     try {
       const { data } = await api.post<ProductModel>(`/api/shops/${shopId}/products/models`, {
@@ -451,12 +487,20 @@ function ProductsTab({ shopId, currency, canWrite }: {
         category_id: modelCatId || undefined,
       });
       toast.success("Product created.");
-      setModelName(""); setModelDesc(""); setModelCatId("");
+      setModelName(""); setModelDesc(""); setModelCatId(""); setModelNameDupe(false); setModelDescError("");
       setShowCreateModel(false);
       await loadModels();
       selectModel(data);
     } catch (err: any) {
-      toast.error(getErrorMessage(err.response?.data?.message));
+      const code = err.response?.data?.message;
+      if (code === "PLAN_PRODUCT_LIMIT_REACHED") {
+        setShowCreateModel(false);
+        setShowProductLimit(true);
+      } else if (code === "PRODUCT_EXACT_DUPLICATE") {
+        setModelDescError("A product with this exact name and description already exists.");
+      } else {
+        toast.error(getErrorMessage(code));
+      }
     } finally { setModelSaving(false); }
   }
 
@@ -466,12 +510,15 @@ function ProductsTab({ shopId, currency, canWrite }: {
     setEditModelName(model.name);
     setEditModelDesc(model.description ?? "");
     setEditModelCatId(model.category_id ?? "");
+    setEditModelNameDupe(false);
+    setEditModelDescError("");
   }
 
   async function handleEditModel(e: React.FormEvent) {
     e.preventDefault();
     if (!editModel) return;
     if (!editModelName.trim()) { toast.error("Name is required."); return; }
+    if (editModelNameDupe && !editModelDesc.trim()) { setEditModelDescError("Add a description to tell this product apart from the existing one with the same name."); return; }
     setEditModelSaving(true);
     try {
       const { data } = await api.patch<ProductModel>(
@@ -486,9 +533,16 @@ function ProductsTab({ shopId, currency, canWrite }: {
       toast.success("Product updated.");
       if (selected?.id === data.id) setSelected(data);
       setEditModel(null);
+      setEditModelNameDupe(false);
+      setEditModelDescError("");
       loadModels();
     } catch (err: any) {
-      toast.error(getErrorMessage(err.response?.data?.message));
+      const code = err.response?.data?.message;
+      if (code === "PRODUCT_EXACT_DUPLICATE") {
+        setEditModelDescError("A product with this exact name and description already exists.");
+      } else {
+        toast.error(getErrorMessage(code));
+      }
     } finally { setEditModelSaving(false); }
   }
 
@@ -770,19 +824,29 @@ function ProductsTab({ shopId, currency, canWrite }: {
       </div>
 
       {/* ── Create product modal ──────────────────────── */}
-      <Modal open={showCreateModel} onClose={() => setShowCreateModel(false)} title="New Product">
+      <Modal open={showCreateModel} onClose={() => { setShowCreateModel(false); setModelNameDupe(false); setModelDescError(""); }} title="New Product">
         <form onSubmit={handleCreateModel} className="space-y-4">
           <div className="space-y-1">
             <label className="block text-[13px] font-medium text-[#1A1A1A]">Product name *</label>
             <input value={modelName} onChange={(e) => setModelName(e.target.value)}
               className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
               placeholder="e.g. Soda Drink" autoFocus />
+            {modelNameDupe && (
+              <p className="text-[12px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                A product with this name already exists. Add a description to tell them apart (e.g. brand, size, colour).
+              </p>
+            )}
           </div>
           <div className="space-y-1">
-            <label className="block text-[13px] font-medium text-[#1A1A1A]">Description</label>
-            <input value={modelDesc} onChange={(e) => setModelDesc(e.target.value)}
-              className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
-              placeholder="Optional" />
+            <label className="block text-[13px] font-medium text-[#1A1A1A]">
+              Description {modelNameDupe && <span className="text-amber-600">*</span>}
+            </label>
+            <input value={modelDesc} onChange={(e) => { setModelDesc(e.target.value); setModelDescError(""); }}
+              className={`w-full h-9 px-3 text-[13px] border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] ${modelDescError ? "border-red-400" : modelNameDupe && !modelDesc.trim() ? "border-amber-400" : "border-[#D3D1C7]"}`}
+              placeholder={modelNameDupe ? "Required — e.g. Nike brand, Size S–XL" : "Optional"} />
+            {modelDescError && (
+              <p className="text-[12px] text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">{modelDescError}</p>
+            )}
           </div>
           <div className="space-y-1">
             <label className="block text-[13px] font-medium text-[#1A1A1A]">Category</label>
@@ -802,19 +866,29 @@ function ProductsTab({ shopId, currency, canWrite }: {
       </Modal>
 
       {/* ── Edit product modal ────────────────────────── */}
-      <Modal open={!!editModel} onClose={() => setEditModel(null)} title="Edit Product">
+      <Modal open={!!editModel} onClose={() => { setEditModel(null); setEditModelNameDupe(false); setEditModelDescError(""); }} title="Edit Product">
         <form onSubmit={handleEditModel} className="space-y-4">
           <div className="space-y-1">
             <label className="block text-[13px] font-medium text-[#1A1A1A]">Product name *</label>
             <input value={editModelName} onChange={(e) => setEditModelName(e.target.value)}
               className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
               autoFocus />
+            {editModelNameDupe && (
+              <p className="text-[12px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                Another product already has this name. Add a description to tell them apart.
+              </p>
+            )}
           </div>
           <div className="space-y-1">
-            <label className="block text-[13px] font-medium text-[#1A1A1A]">Description</label>
-            <input value={editModelDesc} onChange={(e) => setEditModelDesc(e.target.value)}
-              className="w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
-              placeholder="Optional" />
+            <label className="block text-[13px] font-medium text-[#1A1A1A]">
+              Description {editModelNameDupe && <span className="text-amber-600">*</span>}
+            </label>
+            <input value={editModelDesc} onChange={(e) => { setEditModelDesc(e.target.value); setEditModelDescError(""); }}
+              className={`w-full h-9 px-3 text-[13px] border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] ${editModelDescError ? "border-red-400" : editModelNameDupe && !editModelDesc.trim() ? "border-amber-400" : "border-[#D3D1C7]"}`}
+              placeholder={editModelNameDupe ? "Required — e.g. Adidas brand, Size M–XXL" : "Optional"} />
+            {editModelDescError && (
+              <p className="text-[12px] text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">{editModelDescError}</p>
+            )}
           </div>
           <div className="space-y-1">
             <label className="block text-[13px] font-medium text-[#1A1A1A]">Category</label>
@@ -982,6 +1056,14 @@ function ProductsTab({ shopId, currency, canWrite }: {
         message={`Delete "${deleteModel?.name}"? This cannot be undone.`}
         confirmLabel="Delete"
         danger
+      />
+
+      <PlanLimitModal
+        open={showProductLimit}
+        onClose={() => setShowProductLimit(false)}
+        limitType="product"
+        used={meta?.totalCount ?? 0}
+        max={200}
       />
     </div>
   );

@@ -8,6 +8,8 @@ interface PendingItem {
   id: number;
   question: string;
   customer: string;
+  channel?: string;
+  created_at?: string;
 }
 
 interface Stats {
@@ -118,9 +120,21 @@ export default function AdminChatPage() {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-medium text-[#0F2B4C] mb-0.5">{item.question}</p>
-                  {item.customer && (
-                    <p className="text-[12px] text-[#5F5E5A]">From: {item.customer}</p>
-                  )}
+                  <div className="flex items-center gap-3 mt-0.5">
+                    {item.customer && (
+                      <p className="text-[12px] text-[#5F5E5A]">From: {item.customer}</p>
+                    )}
+                    {item.channel && (
+                      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-[#F1EFE8] text-[#5F5E5A] capitalize">
+                        {item.channel}
+                      </span>
+                    )}
+                    {item.created_at && (
+                      <span className="text-[11px] text-[#9CA3AF]">
+                        {new Date(item.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
                   <button

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import api from "@/lib/api";
 import { getErrorMessage } from "@/utils/errorMessages";
 import toast from "react-hot-toast";
-import type { User, UserStatus, UserRole } from "@/types";
+import type { User, UserStatus, UserRole, UserPlan } from "@/types";
 import { EmptyState } from "@/components/states";
 import { Table, TableHead, Th, TableBody, Tr, Td } from "@/components/ui/Table";
 import { SkeletonTable } from "@/components/ui/Skeleton";
@@ -23,6 +23,7 @@ const STATUS_STYLES: Record<UserStatus, string> = {
 type PendingAction =
   | { type: "STATUS"; user: User; newStatus: UserStatus }
   | { type: "ROLE"; user: User; newRole: UserRole }
+  | { type: "PLAN"; user: User; newPlan: UserPlan }
   | null;
 
 export default function AdminUsersPage() {
@@ -58,6 +59,11 @@ export default function AdminUsersPage() {
     setPending({ type: "ROLE", user, newRole });
   }
 
+  function askTogglePlan(user: User) {
+    const newPlan: UserPlan = user.plan === "free" ? "pro" : "free";
+    setPending({ type: "PLAN", user, newPlan });
+  }
+
   async function confirmPending() {
     if (!pending) return;
     setSubmitting(true);
@@ -69,9 +75,12 @@ export default function AdminUsersPage() {
         const endpoint = pending.newStatus === "SUSPENDED" ? "suspend" : "reactivate";
         await api.patch(`/api/admin/users/${pending.user.id}/${endpoint}`);
         toast.success(`User ${pending.newStatus === "SUSPENDED" ? "suspended" : "reactivated"}.`);
-      } else {
+      } else if (pending.type === "ROLE") {
         await api.patch(`/api/admin/users/${pending.user.id}/role`, { role: pending.newRole });
         toast.success("Role updated.");
+      } else {
+        await api.patch(`/api/plan/users/${pending.user.id}`, { plan: pending.newPlan });
+        toast.success(`Plan changed to ${pending.newPlan}.`);
       }
       setPending(null);
       load();
@@ -94,16 +103,20 @@ export default function AdminUsersPage() {
   // ── Confirm modal copy — varies by action type ──────────
   const modalTitle = pending?.type === "STATUS"
     ? (pending.newStatus === "SUSPENDED" ? "Suspend user" : "Reactivate user")
+    : pending?.type === "PLAN" ? "Change plan"
     : "Change role";
 
   const modalDescription = pending?.type === "STATUS"
     ? (pending.newStatus === "SUSPENDED"
         ? "They'll immediately lose access to all shops and the platform until reactivated."
         : "They'll regain access immediately.")
+    : pending?.type === "PLAN"
+    ? `This changes ${pending.user.name}'s plan to ${pending.newPlan}. Limits apply immediately.`
     : `This changes ${pending?.user.name}'s platform role between ADMIN and USER.`;
 
   const confirmLabel = pending?.type === "STATUS"
     ? (pending.newStatus === "SUSPENDED" ? "Suspend" : "Reactivate")
+    : pending?.type === "PLAN" ? `Set to ${(pending as any).newPlan}`
     : "Change role";
 
   const confirmDanger = pending?.type === "STATUS" && pending.newStatus === "SUSPENDED";
@@ -135,6 +148,7 @@ export default function AdminUsersPage() {
             <Th>User</Th>
             <Th>Email</Th>
             <Th>Role</Th>
+            <Th>Plan</Th>
             <Th>Status</Th>
             <Th>Shops</Th>
             <Th align="right">Actions</Th>
@@ -159,6 +173,13 @@ export default function AdminUsersPage() {
                   </span>
                 </Td>
                 <Td>
+                  <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${
+                    u.plan === "pro" ? "bg-[#EEEDFE] text-[#534AB7]" : "bg-[#F1EFE8] text-[#5F5E5A]"
+                  }`}>
+                    {u.plan ?? "free"}
+                  </span>
+                </Td>
+                <Td>
                   <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${STATUS_STYLES[u.status]}`}>
                     {u.status}
                   </span>
@@ -172,6 +193,12 @@ export default function AdminUsersPage() {
                 </Td>
                 <Td align="right">
                   <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                    <button
+                      onClick={() => askTogglePlan(u)}
+                      className="text-[12px] text-[#0D7A5F] hover:underline whitespace-nowrap"
+                    >
+                      {u.plan === "pro" ? "Set Free" : "Set Pro"}
+                    </button>
                     <button
                       onClick={() => askToggleRole(u)}
                       className="text-[12px] text-[#534AB7] hover:underline whitespace-nowrap"

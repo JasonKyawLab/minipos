@@ -52,6 +52,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   SKU_ALREADY_EXISTS:       "A product with this SKU already exists.",
   BARCODE_ALREADY_EXISTS:   "A product with this barcode already exists.",
   DUPLICATE_ENTRY:          "A duplicate entry already exists.",
+  PRODUCT_NAME_DUPLICATE:   "A product with this name already exists in this shop.",
+  PRODUCT_EXACT_DUPLICATE:  "A product with this exact name and description already exists.",
   PRODUCT_MODEL_NOT_FOUND:  "Product model not found.",
 
   // ── Payment ───────────────────────────────────────────────

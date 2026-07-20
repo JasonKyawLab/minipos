@@ -143,6 +143,11 @@ export class ProductService {
     const shop = await ShopRepository.getById(params.shopId);
     if (shop) await PlanService.checkProductLimit(params.shopId, shop.owner_id);
 
+    if (params.description !== undefined) {
+      const exact = await ProductRepository.exactDuplicateExists(params.shopId, params.name, params.description);
+      if (exact) throw new appError("PRODUCT_EXACT_DUPLICATE", 409);
+    }
+
     const model = await ProductRepository.createModel({
       shopId:      params.shopId,
       name:        params.name,
@@ -193,6 +198,11 @@ export class ProductService {
     input:       UpdateProductModelInput;
   }) {
     await assertShopRole(params.shopId, params.requesterId, WRITE_ROLES);
+
+    if (params.input.name && params.input.description !== undefined) {
+      const exact = await ProductRepository.exactDuplicateExists(params.shopId, params.input.name, params.input.description, params.modelId);
+      if (exact) throw new appError("PRODUCT_EXACT_DUPLICATE", 409);
+    }
 
     const updated = await ProductRepository.updateModel(
       params.modelId, params.shopId, params.input

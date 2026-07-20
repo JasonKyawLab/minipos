@@ -1,5 +1,6 @@
 import { Request, Response }  from "express";
 import { ProductService }     from "./product.service.js";
+import { ProductRepository }  from "./product.repository.js";
 import { getParamAsString }   from "../../utils/converter.js";
 import { asyncHandler }       from "../../utils/asyncHandler.js";
 import { parsePaginationParams } from "../../utils/pagination.js";
@@ -62,6 +63,15 @@ export class ProductController {
       shopId, requesterId, name, description, image_url, category_id,
     });
     res.status(201).json(model);
+  });
+
+  static checkModelName = asyncHandler(async (req: Request, res: Response) => {
+    const shopId      = getParamAsString(req.params.shopId, "shopId");
+    const requesterId = req.user!.id;
+    const name        = req.query.name as string;
+    const excludeId   = req.query.excludeId as string | undefined;
+    const exists = await ProductRepository.nameExistsInShop(shopId, name, excludeId);
+    res.json({ exists });
   });
 
   static getModels = asyncHandler(async (req: Request, res: Response) => {

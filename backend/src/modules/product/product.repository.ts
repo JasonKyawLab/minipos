@@ -117,6 +117,33 @@ export class ProductRepository {
   // PRODUCT MODELS
   // =======================================================
 
+  static async nameExistsInShop(shopId: string, name: string, excludeModelId?: string): Promise<boolean> {
+    const result = await pool.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM product_models
+         WHERE shop_id = $1 AND lower(name) = lower($2)
+           AND is_deleted = false
+           ${excludeModelId ? "AND id <> $3" : ""}
+       ) AS exists`,
+      excludeModelId ? [shopId, name, excludeModelId] : [shopId, name]
+    );
+    return result.rows[0].exists;
+  }
+
+  static async exactDuplicateExists(shopId: string, name: string, description: string, excludeModelId?: string): Promise<boolean> {
+    const result = await pool.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM product_models
+         WHERE shop_id = $1 AND lower(name) = lower($2)
+           AND lower(coalesce(description, '')) = lower($3)
+           AND is_deleted = false
+           ${excludeModelId ? "AND id <> $4" : ""}
+       ) AS exists`,
+      excludeModelId ? [shopId, name, description, excludeModelId] : [shopId, name, description]
+    );
+    return result.rows[0].exists;
+  }
+
   static async createModel(input: CreateProductModelInput): Promise<ProductModel> {
     const { shopId, name, description, image_url, category_id } = input;
     const result = await pool.query<ProductModel>(

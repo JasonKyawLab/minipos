@@ -8,6 +8,7 @@ import { getErrorMessage } from "@/utils/errorMessages";
 import { PageSkeleton, EmptyState } from "@/components/states";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { PlanLimitModal } from "@/components/ui/PlanLimitModal";
 import { ShopTypeBadge } from "@/components/ui/Badge";
 import { formatCurrency } from "@/utils/formatCurrency";
 import toast from "react-hot-toast";
@@ -75,7 +76,7 @@ export default function DashboardPage() {
         </Button>
       </div>
 
-      {/* Near/at limit banner */}
+      {/* At/over limit banner */}
       {usage && usage.shops.used >= usage.shops.max && (
         <div className="mb-5 flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
           <span className="text-amber-600 text-[18px]">⚠️</span>
@@ -84,14 +85,14 @@ export default function DashboardPage() {
               You've reached your shop limit ({usage.shops.used}/{usage.shops.max} shops on the {usage.plan} plan).
             </p>
             <p className="text-[12px] text-amber-700 mt-0.5">
-              Your existing shops continue working normally. Upgrade to create more.
+              Your existing shops continue working normally.
             </p>
           </div>
           <button
             onClick={() => setShowUpgrade(true)}
             className="text-[12px] font-semibold text-amber-700 border border-amber-300 rounded-lg px-3 py-1.5 hover:bg-amber-100 transition shrink-0"
           >
-            Upgrade
+            View Plan
           </button>
         </div>
       )}
@@ -144,11 +145,12 @@ export default function DashboardPage() {
         onLimitReached={() => { setShowCreate(false); setShowUpgrade(true); }}
       />
 
-      {/* Upgrade plan modal */}
-      <UpgradeModal
+      <PlanLimitModal
         open={showUpgrade}
         onClose={() => setShowUpgrade(false)}
-        usage={usage}
+        limitType="shop"
+        used={usage?.shops.used ?? 0}
+        max={usage?.shops.max ?? 3}
       />
     </div>
   );
@@ -175,45 +177,7 @@ function ShopCard({ shop, onClick }: { shop: UserShop; onClick: () => void }) {
   );
 }
 
-// ── Upgrade modal ─────────────────────────────────────────
-
-function UpgradeModal({ open, onClose, usage }: { open: boolean; onClose: () => void; usage: PlanUsage | null }) {
-  return (
-    <Modal open={open} onClose={onClose} title="Upgrade Your Plan">
-      <div className="space-y-4">
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-[13px] text-amber-800">
-          You're on the <strong>{usage?.plan ?? "free"}</strong> plan ({usage?.shops.used}/{usage?.shops.max} shops used).
-          Your existing shops are <strong>not affected</strong> — they continue working normally.
-        </div>
-
-        <div className="border border-[#D3D1C7] rounded-lg divide-y divide-[#D3D1C7]">
-          {[
-            { plan: "Free",  price: "$0/mo",  shops: "3 shops",  products: "200 products/shop", current: usage?.plan === "free" },
-            { plan: "Pro",   price: "$19/mo", shops: "20 shops", products: "1,000 products/shop", current: usage?.plan === "pro"  },
-          ].map(tier => (
-            <div key={tier.plan} className={`p-4 flex items-center justify-between ${tier.current ? "bg-[#F9F8F5]" : ""}`}>
-              <div>
-                <p className="text-[13px] font-semibold text-[#0F2B4C]">
-                  {tier.plan} {tier.current && <span className="text-[11px] font-normal text-[#0D7A5F] ml-1">current</span>}
-                </p>
-                <p className="text-[12px] text-[#5F5E5A] mt-0.5">{tier.shops} · {tier.products}</p>
-              </div>
-              <p className="text-[13px] font-semibold text-[#0F2B4C]">{tier.price}</p>
-            </div>
-          ))}
-        </div>
-
-        <p className="text-[12px] text-[#5F5E5A]">
-          Pro plan coming soon. Contact us at <a href="mailto:support@minipos.site" className="text-[#0D7A5F] underline">support@minipos.site</a> to get early access.
-        </p>
-
-        <div className="flex justify-end">
-          <Button variant="secondary" onClick={onClose}>Close</Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
+// UpgradeModal replaced by shared PlanLimitModal component
 
 // ── Create shop modal ─────────────────────────────────────
 

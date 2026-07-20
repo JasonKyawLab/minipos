@@ -37,6 +37,18 @@ const NAV_ITEMS: NavItem[] = [
       </svg>
     ),
   },
+  {
+    href: "/plan",
+    label: "Plan",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+        <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+        <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+        <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      </svg>
+    ),
+  },
 ];
 
 export function Sidebar() {
@@ -98,7 +110,7 @@ export function Sidebar() {
           {expanded && (
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-ui-nearBlack truncate">{user?.name}</p>
-              <p className="text-[11px] text-ui-grey">{user?.role}</p>
+              <p className="text-[11px] text-ui-grey capitalize">{(user as any)?.plan ?? "free"} plan</p>
             </div>
           )}
         </div>
