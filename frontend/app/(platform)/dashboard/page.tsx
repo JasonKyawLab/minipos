@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import { UserShop, ShopType, Currency } from "@/types";
@@ -143,6 +143,7 @@ export default function DashboardPage() {
         onClose={() => setShowCreate(false)}
         onCreated={() => { setShowCreate(false); loadShops(); }}
         onLimitReached={() => { setShowCreate(false); setShowUpgrade(true); }}
+        existingShops={shops}
       />
 
       <PlanLimitModal
@@ -182,18 +183,34 @@ function ShopCard({ shop, onClick }: { shop: UserShop; onClick: () => void }) {
 // ── Create shop modal ─────────────────────────────────────
 
 function CreateShopModal({
-  open, onClose, onCreated, onLimitReached,
+  open, onClose, onCreated, onLimitReached, existingShops,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
   onLimitReached: () => void;
+  existingShops: UserShop[];
 }) {
   const [name,     setName]     = useState("");
   const [shopType, setShopType] = useState<ShopType>("RETAIL");
   const [currency, setCurrency] = useState<Currency>("THB");
   const [loading,  setLoading]  = useState(false);
   const [errors,   setErrors]   = useState<Record<string, string>>({});
+  const [nameDupe, setNameDupe] = useState(false);
+  const dupeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleNameChange(val: string) {
+    setName(val);
+    if (dupeTimer.current) clearTimeout(dupeTimer.current);
+    dupeTimer.current = setTimeout(() => {
+      const trimmed = val.trim().toLowerCase();
+      setNameDupe(trimmed.length > 0 && existingShops.some(s => s.shopName.toLowerCase() === trimmed));
+    }, 400);
+  }
+
+  function resetForm() {
+    setName(""); setShopType("RETAIL"); setCurrency("THB"); setErrors({}); setNameDupe(false);
+  }
 
   function validate() {
     const e: Record<string, string> = {};
@@ -211,7 +228,7 @@ function CreateShopModal({
     try {
       await api.post("/api/shops", { name: name.trim(), shopType, currency });
       toast.success("Shop created successfully!");
-      setName(""); setShopType("RETAIL"); setCurrency("THB"); setErrors({});
+      resetForm();
       onCreated();
     } catch (err: unknown) {
       const code = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -235,14 +252,20 @@ function CreateShopModal({
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => handleNameChange(e.target.value)}
             placeholder="e.g. Morning Café"
             maxLength={120}
             className={`w-full h-9 px-3 border rounded-md text-[14px] focus:outline-none focus:ring-2 focus:ring-brand-teal ${
-              errors.name ? "border-status-red" : "border-ui-greyBorder"
+              errors.name ? "border-status-red" : nameDupe ? "border-amber-400" : "border-ui-greyBorder"
             }`}
           />
           {errors.name && <p className="text-[12px] text-status-red">{errors.name}</p>}
+          {nameDupe && !errors.name && (
+            <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-[12px] text-amber-800">
+              <span className="mt-0.5 shrink-0">⚠️</span>
+              <span>You already have a shop with this name. You can still create it.</span>
+            </div>
+          )}
         </div>
 
         <div className="space-y-1">
