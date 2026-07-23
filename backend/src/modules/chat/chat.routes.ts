@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { handleError } from "../../utils/handleError.js";
 import { env } from "../../config/validation.js";
 import { chatLimiter } from "../../middlewares/rateLimit.middleware.js";
@@ -10,6 +10,25 @@ const router = Router();
 const ASKDESK_URL  = env.ASKDESK_URL;
 const ASKDESK_KEY  = env.ASKDESK_API_KEY;
 const ASKDESK_ADMIN = env.ASKDESK_ADMIN_KEY;
+
+// forwardAskDesk relays an AskDesk response to the client, preserving its real
+// HTTP status. When AskDesk errors (or returns a non-JSON body, e.g. a 502 while
+// the free instance is cold), it logs the detail and returns 502 with a clear
+// message so the failure is visible instead of a blind "something went wrong".
+async function forwardAskDesk(res: Response, label: string, response: globalThis.Response) {
+  const body = await response.text();
+  let data: unknown;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    console.error(`[chat] ${label}: AskDesk returned non-JSON (status ${response.status}):`, body.slice(0, 500));
+    return res.status(502).json({ message: "Support service is unavailable. Please try again in a moment." });
+  }
+  if (!response.ok) {
+    console.error(`[chat] ${label}: AskDesk error status ${response.status}:`, data);
+  }
+  return res.status(response.status).json(data);
+}
 
 router.post("/ask", chatLimiter, async (req, res) => {
   try {
@@ -27,10 +46,10 @@ router.post("/ask", chatLimiter, async (req, res) => {
       body: JSON.stringify({ message: message.trim(), session_id: session_id ?? "anon" }),
     });
 
-    const data = await response.json();
-    return res.json(data);
+    return await forwardAskDesk(res, "ask", response);
   } catch (err) {
-    return handleError(res, err);
+    console.error("[chat] ask: could not reach AskDesk:", err);
+    return res.status(502).json({ message: "Support service is unavailable. Please try again in a moment." });
   }
 });
 
@@ -39,10 +58,10 @@ router.get("/faqs", async (_req, res) => {
     const response = await fetch(`${ASKDESK_URL}/api/v1/faqs`, {
       headers: { "X-API-Key": ASKDESK_KEY! },
     });
-    const data = await response.json();
-    return res.json(data);
+    return await forwardAskDesk(res, "faqs", response);
   } catch (err) {
-    return handleError(res, err);
+    console.error("[chat] faqs: could not reach AskDesk:", err);
+    return res.status(502).json({ message: "Support service is unavailable. Please try again in a moment." });
   }
 });
 
@@ -57,10 +76,10 @@ router.get("/replies", chatLimiter, async (req, res) => {
       headers: { "X-API-Key": ASKDESK_KEY! },
     });
 
-    const data = await response.json();
-    return res.json(data);
+    return await forwardAskDesk(res, "replies", response);
   } catch (err) {
-    return handleError(res, err);
+    console.error("[chat] replies: could not reach AskDesk:", err);
+    return res.status(502).json({ message: "Support service is unavailable. Please try again in a moment." });
   }
 });
 

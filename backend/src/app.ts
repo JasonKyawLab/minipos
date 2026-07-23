@@ -81,7 +81,7 @@ app.get("/wakeup", (_req, res) => {
   res.json({ status: "OK", message: "MiniPOS is running" });
 });
 
-app.get("/health", async (_req, res) => {
+async function healthHandler(_req: express.Request, res: express.Response) {
   try {
     await pool.query("SELECT 1");
     res.json({
@@ -92,7 +92,10 @@ app.get("/health", async (_req, res) => {
   } catch (err) {
     res.status(503).json({ status: "unhealthy", error: "Database connection failed" });
   }
-});
+}
+
+app.get("/health",     healthHandler);
+app.get("/api/health", healthHandler);
 
 app.get("/health/socket", (_req, res) => {
   const status = getSocketStatus();
