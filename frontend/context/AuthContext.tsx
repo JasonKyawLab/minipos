@@ -61,39 +61,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]           = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const channelRef                = useRef<BroadcastChannel | null>(null);
+  const refreshAbortRef           = useRef<AbortController | null>(null);
+  const loggedOutRef              = useRef(false);
 
   // ── Refresh: load current user from the httpOnly cookie ─
-  // We always call /auth/me — we cannot read httpOnly cookies in JS.
-// Modify the refresh function to be terminal-aware
-const refresh = useCallback(async () => {
-  // FIX: Don't do pathname checks inside the callback.
-  // Instead, catch the 401 gracefully and set user to null.
-  // The SessionGuard already handles routing for terminal devices.
-  try {
-    const { data } = await api.get<{ user: User }>("/api/auth/me");
-    if (data?.user?.id) {
-      setUser(data.user);
-    } else {
+  const refresh = useCallback(async () => {
+    if (loggedOutRef.current) return;
+    // Cancel any previous in-flight refresh
+    refreshAbortRef.current?.abort();
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
+    try {
+      const { data } = await api.get<{ user: User }>("/api/auth/me", {
+        signal: controller.signal,
+      });
+      if (loggedOutRef.current) return;
+      if (data?.user?.id) {
+        setUser(data.user);
+      } else {
+        setUser(null);
+      }
+    } catch (err: any) {
+      if (err?.name === "CanceledError" || err?.name === "AbortError") return;
       setUser(null);
+    } finally {
+      if (!controller.signal.aborted) setIsLoading(false);
     }
-  } catch {
-    // 401 on /auth/me is expected for terminal devices — not an error.
-    setUser(null);
-  } finally {
-    setIsLoading(false);
-  }
-}, []);
+  }, []);
 
   // ── Logout ─────────────────────────────────────────────
   const logout = useCallback(async () => {
+    // Mark as logged out first so any in-flight refresh is ignored
+    loggedOutRef.current = true;
+    refreshAbortRef.current?.abort();
     try {
       await api.post("/api/auth/logout");
     } catch {
       // Always clear state even if the network call fails.
     } finally {
       setUser(null);
+      loggedOutRef.current = false;
       // Tell other tabs to redirect to login cleanly.
       channelRef.current?.postMessage({ type: "LOGOUT" } satisfies TabMessage);
+      // Redirect this tab to login — hard navigate so middleware
+      // re-evaluates the (now-cleared) access_token cookie.
+      window.location.href = "/login";
     }
   }, []);
 
