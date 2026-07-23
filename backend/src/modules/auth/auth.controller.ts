@@ -3,6 +3,7 @@ import { AuthService } from "./auth.service.js";
 import { LoginRequest } from "./auth.types.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { env } from "../../config/validation.js";
+import { pool } from "../../db/pool.js";
 
 export class AuthController {
 
@@ -23,6 +24,8 @@ export class AuthController {
       sameSite: "lax",
       maxAge: 24 * 60 * 60 * 1000,
     });
+
+    pool.query("UPDATE users SET is_online = true WHERE id = $1", [result.user.id]).catch(() => {});
 
     res.json({
       user: result.user,
@@ -51,7 +54,10 @@ export class AuthController {
     });
   });
 
-  static logout = asyncHandler(async (_req: Request, res: Response) => {
+  static logout = asyncHandler(async (req: Request, res: Response) => {
+    if (req.user?.id) {
+      pool.query("UPDATE users SET is_online = false WHERE id = $1", [req.user.id]).catch(() => {});
+    }
     res.clearCookie("access_token");
     res.json({ message: "Logged out successfully" });
   });

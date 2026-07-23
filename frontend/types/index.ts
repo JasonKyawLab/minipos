@@ -17,6 +17,7 @@ export interface User {
   shop_count:    number;
   created_at:    string;
   last_seen_at?: string;
+  is_online?:    boolean;
 }
 
 // ── Shop ──────────────────────────────────────────────────

@@ -12,13 +12,8 @@ import { PaginationMeta } from "@/components/ui/Pagination";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 
-function OnlineBadge({ lastSeenAt }: { lastSeenAt?: string }) {
-  if (!lastSeenAt) return <span className="text-[12px] text-[#9CA3AF]">Never</span>;
-
-  const diffMs  = Date.now() - new Date(lastSeenAt).getTime();
-  const diffMin = diffMs / 60000;
-
-  if (diffMin < 5) {
+function OnlineBadge({ isOnline, lastSeenAt }: { isOnline?: boolean; lastSeenAt?: string }) {
+  if (isOnline) {
     return (
       <span className="flex items-center gap-1.5 text-[12px] font-medium text-[#0D7A5F]">
         <span className="w-2 h-2 rounded-full bg-[#0D7A5F] inline-block" />
@@ -26,10 +21,16 @@ function OnlineBadge({ lastSeenAt }: { lastSeenAt?: string }) {
       </span>
     );
   }
+
+  if (!lastSeenAt) return <span className="text-[12px] text-[#9CA3AF]">Never</span>;
+
+  const diffMs = Date.now() - new Date(lastSeenAt).getTime();
+  const diffMin = diffMs / 60000;
+
   if (diffMin < 60) {
     return (
-      <span className="flex items-center gap-1.5 text-[12px] text-amber-600">
-        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+      <span className="flex items-center gap-1.5 text-[12px] text-[#9CA3AF]">
+        <span className="w-2 h-2 rounded-full bg-[#D3D1C7] inline-block" />
         {Math.round(diffMin)}m ago
       </span>
     );
@@ -225,7 +226,7 @@ export default function AdminUsersPage() {
                   </span>
                 </Td>
                 <Td>
-                  <OnlineBadge lastSeenAt={u.last_seen_at} />
+                  <OnlineBadge isOnline={u.is_online} lastSeenAt={u.last_seen_at} />
                 </Td>
                 <Td className="text-[#5F5E5A]">
                   {u.shop_count > 0 ? (
