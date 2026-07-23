@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { JwtPayload } from "./auth.types.js";
 import { UserRepository } from "../user/user.repository.js";
+import { pool } from "../../db/pool.js";
 
 /* ============================
     AUTH MIDDLEWARE
@@ -67,6 +68,10 @@ export async function requireAuth(
       id: user.id,
       role: user.role,
     };
+
+    // Fire-and-forget — don't block the request
+    pool.query("UPDATE users SET last_seen_at = now() WHERE id = $1", [user.id])
+      .catch(() => {});
 
     next();
   } catch {
