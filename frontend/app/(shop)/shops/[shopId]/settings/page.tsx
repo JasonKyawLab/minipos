@@ -31,25 +31,27 @@ function NetworkTab() {
     const signal = abortRef.current.signal;
 
     try {
-      // 1. Latency — ping /api/health or a lightweight endpoint
-      const t0 = performance.now();
-      await fetch("/api/health", { signal, cache: "no-store" });
-      const latency = Math.round(performance.now() - t0);
+      // 1. Latency — average of 3 pings to /api/health
+      const pings: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        const t0 = performance.now();
+        await fetch("/api/health", { signal, cache: "no-store" });
+        pings.push(performance.now() - t0);
+      }
+      const latency = Math.round(pings.reduce((a, b) => a + b, 0) / pings.length);
 
-      // 2. Download speed — fetch a small payload and measure throughput
-      const dlStart = performance.now();
-      const dlRes = await fetch("/api/health", { signal, cache: "no-store" });
-      const blob = await dlRes.blob();
-      const dlMs = performance.now() - dlStart;
-      const downloadKbps = Math.round((blob.size / 1024) / (dlMs / 1000));
+      // 2. Download speed — not meaningful with a tiny health payload;
+      // derive a rough estimate from average ping instead
+      // (round-trip latency is a good proxy for connection quality)
+      const downloadKbps = latency < 100 ? 800 : latency < 300 ? 300 : latency < 600 ? 80 : 15;
 
-      // 3. WebSocket reachability — try connecting to the socket path
+      // 3. WebSocket reachability — connect via Socket.IO polling endpoint
       const wsProto = location.protocol === "https:" ? "wss" : "ws";
-      const wsUrl   = `${wsProto}://${location.host}`;
+      const wsUrl   = `${wsProto}://${location.host}/socket.io/?EIO=4&transport=websocket`;
       const websocket = await new Promise<boolean>((resolve) => {
         try {
           const ws = new WebSocket(wsUrl);
-          const timer = setTimeout(() => { ws.close(); resolve(false); }, 4000);
+          const timer = setTimeout(() => { ws.close(); resolve(false); }, 5000);
           ws.onopen  = () => { clearTimeout(timer); ws.close(); resolve(true); };
           ws.onerror = () => { clearTimeout(timer); resolve(false); };
         } catch { resolve(false); }
@@ -108,10 +110,11 @@ function NetworkTab() {
             badge={result.latency !== null ? getLatencyLabel(result.latency) : null}
           />
           <CheckRow
-            label="Download speed"
+            label="Connection quality"
             status={status}
-            value={result.downloadKbps !== null ? `${result.downloadKbps} KB/s` : null}
+            value={result.downloadKbps !== null ? getSpeedLabel(result.downloadKbps).label : null}
             badge={result.downloadKbps !== null ? getSpeedLabel(result.downloadKbps) : null}
+            hideValue
           />
           <CheckRow
             label="WebSocket connection"
@@ -149,12 +152,13 @@ function NetworkTab() {
 }
 
 function CheckRow({
-  label, status, value, badge,
+  label, status, value, badge, hideValue,
 }: {
   label: string;
   status: CheckStatus;
   value: string | null;
   badge: { label: string; color: string } | null;
+  hideValue?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between py-2.5 border-b border-[#F1EFE8] last:border-0">
@@ -164,8 +168,8 @@ function CheckRow({
           <span className="text-[12px] text-[#9CA3AF]">Checking…</span>
         ) : value !== null ? (
           <>
-            <span className="text-[13px] font-medium text-[#0F2B4C]">{value}</span>
-            {badge && <span className={`text-[11px] font-semibold ${badge.color}`}>{badge.label}</span>}
+            {!hideValue && <span className="text-[13px] font-medium text-[#0F2B4C]">{value}</span>}
+            {badge && <span className={`text-[13px] font-semibold ${badge.color}`}>{badge.label}</span>}
           </>
         ) : (
           <span className="text-[12px] text-[#9CA3AF]">—</span>
