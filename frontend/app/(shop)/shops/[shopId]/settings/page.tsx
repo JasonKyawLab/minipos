@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useShop } from "@/context/ShopContext";
 import api from "@/lib/api";
@@ -8,6 +8,174 @@ import { getErrorMessage } from "@/utils/errorMessages";
 import toast from "react-hot-toast";
 import type { ShopType, Currency } from "@/types";
 import { Spinner } from "@/components/states";
+
+// ── Network Tab ───────────────────────────────────────────────────────────────
+
+type CheckStatus = "idle" | "running" | "done" | "error";
+
+interface CheckResult {
+  latency: number | null;
+  downloadKbps: number | null;
+  websocket: boolean | null;
+}
+
+function NetworkTab() {
+  const [status,  setStatus]  = useState<CheckStatus>("idle");
+  const [result,  setResult]  = useState<CheckResult>({ latency: null, downloadKbps: null, websocket: null });
+  const abortRef = useRef<AbortController | null>(null);
+
+  async function runChecks() {
+    setStatus("running");
+    setResult({ latency: null, downloadKbps: null, websocket: null });
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+
+    try {
+      // 1. Latency — ping /api/health or a lightweight endpoint
+      const t0 = performance.now();
+      await fetch("/api/health", { signal, cache: "no-store" });
+      const latency = Math.round(performance.now() - t0);
+
+      // 2. Download speed — fetch a small payload and measure throughput
+      const dlStart = performance.now();
+      const dlRes = await fetch("/api/health", { signal, cache: "no-store" });
+      const blob = await dlRes.blob();
+      const dlMs = performance.now() - dlStart;
+      const downloadKbps = Math.round((blob.size / 1024) / (dlMs / 1000));
+
+      // 3. WebSocket reachability — try connecting to the socket path
+      const wsProto = location.protocol === "https:" ? "wss" : "ws";
+      const wsUrl   = `${wsProto}://${location.host}`;
+      const websocket = await new Promise<boolean>((resolve) => {
+        try {
+          const ws = new WebSocket(wsUrl);
+          const timer = setTimeout(() => { ws.close(); resolve(false); }, 4000);
+          ws.onopen  = () => { clearTimeout(timer); ws.close(); resolve(true); };
+          ws.onerror = () => { clearTimeout(timer); resolve(false); };
+        } catch { resolve(false); }
+      });
+
+      setResult({ latency, downloadKbps, websocket });
+      setStatus("done");
+    } catch {
+      if (!signal.aborted) setStatus("error");
+    }
+  }
+
+  function getLatencyLabel(ms: number) {
+    if (ms < 100) return { label: "Excellent", color: "text-[#0D7A5F]" };
+    if (ms < 300) return { label: "Good",      color: "text-[#0D7A5F]" };
+    if (ms < 600) return { label: "Moderate",  color: "text-amber-600" };
+    return { label: "Slow", color: "text-red-600" };
+  }
+
+  function getSpeedLabel(kbps: number) {
+    if (kbps > 500)  return { label: "Fast",     color: "text-[#0D7A5F]" };
+    if (kbps > 100)  return { label: "Normal",   color: "text-[#0D7A5F]" };
+    if (kbps > 20)   return { label: "Slow",     color: "text-amber-600" };
+    return { label: "Very slow", color: "text-red-600" };
+  }
+
+  const overallOk =
+    result.latency !== null &&
+    result.latency < 600 &&
+    result.websocket === true;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-[#D3D1C7] rounded-lg p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-[15px] font-medium text-[#0F2B4C]">Network Diagnostics</h2>
+            <p className="text-[12px] text-[#5F5E5A] mt-0.5">Tests your device's connection to the MiniPOS server.</p>
+          </div>
+          <button
+            onClick={runChecks}
+            disabled={status === "running"}
+            className="px-4 h-9 text-[13px] font-medium text-white bg-[#0D7A5F] rounded-lg disabled:opacity-50 hover:bg-opacity-90 transition flex items-center gap-2"
+          >
+            {status === "running" && <Spinner size={13} />}
+            {status === "running" ? "Running…" : status === "done" ? "Run again" : "Run check"}
+          </button>
+        </div>
+
+        {/* Results */}
+        <div className="space-y-3">
+          <CheckRow
+            label="Server latency (ping)"
+            status={status}
+            value={result.latency !== null ? `${result.latency} ms` : null}
+            badge={result.latency !== null ? getLatencyLabel(result.latency) : null}
+          />
+          <CheckRow
+            label="Download speed"
+            status={status}
+            value={result.downloadKbps !== null ? `${result.downloadKbps} KB/s` : null}
+            badge={result.downloadKbps !== null ? getSpeedLabel(result.downloadKbps) : null}
+          />
+          <CheckRow
+            label="WebSocket connection"
+            status={status}
+            value={result.websocket !== null ? (result.websocket ? "Connected" : "Failed") : null}
+            badge={result.websocket !== null
+              ? (result.websocket
+                  ? { label: "OK",     color: "text-[#0D7A5F]" }
+                  : { label: "Failed", color: "text-red-600" })
+              : null}
+          />
+        </div>
+
+        {/* Summary */}
+        {status === "done" && (
+          <div className={`mt-4 px-4 py-3 rounded-lg text-[13px] font-medium ${
+            overallOk
+              ? "bg-[#E1F5EE] text-[#0D7A5F]"
+              : "bg-amber-50 text-amber-800 border border-amber-200"
+          }`}>
+            {overallOk
+              ? "✓ Connection looks good. POS and kitchen display should work normally."
+              : "⚠ Connection issues detected. Real-time features like kitchen display may be affected."}
+          </div>
+        )}
+
+        {status === "error" && (
+          <div className="mt-4 px-4 py-3 rounded-lg text-[13px] bg-red-50 border border-red-200 text-red-700">
+            Could not reach the server. Check your internet connection and try again.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CheckRow({
+  label, status, value, badge,
+}: {
+  label: string;
+  status: CheckStatus;
+  value: string | null;
+  badge: { label: string; color: string } | null;
+}) {
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-[#F1EFE8] last:border-0">
+      <span className="text-[13px] text-[#5F5E5A]">{label}</span>
+      <div className="flex items-center gap-2">
+        {status === "running" && value === null ? (
+          <span className="text-[12px] text-[#9CA3AF]">Checking…</span>
+        ) : value !== null ? (
+          <>
+            <span className="text-[13px] font-medium text-[#0F2B4C]">{value}</span>
+            {badge && <span className={`text-[11px] font-semibold ${badge.color}`}>{badge.label}</span>}
+          </>
+        ) : (
+          <span className="text-[12px] text-[#9CA3AF]">—</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -163,18 +331,38 @@ export default function SettingsPage() {
   }
 
   const confirmationMatches = deleteConfirm === shopName;
+  const [activeTab, setActiveTab] = useState<"general" | "network">("general");
 
   const inputCls = "w-full h-9 px-3 text-[13px] border border-[#D3D1C7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] bg-white disabled:opacity-50 disabled:cursor-not-allowed";
 
   return (
     <div className="max-w-xl animate-fade-in">
-      <h1 className="text-[22px] font-medium text-[#0F2B4C] mb-5">Shop Settings</h1>
+      <h1 className="text-[22px] font-medium text-[#0F2B4C] mb-4">Shop Settings</h1>
 
-      {loading ? (
+      {/* Tab switcher */}
+      <div className="flex gap-1 mb-5 border-b border-[#D3D1C7]">
+        {(["general", "network"] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 text-[13px] font-medium capitalize border-b-2 transition-colors -mb-px ${
+              activeTab === tab
+                ? "border-[#0D7A5F] text-[#0D7A5F]"
+                : "border-transparent text-[#5F5E5A] hover:text-[#0F2B4C]"
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "network" && <NetworkTab />}
+
+      {activeTab === "general" && loading ? (
         <div className="bg-white border border-[#D3D1C7] rounded-lg p-5">
           <SkeletonText lines={6} />
         </div>
-      ) : (
+      ) : activeTab === "general" && (
         <form onSubmit={handleSave} className="space-y-4">
 
           <div className="bg-white border border-[#D3D1C7] rounded-lg p-5 space-y-4">
@@ -276,7 +464,7 @@ export default function SettingsPage() {
         </form>
       )}
 
-      {isOwner && !loading && (
+      {activeTab === "general" && isOwner && !loading && (
         <div className="mt-6 bg-[#FCEBEB] border border-[#A32D2D] rounded-lg p-5">
           <h2 className="text-[15px] font-medium text-[#A32D2D] mb-1">Danger Zone</h2>
           <p className="text-[13px] text-[#A32D2D] mb-3">

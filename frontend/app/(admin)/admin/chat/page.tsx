@@ -125,7 +125,11 @@ export default function AdminChatPage() {
                       <p className="text-[12px] text-[#5F5E5A]">From: {item.customer}</p>
                     )}
                     {item.channel && (
-                      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-[#F1EFE8] text-[#5F5E5A] capitalize">
+                      <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded capitalize text-white ${
+                        item.channel.toLowerCase() === "messenger" ? "bg-[#0084FF]" :
+                        item.channel.toLowerCase() === "telegram"  ? "bg-[#229ED9]" :
+                        "bg-[#9CA3AF]"
+                      }`}>
                         {item.channel}
                       </span>
                     )}

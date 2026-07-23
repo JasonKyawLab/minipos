@@ -12,6 +12,45 @@ import { PaginationMeta } from "@/components/ui/Pagination";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 
+function OnlineBadge({ lastSeenAt }: { lastSeenAt?: string }) {
+  if (!lastSeenAt) return <span className="text-[12px] text-[#9CA3AF]">Never</span>;
+
+  const diffMs  = Date.now() - new Date(lastSeenAt).getTime();
+  const diffMin = diffMs / 60000;
+
+  if (diffMin < 5) {
+    return (
+      <span className="flex items-center gap-1.5 text-[12px] font-medium text-[#0D7A5F]">
+        <span className="w-2 h-2 rounded-full bg-[#0D7A5F] inline-block" />
+        Online
+      </span>
+    );
+  }
+  if (diffMin < 60) {
+    return (
+      <span className="flex items-center gap-1.5 text-[12px] text-amber-600">
+        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+        {Math.round(diffMin)}m ago
+      </span>
+    );
+  }
+  const diffHr = diffMs / 3600000;
+  if (diffHr < 24) {
+    return (
+      <span className="flex items-center gap-1.5 text-[12px] text-[#9CA3AF]">
+        <span className="w-2 h-2 rounded-full bg-[#D3D1C7] inline-block" />
+        {Math.round(diffHr)}h ago
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-[12px] text-[#9CA3AF]">
+      <span className="w-2 h-2 rounded-full bg-[#D3D1C7] inline-block" />
+      {new Date(lastSeenAt).toLocaleDateString()}
+    </span>
+  );
+}
+
 const STATUS_STYLES: Record<UserStatus, string> = {
   ACTIVE:    "bg-[#E1F5EE] text-[#0D7A5F]",
   SUSPENDED: "bg-[#FCEBEB] text-[#A32D2D]",
@@ -150,6 +189,7 @@ export default function AdminUsersPage() {
             <Th>Role</Th>
             <Th>Plan</Th>
             <Th>Status</Th>
+            <Th>Online</Th>
             <Th>Shops</Th>
             <Th align="right">Actions</Th>
           </TableHead>
@@ -183,6 +223,9 @@ export default function AdminUsersPage() {
                   <span className={`text-[12px] font-medium px-2 py-0.5 rounded ${STATUS_STYLES[u.status]}`}>
                     {u.status}
                   </span>
+                </Td>
+                <Td>
+                  <OnlineBadge lastSeenAt={u.last_seen_at} />
                 </Td>
                 <Td className="text-[#5F5E5A]">
                   {u.shop_count > 0 ? (

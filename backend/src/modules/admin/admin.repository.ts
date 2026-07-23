@@ -9,7 +9,7 @@ export class AdminRepository {
 static async findAllUsers() {
     const { rows } = await db.query(`
      SELECT
-       u.id, u.name, u.email, u.role, u.status, u.plan, u.is_deleted, u.created_at,
+       u.id, u.name, u.email, u.role, u.status, u.plan, u.is_deleted, u.created_at, u.last_seen_at,
        COUNT(su.shop_id) FILTER (WHERE su.role = 'OWNER' AND s.is_deleted = false) AS shop_count
      FROM users u
      LEFT JOIN shop_users su ON su.user_id = u.id
